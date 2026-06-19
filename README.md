@@ -249,7 +249,7 @@ src/
 └── ui/
     ├── auth/ · staff/ · admin/ · customer/
     └── common/            # QrDisplay, QrScanner, Layout, contexts, guards
-tests/                     # Vitest: domain + service unit tests
+tests/                     # Vitest: domain, service, adapter, qr, wallet, config
 .github/workflows/deploy.yml   # build + test + deploy to GitHub Pages
 ```
 
@@ -276,7 +276,7 @@ it). The default is the in-browser `LocalBridgeTransport`.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 55 unit tests (Vitest)
+npm test           # 139 unit tests (Vitest)
 npm run build      # static output in dist/
 npm run typecheck  # strict TS, no emit
 ```
