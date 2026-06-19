@@ -2,6 +2,11 @@
 
 Operating rules for agents working in this repo. Keep this in context; keep it short. Full detail lives in `docs/SPEC.md` — read it before implementing.
 
+**Orientation for a new agent:** read `docs/STATUS.md` first for the *current
+state* of the implementation (what exists, where, what's stubbed), `README.md`
+for architecture + diagrams, then `docs/SPEC.md` for the authoritative spec. The
+concrete subagent definitions live in `.claude/agents/`.
+
 ---
 
 ## What this is
@@ -56,13 +61,14 @@ A single-café digital loyalty system. Staff scan a customer's QR and commit loy
 
 ## Subagent workflow (keep context clean and minimal)
 
-Four roles. The point is that each agent holds only what it needs; deep work is delegated so no single context bloats.
+Five roles. The point is that each agent holds only what it needs; deep work is delegated so no single context bloats. Concrete, runnable definitions live in `.claude/agents/` — keep them and this summary in sync.
 
 ### Orchestrator
 - Owns the plan. Reads `SPEC.md`, decomposes work into small, well-scoped tasks, and sequences them (ports → domain → adapters → services → ui → CI).
 - Delegates each task; holds only **summaries** of results, not full transcripts.
 - Integrates outputs, keeps the plan/checklist current, decides what's next.
 - Does not write feature code directly — it coordinates.
+- **Closes the loop on docs:** after integrating a change that affects features, architecture, status, or conventions, hands a one-paragraph change summary to the **Scribe**.
 
 ### Explorer (read-only recon)
 - Answers "where is X / how does Y work / what's the current state / does this already exist."
@@ -72,13 +78,24 @@ Four roles. The point is that each agent holds only what it needs; deep work is 
 ### Implementer
 - Takes one well-scoped task + the explorer's context and writes the code.
 - Stays within the task boundary; follows the architecture rules above; writes tests for domain/service work.
-- Returns a concise summary of what changed and why.
+- Returns a concise summary of what changed and why — phrased so it can be handed straight to the Scribe (what changed, where, user-visible or architectural impact).
 
 ### Reviewer
 - Checks implementer output against `SPEC.md` and these rules **before** integration.
 - Verifies: ports respected (no UI→adapter calls), `DataStore` stays async, ledger append-only, no PII in QR/logs, dev-transport properly flagged, tests present and passing, file tree honored.
+- Also checks that **docs were updated** when the change warranted it (README/STATUS/CLAUDE).
 - Returns issues to fix or an approval.
 
+### Scribe (documentation)
+- Keeps `README.md`, `docs/STATUS.md`, `CLAUDE.md`, and the `.claude/agents/` definitions accurate as the code changes.
+- **Receives a summary of what changed** and figures out *where* and *what* to update — the requester does not need to know the docs layout.
+- Updates the SPEC §15 status table, feature list, diagrams, and "what's stubbed" notes; refreshes the `Last updated` line in `STATUS.md`.
+- Does not change `docs/SPEC.md` (the authoritative spec); if reality diverges from the spec, it records the divergence in `STATUS.md` and flags it.
+- Touches docs only — no feature code.
+
+### Documentation rule (applies to every task)
+A change isn't done until the docs reflect it. Any task that adds/removes a feature, alters architecture or a seam, changes conventions, or shifts acceptance-criteria status **must** end with a Scribe pass (or an equivalent doc update). Pure internal refactors with no external effect are exempt.
+
 ### Loop
-`Orchestrator plans → Explorer gathers context → Implementer builds → Reviewer checks → Orchestrator integrates → next task.`
-Keep handoffs as small artifacts (task brief, findings, diff summary, review notes), not raw history.
+`Orchestrator plans → Explorer gathers context → Implementer builds → Reviewer checks → Scribe updates docs → Orchestrator integrates → next task.`
+Keep handoffs as small artifacts (task brief, findings, diff summary, review notes, doc-change summary), not raw history.
