@@ -93,4 +93,44 @@ describe('recovery, reissue and deletion', () => {
     expect(after?.displayName).toBeUndefined();
     expect(after?.email).toBeUndefined();
   });
+
+  it('reissues keeping the same token when rotation is declined', async () => {
+    const shell = await customers.issueCard(STAFF);
+    const reissued = await customers.reissue(STAFF, shell.id, false);
+    expect(reissued.token).toBe(shell.token);
+  });
+
+  it('throws when reissuing a customer that does not exist', async () => {
+    await expect(customers.reissue(STAFF, 'nope')).rejects.toThrow();
+  });
+});
+
+describe('correction', () => {
+  it('updates fields, trims blanks to undefined, and is resolvable by token', async () => {
+    const shell = await customers.issueCard(STAFF);
+    const corrected = await customers.correct(STAFF, shell.id, {
+      displayName: '  Maria  ',
+      email: '   ',
+    });
+    expect(corrected.displayName).toBe('Maria');
+    expect(corrected.email).toBeUndefined();
+    expect(await customers.getByToken(shell.token)).toMatchObject({ id: shell.id });
+  });
+});
+
+describe('duplicate detection across fields', () => {
+  it('dedupes a customer matched by both name and email into a single warning', async () => {
+    const shell = await customers.issueCard(STAFF);
+    await customers.finalizeRegistration(STAFF, shell.id, {
+      displayName: 'Maria',
+      email: 'maria@cafe.test',
+      consent: true,
+    });
+    const dups = await customers.checkDuplicates({
+      displayName: 'Maria',
+      email: 'maria@cafe.test',
+      consent: true,
+    });
+    expect(dups).toHaveLength(1);
+  });
 });

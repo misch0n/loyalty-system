@@ -15,7 +15,7 @@ SPEC §15.
 - React + TypeScript + Vite SPA, IndexedDB storage, deployed to GitHub Pages.
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
-- **55 unit tests** passing (`npm test`); strict typecheck + production build green.
+- **139 unit tests** passing (`npm test`); strict typecheck + production build green.
 - CI: `.github/workflows/deploy.yml` tests → builds → deploys on push to `main`.
 
 ## Acceptance criteria (SPEC §15)
@@ -35,6 +35,7 @@ SPEC §15.
 | Storage entirely behind `DataStore`; swap = no UI/service change | ✅ | `ports/DataStore.ts`, `ApiStore.ts` |
 | `PeerTransport` clearly dev-only, excluded from prod build | ✅ (verified: 0 refs in bundle) | `adapters/transport/dev/PeerTransport.ts`, `config/env.ts` |
 | Domain unit-tested; file tree matches SPEC §12 | ✅ | `tests/`, layout matches |
+| Adapters/transports/services unit-tested (regression cover) | ✅ | `tests/adapters/*`, `tests/services/*`, `tests/qr/*` |
 
 ## What is real vs. stubbed (prototype intentionally)
 
@@ -47,6 +48,24 @@ SPEC §15.
 - **Notifications** (threshold-crossed wallet push / email) are referenced in the
   flow but not sent — they require the backend.
 - **Storage** is IndexedDB in the browser — demo only, not secure storage.
+
+## Test coverage
+
+`npm test` runs **139 Vitest unit tests** covering every non-UI module:
+
+- **domain/** — `loyalty`, `tokens`, `validation` (pure logic).
+- **services/** — `Customer`, `Loyalty`, `Staff`, `Config`, `Audit`, plus the
+  `Services` composition-root wiring.
+- **adapters/** — `IndexedDbStore` (seed idempotency, lookups, atomic redeem,
+  export/import round-trip, error paths), `ApiStore` (every method rejects as a
+  stub), `LocalBridgeTransport`, and the dev-only `PeerTransport` (peerjs mocked).
+- **qr/** (`encode`, `scan` with html5-qrcode mocked), **wallet/** (`passStub`),
+  **config/** (`env` flag mapping, incl. peer-never-in-prod).
+
+The **React `ui/` components are intentionally not unit-tested**: the SPEC's
+testing bar is the pure domain + core service logic, and adding a component test
+framework would mean new dependencies (CLAUDE.md: don't add deps the spec didn't
+call for). UI is verified manually against the acceptance criteria.
 
 ## Conventions worth knowing before editing
 
