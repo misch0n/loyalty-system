@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Café Loyalty</title>
+    <!--
+      SPA fallback for GitHub Pages.
+      The app uses HashRouter, so client routes live after the '#' and never hit
+      the server as separate paths. This page only triggers for genuinely unknown
+      URLs under the project site; it bounces back to the app entry point.
+    -->
+    <script>
+      (function () {
+        var seg = location.pathname.split('/').filter(Boolean);
+        var base = seg.length ? '/' + seg[0] + '/' : '/';
+        location.replace(base);
+      })();
+    </script>
+  </head>
+  <body>
+    <p>Redirecting to <a href="/">Café Loyalty</a>…</p>
+  </body>
+</html>

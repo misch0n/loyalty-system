@@ -1,0 +1,79 @@
+/**
+ * IndexedDB schema definition + default seed values.
+ *
+ * Kept separate from the adapter so the store shape is easy to review and the
+ * seed data (default config + mock staff accounts) is in one obvious place.
+ */
+
+import type { DBSchema } from 'idb';
+import type {
+  AuditLogEntry,
+  Customer,
+  LoyaltyTransaction,
+  ProgramConfig,
+  StaffAccount,
+} from '../../domain/models';
+
+export const DB_NAME = 'cafe-loyalty';
+export const DB_VERSION = 1;
+
+export const CONFIG_KEY = 'singleton';
+
+export interface LoyaltyDB extends DBSchema {
+  config: {
+    key: string;
+    value: ProgramConfig & { id: string };
+  };
+  staff: {
+    key: string;
+    value: StaffAccount;
+    indexes: { byUsername: string };
+  };
+  customers: {
+    key: string;
+    value: Customer;
+    indexes: { byToken: string; byStatus: string };
+  };
+  transactions: {
+    key: string;
+    value: LoyaltyTransaction;
+    indexes: { byCustomer: string };
+  };
+  audit: {
+    key: string;
+    value: AuditLogEntry;
+    indexes: { byTimestamp: string; byAction: string };
+  };
+}
+
+export const DEFAULT_CONFIG: ProgramConfig = {
+  pointsPerReward: 9,
+  rewardDescription: 'Free regular coffee',
+  pointsPerPurchase: 1,
+  maxPointsPerTransaction: 3,
+  cardInactivityDays: 0,
+};
+
+/**
+ * Mock staff for the prototype. Passwords are plain strings ONLY because auth
+ * is mocked here — production hashes them server-side. This is demo seed data,
+ * never real credentials.
+ */
+export const SEED_STAFF: StaffAccount[] = [
+  {
+    id: 'seed-admin',
+    username: 'admin',
+    passwordHash: 'admin',
+    role: 'admin',
+    active: true,
+    createdAt: '2024-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'seed-staff',
+    username: 'staff',
+    passwordHash: 'staff',
+    role: 'staff',
+    active: true,
+    createdAt: '2024-01-01T00:00:00.000Z',
+  },
+];
