@@ -5,7 +5,7 @@
 > [`SPEC.md`](SPEC.md); working rules in [`../CLAUDE.md`](../CLAUDE.md).
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 
-**Last updated:** 2026-06-22 (prototype tools menu, login-based roles, pair without login) · **Phase:** v1 prototype — feature-complete against
+**Last updated:** 2026-06-22 (prototype tools menu, login-based roles, pair without login, direct-join landing) · **Phase:** v1 prototype — feature-complete against
 SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 
 ---
@@ -39,7 +39,7 @@ SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 | Correction/reversal, logged | ✅ | `LoyaltyService.reverse` |
 | Deletion/opt-out (staff-confirmed), clears PII | ✅ | `ui/customer/DeleteData.tsx`, `IndexedDbStore.softDeleteCustomer` |
 | Admin: staff CRUD, config, stats, audit viewer | ✅ | `ui/admin/*` |
-| Staff/admin session never auto-displays customer card (base-URL routing) | ✅ | `ui/customer/CustomerHome.tsx` |
+| Staff/admin session never auto-displays customer card (base-URL routing) | ✅ | `ui/customer/CustomerHome.tsx` — unrecognized device lands directly on `SelfRegister`; recovery is a small link at the end of that form |
 | Add-to-wallet stubbed but visible; Apple = static stub, Google = REST stub | ✅ | `wallet/passStub.ts` |
 | Storage behind `DataStore`; Transport behind `Transport`; Email behind `Mailer`; Identity behind `IdentityStore` — swap = no UI/service change | ✅ | `ports/`, `adapters/`, `services/Services.ts` |
 | Two-device demo over PeerJS + TURN (real cross-device, not simulated) | ✅ impl; cellular verification = manual live-demo step | `adapters/transport/PeerTransport.ts`, `config/env.ts` |
