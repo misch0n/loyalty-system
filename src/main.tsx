@@ -27,11 +27,11 @@ function Root() {
   return (
     <ServicesProvider value={services}>
       <SessionProvider>
-        <PairingProvider>
-          <HashRouter>
+        <HashRouter>
+          <PairingProvider>
             <App />
-          </HashRouter>
-        </PairingProvider>
+          </PairingProvider>
+        </HashRouter>
       </SessionProvider>
     </ServicesProvider>
   );

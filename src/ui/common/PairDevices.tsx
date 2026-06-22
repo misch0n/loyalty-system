@@ -1,19 +1,15 @@
 /**
- * PairDevices — the prototype pairing screen (the server stand-in).
+ * PairDevices (/pair) — the "scan a till to join" screen.
  *
- * The device that INITIATES pairing becomes the till (host): it shows a pairing
- * QR for the other device to scan. The scanning device joins as the customer.
- * No login is needed to pair — login later decides which screens a device sees.
- * Once paired, each device is sent to its area (till → staff, customer → home),
- * and the paired host's store transparently serves the customer device.
+ * This device pairs as a CUSTOMER by scanning a till's pairing QR (the till shows
+ * its QR from the prototype menu). A scanned URL carrying `?host=` auto-joins. On
+ * success the provider routes to the customer home. Prototype-only.
  */
 
-import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { usePairing } from './PairingContext';
-import { QrDisplay } from './QrDisplay';
 import { QrScanner } from './QrScanner';
-import { appUrl } from '../../config/links';
 import { turnConfigured } from '../../config/env';
 
 /** Accept either a bare peer id or a full pairing URL carrying `?host=`. */
@@ -23,32 +19,18 @@ function hostIdFrom(text: string): string {
 }
 
 export function PairDevices() {
-  const { status, role, peerId, error, startHosting, joinAs, unpair } = usePairing();
-  const navigate = useNavigate();
+  const { joined, connecting, error, joinAs } = usePairing();
   const [params] = useSearchParams();
   const hostParam = params.get('host');
-  // Scanned a code (host param) → join; otherwise this device initiates as the till.
-  const [mode, setMode] = useState<'host' | 'join'>(hostParam ? 'join' : 'host');
   const started = useRef(false);
 
-  // Auto-start the right side exactly once.
+  // A scanned URL (native camera) carries the host id → auto-join once.
   useEffect(() => {
-    if (started.current || status !== 'idle') return;
-    if (mode === 'join' && hostParam) {
+    if (hostParam && !started.current) {
       started.current = true;
-      void joinAs(hostParam);
-    } else if (mode === 'host') {
-      started.current = true;
-      void startHosting();
+      void joinAs(hostIdFrom(hostParam));
     }
-  }, [mode, hostParam, status, joinAs, startHosting]);
-
-  // Paired: send each device to its area — till → staff, customer → home.
-  useEffect(() => {
-    if (status === 'paired') {
-      navigate(role === 'host' ? '/staff' : '/', { replace: true });
-    }
-  }, [status, role, navigate]);
+  }, [hostParam, joinAs]);
 
   const turnWarning = !turnConfigured ? (
     <p className="warn">
@@ -58,60 +40,20 @@ export function PairDevices() {
     </p>
   ) : null;
 
-  // ── Joining view (this device scans the till's code) ─────────────────────────
-  if (mode === 'join') {
-    return (
-      <div className="card">
-        <h1>Join the till</h1>
-        <p className="muted">Point your camera at the pairing code on the till’s screen.</p>
-        {turnWarning}
-        {error && <p className="error">{error}</p>}
-        {status === 'connecting' ? (
-          <p className="status waiting">Connecting to the till…</p>
-        ) : (
-          <QrScanner onResult={(text) => joinAs(hostIdFrom(text))} allowManual={false} />
-        )}
-      </div>
-    );
-  }
-
-  // ── Host view (this device initiated — it's the till) ────────────────────────
   return (
     <div className="card">
-      <h1>Pair a device</h1>
+      <h1>Scan the till</h1>
       <p className="muted">
-        This device is the till. Have the other device scan this code to pair — it stands in for the
-        server, so changes sync across both.
+        Point your camera at the till’s pairing code to pair as a customer. While paired, your
+        points update the moment staff add them.
       </p>
       {turnWarning}
       {error && <p className="error">{error}</p>}
-      {peerId ? (
-        <>
-          <QrDisplay
-            payload={appUrl(`/pair?host=${encodeURIComponent(peerId)}`)}
-            label="Pairing QR"
-            caption="Scan this on the other device"
-          />
-          <p className="status waiting">Waiting for the other device to connect…</p>
-        </>
+      {connecting || joined ? (
+        <p className="status waiting">Connecting to the till…</p>
       ) : (
-        <p>Starting a pairing session…</p>
+        <QrScanner onResult={(text) => joinAs(hostIdFrom(text))} allowManual={false} />
       )}
-      <p className="muted small">
-        Joining another device instead?{' '}
-        <button
-          type="button"
-          className="link"
-          onClick={() => {
-            unpair();
-            started.current = false;
-            setMode('join');
-          }}
-        >
-          Scan its code
-        </button>
-        .
-      </p>
     </div>
   );
 }

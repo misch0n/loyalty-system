@@ -36,4 +36,5 @@ export type SyncMessage =
   | { t: 'rpc-req'; id: string; method: string; args: unknown[] }
   | { t: 'rpc-res'; id: string; ok: true; result: unknown }
   | { t: 'rpc-res'; id: string; ok: false; error: string }
-  | { t: 'changed' };
+  | { t: 'changed' }
+  | { t: 'unpair' };

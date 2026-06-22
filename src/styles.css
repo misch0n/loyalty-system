@@ -175,6 +175,14 @@ label.checkbox input { width: auto; margin-top: 0.2rem; }
 .proto-dropdown button:hover { background: #f1eae3; }
 .proto-dropdown button.danger { color: var(--danger, #b3261e); }
 
+/* Pairing QR shown inside the menu. */
+.proto-dropdown { min-width: 13.5rem; }
+.proto-pair { display: flex; flex-direction: column; gap: 0.35rem; }
+.proto-pair .qr { margin: 0 auto; text-align: center; }
+.proto-pair .qr img { width: 168px; height: 168px; }
+.proto-pair .qr figcaption { font-size: 0.7rem; opacity: 0.7; max-width: 11rem; margin: 0.2rem auto 0; }
+.proto-paired { margin: 0.3rem 0.55rem 0.4rem; }
+
 .device-switcher, .subnav { display: flex; gap: 0.25rem; flex-wrap: wrap; }
 .tab {
   color: inherit;

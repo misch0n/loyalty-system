@@ -1,11 +1,12 @@
 /**
  * PairingContext — prototype device pairing (the server stand-in).
  *
- * Pair two devices over PeerJS for the session: the staff device HOSTS (shows a
- * pairing QR) and the customer device JOINS by scanning it. While paired, the
- * joined device's store is re-pointed at the host's store over the link, so every
- * workflow reflects on both devices. `dataVersion` bumps whenever shared data
- * changes, so screens can refetch live. Prototype-only — production uses a server.
+ * Every device can HOST: it shows its own pairing QR and accepts MANY customer
+ * devices. Scanning another device's QR instead makes this device a CLIENT of
+ * that till (its store is re-pointed at the till's over PeerJS). A till keeps its
+ * QR up and reports how many devices are paired; a client shows a paired label.
+ * Unpairing signals every connected device. `dataVersion` bumps on shared-data
+ * changes so screens refetch live. Prototype-only — production uses a server.
  */
 
 import {
@@ -18,126 +19,206 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useServices } from './ServicesContext';
-import { PeerJsLink } from '../../adapters/sync/PeerJsLink';
+import { joinHost, PeerJsHost } from '../../adapters/sync/PeerJsLink';
 import { createStoreServer } from '../../adapters/sync/StoreServer';
 import { createPeerClientStore } from '../../adapters/sync/PeerClientStore';
 import type { PeerLink } from '../../adapters/sync/PeerLink';
 
-export type PairStatus = 'idle' | 'hosting' | 'connecting' | 'paired' | 'error';
-export type PairRole = 'host' | 'client';
-
 interface PairingValue {
-  status: PairStatus;
-  role: PairRole | null;
-  /** The host's peer id — encode this in the pairing QR while hosting. */
+  /** This device's host peer id — encode in the pairing QR while hosting. */
   peerId: string | null;
+  /** Our host peer is active (we can be scanned). */
+  hosting: boolean;
+  /** Customer devices currently paired to us (we're the till). */
+  clientCount: number;
+  /** We scanned a till and are its customer. */
+  joined: boolean;
+  /** A join is in progress. */
+  connecting: boolean;
   error: string | null;
   /** Bumps when shared data changes; add to effect deps to refetch live. */
   dataVersion: number;
-  startHosting: () => Promise<void>;
+  /** Start hosting if idle (so a QR is available). No-op if already hosting/joined. */
+  ensureHosting: () => void;
+  /** Scan a till's id to pair as its customer. */
   joinAs: (remoteId: string) => Promise<void>;
+  /** Host: drop all clients. Client: leave the till. Either way, signal the peers. */
   unpair: () => void;
 }
 
 const PairingContext = createContext<PairingValue | null>(null);
 
+function inStaffArea(): boolean {
+  const h = window.location.hash;
+  return h.startsWith('#/staff') || h.startsWith('#/admin');
+}
+
 export function PairingProvider({ children }: { children: ReactNode }) {
   const services = useServices();
-  const [status, setStatus] = useState<PairStatus>('idle');
-  const [role, setRole] = useState<PairRole | null>(null);
+  const navigate = useNavigate();
+
   const [peerId, setPeerId] = useState<string | null>(null);
+  const [hosting, setHosting] = useState(false);
+  const [clientCount, setClientCount] = useState(0);
+  const [joined, setJoined] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
 
   const bump = useCallback(() => setDataVersion((v) => v + 1), []);
-  const linkRef = useRef<PeerLink | null>(null);
-  const cleanupRef = useRef<(() => void) | null>(null);
 
-  // Any local mutation should refresh this device's own screens too.
+  const hostRef = useRef<PeerJsHost | null>(null);
+  const hostCleanupRef = useRef<(() => void) | null>(null);
+  const startingHostRef = useRef(false);
+  const prevCountRef = useRef(0);
+  const clientLinkRef = useRef<PeerLink | null>(null);
+  const clientCleanupRef = useRef<(() => void) | null>(null);
+  const joinedRef = useRef(false);
+
+  // Any local mutation refreshes this device's own screens too (host side).
   useEffect(() => services.sync.observable.onMutate(bump), [services, bump]);
 
-  const teardown = useCallback(() => {
-    cleanupRef.current?.();
-    cleanupRef.current = null;
-    linkRef.current?.close();
-    linkRef.current = null;
+  const stopHosting = useCallback(() => {
+    hostCleanupRef.current?.();
+    hostCleanupRef.current = null;
+    hostRef.current?.close();
+    hostRef.current = null;
+    prevCountRef.current = 0;
+    setHosting(false);
+    setPeerId(null);
+    setClientCount(0);
   }, []);
 
-  const unpair = useCallback(() => {
-    // Revert the live store to local (a no-op on the host, which never switched).
-    services.sync.switchable.setTarget(services.sync.observable.store);
-    teardown();
-    setStatus('idle');
-    setRole(null);
-    setPeerId(null);
-    setError(null);
-    bump();
-  }, [services, teardown, bump]);
+  const ensureHosting = useCallback(() => {
+    if (joinedRef.current || hostRef.current || startingHostRef.current) return;
+    startingHostRef.current = true;
+    void (async () => {
+      try {
+        const { host, peerId: id } = await PeerJsHost.create();
+        if (joinedRef.current) {
+          host.close(); // became a client while we were starting up
+          return;
+        }
+        hostRef.current = host;
+        setPeerId(id);
+        setHosting(true);
+        // One StoreServer per connected client → change notifications fan out to all.
+        const offClient = host.onClient((link) => {
+          const server = createStoreServer(services.sync.observable, link);
+          link.onState((s) => {
+            if (s === 'closed') server.dispose();
+          });
+        });
+        const offCount = host.onCountChange((n) => {
+          setClientCount(n);
+          // First customer paired → this device is the till; send it to staff.
+          if (prevCountRef.current === 0 && n > 0 && !inStaffArea()) {
+            navigate('/staff', { replace: true });
+          }
+          prevCountRef.current = n;
+        });
+        hostCleanupRef.current = () => {
+          offClient();
+          offCount();
+        };
+      } catch {
+        setError('Could not start pairing. Check your connection and try again.');
+      } finally {
+        startingHostRef.current = false;
+      }
+    })();
+  }, [services, navigate]);
 
-  const startHosting = useCallback(async () => {
-    try {
-      setError(null);
-      setStatus('hosting');
-      setRole('host');
-      const { link, peerId: hostId } = await PeerJsLink.host();
-      linkRef.current = link;
-      setPeerId(hostId);
-      const server = createStoreServer(services.sync.observable, link);
-      const offState = link.onState((s) => {
-        if (s === 'open') setStatus('paired');
-        if (s === 'closed') unpair();
-      });
-      cleanupRef.current = () => {
-        offState();
-        server.dispose();
-      };
-    } catch {
-      setError('Could not start pairing. Check your connection and try again.');
-      setStatus('error');
-      setRole(null);
-    }
-  }, [services, unpair]);
+  const revertToHostReady = useCallback(() => {
+    if (!joinedRef.current) return;
+    services.sync.switchable.setTarget(services.sync.observable.store);
+    clientCleanupRef.current?.();
+    clientCleanupRef.current = null;
+    clientLinkRef.current?.close();
+    clientLinkRef.current = null;
+    joinedRef.current = false;
+    setJoined(false);
+    bump();
+    ensureHosting(); // resume hosting so this device shows its QR again
+  }, [services, bump, ensureHosting]);
 
   const joinAs = useCallback(
     async (remoteId: string) => {
+      setError(null);
+      setConnecting(true);
       try {
-        setError(null);
-        setStatus('connecting');
-        setRole('client');
-        const link = await PeerJsLink.join(remoteId.trim());
-        linkRef.current = link;
+        stopHosting(); // a client can't also be a till
+        const link = await joinHost(remoteId.trim());
+        joinedRef.current = true;
+        setJoined(true);
+        stopHosting(); // close any host that started racing while we connected
+        clientLinkRef.current = link;
         const client = createPeerClientStore(link);
         services.sync.switchable.setTarget(client.store);
         const offChanged = client.onChanged(bump);
         const offState = link.onState((s) => {
-          if (s === 'closed') unpair();
+          if (s === 'closed') revertToHostReady();
         });
-        cleanupRef.current = () => {
+        const offMsg = link.onMessage((m) => {
+          if ((m as { t?: string }).t === 'unpair') revertToHostReady();
+        });
+        clientCleanupRef.current = () => {
           offChanged();
           offState();
+          offMsg();
           client.dispose();
         };
-        setStatus('paired');
-        bump(); // first refresh now reads from the paired host
+        bump();
+        navigate('/', { replace: true }); // customer → home
       } catch {
         services.sync.switchable.setTarget(services.sync.observable.store);
         setError(
           'Couldn’t connect to the till. Have staff re-open the pairing code, check both devices are online, then scan again.',
         );
-        setStatus('error');
-        setRole(null);
+        ensureHosting();
+      } finally {
+        setConnecting(false);
       }
     },
-    [services, unpair, bump],
+    [services, bump, navigate, ensureHosting, revertToHostReady, stopHosting],
   );
 
-  // Tear down the link if the app unmounts.
-  useEffect(() => () => teardown(), [teardown]);
+  const unpair = useCallback(() => {
+    if (joinedRef.current) {
+      clientLinkRef.current?.send({ t: 'unpair' });
+      revertToHostReady();
+    } else {
+      hostRef.current?.unpairAll(); // signals + drops every client; count → 0
+    }
+  }, [revertToHostReady]);
+
+  // Tear everything down on unmount.
+  useEffect(
+    () => () => {
+      clientCleanupRef.current?.();
+      clientLinkRef.current?.close();
+      hostCleanupRef.current?.();
+      hostRef.current?.close();
+    },
+    [],
+  );
 
   const value = useMemo<PairingValue>(
-    () => ({ status, role, peerId, error, dataVersion, startHosting, joinAs, unpair }),
-    [status, role, peerId, error, dataVersion, startHosting, joinAs, unpair],
+    () => ({
+      peerId,
+      hosting,
+      clientCount,
+      joined,
+      connecting,
+      error,
+      dataVersion,
+      ensureHosting,
+      joinAs,
+      unpair,
+    }),
+    [peerId, hosting, clientCount, joined, connecting, error, dataVersion, ensureHosting, joinAs, unpair],
   );
 
   return <PairingContext.Provider value={value}>{children}</PairingContext.Provider>;
