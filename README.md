@@ -69,7 +69,7 @@ Points live in an **append-only ledger**. Balance and "reward available" are
 | **Backup** | JSON export/import (behind the same `DataStore` port). |
 | **Prototype tools menu** | A "prototype" dropdown in the header (`src/ui/common/PrototypeMenu.tsx`) groups all demo scaffolding: Pair/Unpair this device, Reset this device (closes + deletes IndexedDB, clears storage, reloads), and a staff/admin sign-in shortcut. Replaces the old always-visible device-switcher tabs and header pair pill. |
 | **Reset device** | `Services.reset()` (backed by `IndexedDbStore.close()`) drops the `cafe-loyalty` database and clears `cafe-loyalty.customer` / `cafe-loyalty.actor` keys so a workflow can be rerun from a clean device state. Prototype-only. |
-| **Device pairing (prototype)** | Staff open `/pair` — the initiating device auto-becomes the till (host, shows the pairing QR); the scanning device joins as the customer. No login required at `/pair`; role is determined by which side initiates. After pairing, the host routes to `/staff` and the customer device routes to `/`. The customer device's `DataStore` is transparently served by the staff device over PeerJS — a stand-in for the production server. Manual code entry is not available at `/pair` (QR-only; `QrScanner` receives `allowManual={false}`). |
+| **Device pairing (prototype)** | Every device defaults to hosting: it shows its own pairing QR inside the Prototype menu. Scanning another device's QR makes this device a customer of that till. The till accepts **many customer devices simultaneously**; each gets its own `StoreServer` instance so change notifications fan out to all. The first customer to pair routes the till to `/staff` and the customer to `/`. Unpairing signals every connected device (`{ t: 'unpair' }`) and each side resumes hosting. The pairing QR lives in the **Prototype tools menu** — opening the menu shows this device's QR with a "Scan a code" button beneath. A till shows the paired-device count and "Unpair all"; a paired customer shows a "Paired to the till" label with Unpair + Reset. `/pair` is now scan-only: a `?host=` URL auto-joins (QR-only; `QrScanner` receives `allowManual={false}`). The customer device's `DataStore` is transparently served by the till over PeerJS — the no-backend stand-in for a production server. |
 | **Wallet (stub)** | Apple Wallet: static `.pkpass` QR-holder (no developer account; web page is the iOS status surface). Google Wallet: dynamic loyalty pass via REST. Both stubbed in `wallet/passStub.ts`; real passes need the backend. |
 | **Base-URL landing** | `/` routes by context: authenticated staff/admin → staff home; recognized browser → `/status/:token`; otherwise → the self-registration form (`SelfRegister`) directly. A "Lost your card?" recovery link appears at the end of that form. Staff/admin session always takes precedence (never auto-shows a customer card). Staff sign-in shortcut lives in the Prototype menu. |
 
@@ -292,13 +292,15 @@ src/
 │   │   └── NoopMailer.ts       # fallback when EmailJS unconfigured
 │   ├── identity/
 │   │   └── LocalStorageIdentityStore.ts   # stores token only (no PII)
-│   └── sync/                   # PROTOTYPE-ONLY — device pairing via PeerJS
-│       ├── PeerLink.ts         # 1:1 channel interface + SyncMessage envelopes
-│       ├── PeerJsLink.ts       # PeerJS+TURN implementation (host/join)
+│   └── sync/                   # PROTOTYPE-ONLY — device pairing via PeerJS (one till, many clients)
+│       ├── PeerLink.ts         # channel interface + SyncMessage envelopes (incl. {t:'unpair'})
+│       ├── PeerJsLink.ts       # PeerJS+TURN: ConnLink (single connection), joinHost() (client),
+│       │                       #   PeerJsHost (one peer, many clients; onClient/onCountChange/
+│       │                       #   count/unpairAll/close)
 │       ├── ObservableStore.ts  # DataStore wrapper that emits on mutation
 │       ├── SwitchableStore.ts  # DataStore whose target swaps local↔remote at runtime
 │       ├── PeerClientStore.ts  # DataStore that proxies calls to host over RPC
-│       ├── StoreServer.ts      # host side: serves inbound RPC; pushes changed events
+│       ├── StoreServer.ts      # host side: one instance per client; serves RPC + pushes changed
 │       └── storeMethods.ts     # canonical DataStore method list + mutating subset
 ├── services/              # orchestrate domain + ports
 │   ├── CustomerService.ts · LoyaltyService.ts · StaffService.ts
@@ -314,7 +316,7 @@ src/
     ├── customer/          # CustomerHome · SelfRegister · Recover · Status · …
     └── common/            # QrDisplay, QrScanner (allowManual prop), Layout, PairingContext/usePairing,
                            #   PairDevices (QR-only; role by initiation), PrototypeMenu, guards
-tests/                     # Vitest: domain, service, adapter, qr, wallet, config (176 passing)
+tests/                     # Vitest: domain, service, adapter, qr, wallet, config (177 passing)
 .env.example               # documents required build-time secrets
 .github/workflows/deploy.yml   # build + test + deploy (injects secrets at build time)
 ```
@@ -329,7 +331,7 @@ tests/                     # Vitest: domain, service, adapter, qr, wallet, confi
 | **`Transport`** (registration handoff) | `PeerTransport` (PeerJS + TURN) | `ServerTransport` (server-mediated) | One line in `Services.ts` |
 | **`Mailer`** (email) | `EmailJsMailer` (client-side EmailJS) or `NoopMailer` | Server-side provider | One line in `Services.ts` |
 | **`IdentityStore`** (browser identity) | `LocalStorageIdentityStore` | Server-cookie adapter | One line in `Services.ts` |
-| **`adapters/sync/` (device pairing)** | `PeerJsLink` + `SwitchableStore` stack | Server-mediated DataStore — remove the sync layer | Rewire composition root |
+| **`adapters/sync/` (device pairing)** | `PeerJsHost` / `ConnLink` / `joinHost` + `SwitchableStore` stack (one till, many clients) | Server-mediated DataStore — remove the sync layer | Rewire composition root |
 
 ### Prototype transport
 `adapters/transport/PeerTransport.ts` uses PeerJS with a Metered TURN relay for
@@ -341,15 +343,25 @@ placeholder (every method throws until the backend exists).
 
 ### Prototype device pairing
 `adapters/sync/` is a second PeerJS-backed channel, separate from registration.
-The staff device hosts a session and displays a pairing QR (`/pair`); the customer
-device joins by scanning it. Once paired, the customer device's `DataStore` is
-transparently replaced (via `SwitchableStore`) with a `PeerClientStore` that
-proxies all reads and writes to the host over RPC — the host's `StoreServer` serves
-them against its local `ObservableStore` and pushes `changed` notifications after
-any mutation. Screens (`Status`, `CustomerStatePanel`) refetch on the `dataVersion`
-counter exposed by `PairingProvider`. This is the **no-backend stand-in for the
-production server**: in production, the server coordinates state centrally and the
-sync layer is dropped entirely.
+Every device defaults to hosting: `PeerJsHost` creates one PeerJS peer that
+accepts **many simultaneous client connections**. Each accepted connection becomes
+a `ConnLink` handed to an `onClient` subscriber; the host spawns one `StoreServer`
+per client, so change notifications fan out to every paired device. The till's
+pairing QR lives in the **Prototype tools menu** (not a dedicated page); `/pair`
+is now scan-only and auto-joins on a `?host=` URL parameter.
+
+Once a customer device scans the QR, `joinHost(remoteId)` dials the till and
+returns an open `ConnLink`. The customer device's `DataStore` is transparently
+replaced (via `SwitchableStore`) with a `PeerClientStore` that proxies all reads
+and writes to the host over RPC. `SyncMessage` now includes a `{ t: 'unpair' }`
+variant — sent by either side when unpairing — so every peer can clean up
+gracefully. After unpairing, each device resumes hosting so its QR becomes
+available again.
+
+Screens (`Status`, `CustomerStatePanel`) refetch on the `dataVersion` counter
+exposed by `PairingProvider`. This is the **no-backend stand-in for the production
+server**: in production, the server coordinates state centrally and the sync layer
+is dropped entirely.
 
 ---
 
@@ -358,7 +370,7 @@ sync layer is dropped entirely.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 176 unit tests (Vitest)
+npm test           # 177 unit tests (Vitest)
 npm run build      # static output in dist/
 npm run typecheck  # strict TS, no emit
 ```
@@ -369,10 +381,14 @@ locally (TURN + EmailJS). `.env.local` is gitignored.
 **Two-device demo:** PeerJS transport is the default. Open `http://localhost:5173`
 on two devices on the same network (or use the deployed Pages URL). For
 registration: scan the registration QR from the customer device. For live pairing:
-the staff device opens the "Prototype" menu in the header and selects Pair — it
-auto-hosts and shows the pairing QR; the customer device scans it and is routed to
-the customer area. State then reflects live on both devices. Use "Reset this
-device" (also in the Prototype menu) to rerun a workflow from a clean state.
+open the "Prototype" menu on one device — its pairing QR is shown immediately;
+tap "Scan a code" on the other device to scan it. The scanned device becomes the
+customer and is routed to `/`; the till is routed to `/staff` on first pair. The
+till shows the live paired-device count and an "Unpair all" button; a paired
+customer shows a "Paired to the till" label with Unpair + Reset. Multiple customer
+devices can pair to the same till simultaneously. State reflects live on all paired
+devices. Use "Reset this device" (also in the Prototype menu) to rerun a workflow
+from a clean state.
 
 Sign in as staff/admin: `admin / admin` or `staff / staff` (available via the
 Prototype menu or the sign-in link on the landing page).

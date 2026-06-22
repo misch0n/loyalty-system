@@ -5,7 +5,7 @@
 > [`SPEC.md`](SPEC.md); working rules in [`../CLAUDE.md`](../CLAUDE.md).
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 
-**Last updated:** 2026-06-22 (prototype tools menu, login-based roles, pair without login, direct-join landing) · **Phase:** v1 prototype — feature-complete against
+**Last updated:** 2026-06-22 (multi-client pairing, QR-in-menu, broadcast unpair) · **Phase:** v1 prototype — feature-complete against
 SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 
 ---
@@ -15,7 +15,7 @@ SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 - React + TypeScript + Vite SPA, IndexedDB storage, deployed to GitHub Pages.
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
-- **176 unit tests** passing (`npm test`); strict typecheck + production build green.
+- **177 unit tests** passing (`npm test`); strict typecheck + production build green.
 - CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`
   and `VITE_TURN_*` secrets) → deploys on push to `main`.
 - Four swappable seams: `DataStore`, `Transport`, `Mailer`, `IdentityStore`.
@@ -43,7 +43,7 @@ SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 | Add-to-wallet stubbed but visible; Apple = static stub, Google = REST stub | ✅ | `wallet/passStub.ts` |
 | Storage behind `DataStore`; Transport behind `Transport`; Email behind `Mailer`; Identity behind `IdentityStore` — swap = no UI/service change | ✅ | `ports/`, `adapters/`, `services/Services.ts` |
 | Two-device demo over PeerJS + TURN (real cross-device, not simulated) | ✅ impl; cellular verification = manual live-demo step | `adapters/transport/PeerTransport.ts`, `config/env.ts` |
-| Device pairing — staff hosts, customer joins; live DataStore sync across devices | ✅ prototype-only (see divergences e, f) | `adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` — role determined by initiation (no login required at `/pair`); host → `/staff`, customer → `/` |
+| Device pairing — one till hosts many customers; live DataStore sync across all devices | ✅ prototype-only (see divergences e, f) | `adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` — all devices host by default; scanning a till's QR (from Prototype menu) makes the scanning device a customer; first pair routes till → `/staff`, customer → `/`; unpair signals all peers and each resumes hosting |
 | Domain unit-tested; file tree matches SPEC §12 | ✅ | `tests/`, layout matches |
 | Adapters/transports/services unit-tested (regression cover) | ✅ | `tests/adapters/*`, `tests/services/*`, `tests/qr/*` |
 
@@ -95,7 +95,7 @@ SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 
 ## Test coverage
 
-`npm test` runs **176 Vitest unit tests** covering every non-UI module:
+`npm test` runs **177 Vitest unit tests** covering every non-UI module:
 
 - **domain/** — `loyalty`, `tokens`, `validation` (pure logic).
 - **services/** — `Customer` (incl. `selfRegister`, `provisionFromToken`),
@@ -106,7 +106,7 @@ SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
   error paths), `ApiStore` (every method rejects as a stub), `PeerTransport`
   (peerjs mocked), `EmailJsMailer`, `NoopMailer`, `LocalStorageIdentityStore`.
 - **adapters/sync/** — sync round-trip via in-memory `FakeLink`
-  (`tests/adapters/sync/sync.test.ts`); `PeerJsLink` host/join
+  (`tests/adapters/sync/sync.test.ts`); `ConnLink` / `joinHost` / `PeerJsHost`
   (`tests/adapters/sync/peerJsLink.test.ts`, PeerJS mocked).
 - **qr/** (`encode`, `scan` with html5-qrcode mocked), **wallet/** (`passStub`),
   **config/** (`env` flag mapping, `links.ts` URL building).
@@ -174,20 +174,29 @@ d. **No server-side session for identity.** `IdentityStore` uses `localStorage`
    or cookie.
 
 e. **Device pairing is a prototype-only construct.** `adapters/sync/` uses PeerJS
-   to let the staff device act as a temporary server for the customer device's
-   `DataStore`. This is the no-backend stand-in for server-mediated state
-   coordination. In production the server handles this and the entire sync layer
-   (`adapters/sync/`, `PairingProvider`, `/pair` screen) is removed — it is not a
-   path toward the production sync architecture.
+   to let the till act as a temporary server for many customer devices'
+   `DataStore`s simultaneously. `PeerJsLink.ts` now exports `ConnLink` (single
+   connection), `joinHost()` (client side), and `PeerJsHost` (one peer, many
+   clients; `onClient` / `onCountChange` / `count` / `unpairAll` / `close`). One
+   `StoreServer` is created per connected client so change notifications fan out to
+   every paired device. `SyncMessage` gained a `{ t: 'unpair' }` variant sent on
+   both sides when unpairing; after unpairing each device resumes hosting. This is
+   the no-backend stand-in for server-mediated state coordination. In production the
+   server handles this and the entire sync layer (`adapters/sync/`, `PairingProvider`,
+   `/pair` screen) is removed — it is not a path toward the production sync architecture.
 
-f. **Prototype UX scaffolding (PrototypeMenu, Reset, initiation-based pairing role).**
+f. **Prototype UX scaffolding (PrototypeMenu, Reset, pairing role, QR-in-menu).**
    The spec does not define demo-management UI. The prototype surfaces it behind a
-   "prototype" header dropdown (`src/ui/common/PrototypeMenu.tsx`): Pair/Unpair,
-   Reset this device, and a sign-in shortcut. Pairing role (till vs. customer) is
-   determined by which device initiates — no explicit role selector or login
-   required at `/pair`. The `QrScanner` at `/pair` passes `allowManual={false}`
-   (QR-only; no typed-code fallback). All of this is prototype scaffolding with no
-   production equivalent.
+   "prototype" header dropdown (`src/ui/common/PrototypeMenu.tsx`): opening the menu
+   shows this device's pairing QR with a "Scan a code" button beneath. A till also
+   shows the live paired-device count and "Unpair all"; a paired customer shows a
+   "Paired to the till" label with Unpair + Reset (no QR while joined). `/pair` is
+   now scan-only: arriving with a `?host=` parameter auto-joins without user
+   interaction; `QrScanner` receives `allowManual={false}`. Pairing role (till vs.
+   customer) is determined by which device scans — no explicit role selector or login
+   required. The `PairingProvider` now lives inside the Router (`main.tsx`) so it
+   can drive navigation. All of this is prototype scaffolding with no production
+   equivalent.
 
 ## Pointers
 
