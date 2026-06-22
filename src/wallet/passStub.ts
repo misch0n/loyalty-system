@@ -1,10 +1,12 @@
 /**
  * passStub — prototype "Add to Wallet" stub.
  *
- * Apple Wallet pass updates require the Node backend (PassKit web service +
- * APNs); Google Wallet uses Google's REST API. Neither can run in a static-only
- * prototype, so this simulates the action so the flow is visibly present. See
- * ./README.md for the production integration notes.
+ * Apple: there is NO Apple developer account. The Apple pass is a STATIC .pkpass
+ * (just the QR/token) issued by a third-party pass provider — no live updates;
+ * the web page is the iPhone user's status surface. Google: a full Google Wallet
+ * loyalty pass with dynamic updates/push, issued via Google's REST API. Neither
+ * is provisioned in the static prototype, so this simulates the action so the
+ * flow is visibly present. See ./README.md for the production integration notes.
  */
 
 export type WalletKind = 'apple' | 'google';
@@ -23,10 +25,9 @@ export interface PassStubResult {
 export async function addToWallet(kind: WalletKind, token: string): Promise<PassStubResult> {
   // No real provisioning in the prototype. The token would identify the pass.
   void token;
-  const label = kind === 'apple' ? 'Apple Wallet' : 'Google Wallet';
-  return {
-    ok: true,
-    kind,
-    message: `Demo only: a real ${label} pass with push updates needs the production backend.`,
-  };
+  const message =
+    kind === 'apple'
+      ? 'Demo only: the Apple Wallet pass is a static QR holder (no live updates) — this web page stays your live status on iPhone.'
+      : 'Demo only: a live Google Wallet pass with push updates is issued via the Google Wallet API in production.';
+  return { ok: true, kind, message };
 }

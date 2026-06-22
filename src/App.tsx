@@ -15,7 +15,10 @@ import { StaffAdmin } from './ui/admin/StaffAdmin';
 import { ProgramConfig } from './ui/admin/ProgramConfig';
 import { Stats } from './ui/admin/Stats';
 import { AuditLog } from './ui/admin/AuditLog';
+import { CustomerHome } from './ui/customer/CustomerHome';
+import { SelfRegister } from './ui/customer/SelfRegister';
 import { Register } from './ui/customer/Register';
+import { Recover } from './ui/customer/Recover';
 import { Status } from './ui/customer/Status';
 import { DeleteData } from './ui/customer/DeleteData';
 
@@ -23,7 +26,7 @@ export function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Navigate to="/staff" replace />} />
+        <Route path="/" element={<CustomerHome />} />
         <Route path="/login" element={<LoginScreen />} />
 
         {/* Staff */}
@@ -87,12 +90,15 @@ export function App() {
         />
 
         {/* Customer-facing */}
+        <Route path="/register" element={<SelfRegister />} />
         <Route path="/register/:sessionId" element={<Register />} />
+        <Route path="/recover" element={<Recover />} />
+        <Route path="/recover/:code" element={<Recover />} />
         <Route path="/status" element={<Status />} />
         <Route path="/status/:token" element={<Status />} />
         <Route path="/delete/:token" element={<DeleteData />} />
 
-        <Route path="*" element={<Navigate to="/staff" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
   );

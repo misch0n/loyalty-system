@@ -1,8 +1,7 @@
 /**
- * App shell: header with the demo role switcher, and the routed content area.
- *
- * The role switcher exists because one browser is simulating multiple devices
- * (staff terminal, admin, customer phone). It is a prototype affordance.
+ * App shell: header with a quick-navigation switcher, and the routed content
+ * area. The switcher is a prototype affordance for jumping between the staff
+ * areas and the customer view during a demo; real devices use one area each.
  */
 
 import { NavLink, useLocation } from 'react-router-dom';
@@ -38,7 +37,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <nav className="device-switcher" aria-label="Demo device">
           <NavTab to="/staff">Staff</NavTab>
           <NavTab to="/admin/stats">Admin</NavTab>
-          <NavTab to="/status">Customer</NavTab>
+          <NavTab to="/">Customer</NavTab>
         </nav>
 
         <div className="session-box">

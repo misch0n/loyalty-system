@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { QrDisplay } from '../common/QrDisplay';
 import { cardPayload } from '../../qr/encode';
+import { appUrl } from '../../config/links';
 import { addToWallet, type WalletKind } from '../../wallet/passStub';
 import type { Customer } from '../../domain/models';
 
@@ -17,7 +18,7 @@ export function CardView({ customer }: { customer: Customer }) {
     setWalletNote(result.message);
   }
 
-  const statusUrl = `${location.origin}${location.pathname}#/status/${customer.token}`;
+  const statusUrl = appUrl(`/status/${customer.token}`);
 
   return (
     <div className="card-view">

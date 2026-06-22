@@ -18,15 +18,18 @@ export const baseUrl: string = import.meta.env.BASE_URL;
 
 /**
  * Which Transport adapter the composition root should wire.
- * - `'peer'` (prototype): real PeerJS + TURN P2P between two devices.
- * - `'server'` (production): server-mediated registration flow (not built here).
+ * - `'peer'` (default, the prototype): real PeerJS + TURN P2P between two devices.
+ * - `'server'` (production): server-mediated flow. Select with VITE_TRANSPORT=server.
  *
- * PeerJS is the prototype's REAL transport (there is no in-browser mock); it is
- * prototype-only and is replaced wholesale by the server flow in production.
+ * This is a deliberate prototype-vs-production switch (like VITE_DATASTORE), NOT
+ * tied to the build mode: the deployed GitHub Pages prototype is a production
+ * `vite build` yet must still use the real peer transport. PeerJS is the
+ * prototype's REAL transport — there is no in-browser mock.
  */
 export type TransportKind = 'peer' | 'server';
 
-export const transportKind: TransportKind = isProduction ? 'server' : 'peer';
+export const transportKind: TransportKind =
+  import.meta.env.VITE_TRANSPORT === 'server' ? 'server' : 'peer';
 
 /**
  * Which DataStore adapter to wire. The prototype ships only the IndexedDB

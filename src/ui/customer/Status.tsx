@@ -4,14 +4,14 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useServices } from '../common/ServicesContext';
 import { ProgressBar } from '../common/Progress';
 import type { CustomerState } from '../../services/LoyaltyService';
 
 export function Status() {
   const { token: tokenParam } = useParams<{ token: string }>();
-  const { loyalty } = useServices();
+  const { loyalty, identity } = useServices();
   const navigate = useNavigate();
 
   const [token, setToken] = useState(tokenParam ?? '');
@@ -32,6 +32,8 @@ export function Status() {
         return;
       }
       setState(result);
+      // Remember this browser so the base URL routes straight here next time.
+      await identity.set(result.customer.token);
     } finally {
       setLoading(false);
     }
@@ -66,6 +68,11 @@ export function Status() {
       </form>
 
       {error && <p className="error">{error}</p>}
+      {!state && (
+        <p className="muted small">
+          Lost your card?&nbsp;<Link to="/recover">Recover it by email</Link>.
+        </p>
+      )}
 
       {state && (
         <div className="status-result">

@@ -1,11 +1,12 @@
 /**
- * RegisterForm — the customer-device registration view.
+ * RegisterForm — the customer-device registration view for the STAFF-INITIATED
+ * handoff. Rendered at /register/:sessionId on the customer's own phone (a real
+ * second device) after they scan the till's QR. It joins the PeerJS session,
+ * collects OPTIONAL details + consent, and submits them back to staff over the
+ * P2P channel. A fully token-only account is allowed.
  *
- * Reused in two places: embedded as the simulated customer pane on the staff
- * Issue-card screen (LocalBridge), and standalone at /register/:sessionId for a
- * real second device (PeerJS). It joins the transport session, collects OPTIONAL
- * details + consent, and submits them back to staff. A fully token-only account
- * is allowed.
+ * (Self-service registration uses SelfRegister, which talks to services directly
+ * with no transport.)
  */
 
 import { useEffect, useState } from 'react';
@@ -16,11 +17,9 @@ import type { RegistrationDetails } from '../../ports/Transport';
 
 interface Props {
   sessionId: string;
-  /** Embedded mode hides the standalone framing. */
-  embedded?: boolean;
 }
 
-export function RegisterForm({ sessionId, embedded }: Props) {
+export function RegisterForm({ sessionId }: Props) {
   const { transport } = useServices();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -51,7 +50,7 @@ export function RegisterForm({ sessionId, embedded }: Props) {
 
   if (sent) {
     return (
-      <div className={embedded ? 'sub-card' : 'card'}>
+      <div className="card">
         <h2>All set</h2>
         <p>Your details went to the till. Staff will hand you your card.</p>
       </div>
@@ -59,7 +58,7 @@ export function RegisterForm({ sessionId, embedded }: Props) {
   }
 
   return (
-    <div className={embedded ? 'sub-card' : 'card'}>
+    <div className="card">
       <h2>Join the loyalty scheme</h2>
       <p className="muted">Everything here is optional. You can stay anonymous.</p>
       <form onSubmit={onSubmit}>

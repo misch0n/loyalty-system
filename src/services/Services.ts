@@ -15,7 +15,7 @@ import type { DataStore } from '../ports/DataStore';
 import type { Transport } from '../ports/Transport';
 import type { Mailer } from '../ports/Mailer';
 import type { IdentityStore } from '../ports/IdentityStore';
-import { storeKind, transportKind, isProduction, emailConfig, isEmailConfigured } from '../config/env';
+import { storeKind, transportKind, emailConfig, isEmailConfigured } from '../config/env';
 import { IndexedDbStore } from '../adapters/storage/IndexedDbStore';
 import { ApiStore } from '../adapters/storage/ApiStore';
 import { EmailJsMailer } from '../adapters/email/EmailJsMailer';
@@ -51,13 +51,14 @@ function createStore(): DataStore {
 }
 
 async function createTransport(): Promise<Transport> {
-  if (transportKind === 'server' || isProduction) {
-    // Production: server-mediated registration. Dynamic import keeps PeerJS out
-    // of the production bundle.
+  if (transportKind === 'server') {
+    // Production: server-mediated registration. Dynamic import + the dead branch
+    // means PeerJS tree-shakes out of a production-configured build.
     const { ServerTransport } = await import('../adapters/transport/ServerTransport');
     return new ServerTransport();
   }
-  // Prototype's REAL transport: PeerJS + TURN between two devices.
+  // Prototype's REAL transport: PeerJS + TURN between two devices. This is the
+  // default, including the deployed GitHub Pages build.
   const { PeerTransport } = await import('../adapters/transport/PeerTransport');
   return new PeerTransport();
 }

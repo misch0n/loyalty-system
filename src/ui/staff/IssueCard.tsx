@@ -1,20 +1,20 @@
 /**
- * IssueCard — staff-side card issuance + the registration handoff.
+ * IssueCard — staff-side card issuance + the registration handoff (secondary
+ * path; self-registration is primary).
  *
- * Staff start a card (creates a token-only shell + a Transport session), show
- * the registration QR, and watch the customer join and submit. The default
- * LocalBridge transport lets us render the customer device as a simulated pane
- * right here, so the whole flow demos in one browser. Duplicate details warn
- * before a second card is created; finalize records consent + writes the audit
- * entry, then the finished card is shown.
+ * Staff start a card (creates a token-only shell + a PeerJS session) and show
+ * the registration QR. The customer opens it on THEIR OWN phone, which connects
+ * back over PeerJS/TURN and submits their details. Duplicate details warn before
+ * a second card is created; finalize records consent + writes the audit entry,
+ * then the finished card is shown for the customer to save / add to wallet.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useServices } from '../common/ServicesContext';
 import { useSession } from '../common/SessionContext';
 import { QrDisplay } from '../common/QrDisplay';
-import { RegisterForm } from '../customer/RegisterForm';
 import { CardView } from '../customer/CardView';
+import { registrationPayload } from '../../qr/encode';
 import type { RegistrationDetails } from '../../ports/Transport';
 import type { Customer } from '../../domain/models';
 
@@ -102,10 +102,7 @@ export function IssueCard() {
     setPhase('idle');
   }
 
-  const registrationUrl =
-    session && !session.joinPayload.startsWith('peer:')
-      ? `${location.origin}${location.pathname}#/${session.joinPayload}`
-      : session?.joinPayload ?? '';
+  const registrationUrl = session ? registrationPayload(session.joinPayload) : '';
 
   return (
     <div className="screen issue-card">
@@ -113,7 +110,10 @@ export function IssueCard() {
 
       {phase === 'idle' && (
         <div className="card">
-          <p>Start a new card, then have the customer scan the code to join.</p>
+          <p>
+            Most customers join themselves. Use this only on request — start a card,
+            then have the customer scan the code with their phone to fill in details.
+          </p>
           <button type="button" onClick={startCard} disabled={!actor}>
             Start card
           </button>
@@ -123,26 +123,21 @@ export function IssueCard() {
       {error && <p className="error">{error}</p>}
 
       {phase === 'awaiting' && session && (
-        <div className="issue-grid">
-          <div className="card staff-side">
-            <h2>At the till</h2>
-            <QrDisplay
-              payload={registrationUrl}
-              label="Registration QR"
-              caption="Customer scans to join"
-            />
-            <p className={joined ? 'status joined' : 'status waiting'}>
-              {joined ? 'Customer joined — waiting for details…' : 'Waiting for customer to join…'}
-            </p>
-            <button type="button" className="link" onClick={reset}>
-              Cancel
-            </button>
-          </div>
-
-          <div className="card customer-side">
-            <p className="device-label">Customer device (simulated)</p>
-            <RegisterForm sessionId={session.id} embedded />
-          </div>
+        <div className="card staff-side">
+          <h2>At the till</h2>
+          <QrDisplay
+            payload={registrationUrl}
+            label="Registration QR"
+            caption="Customer scans this with their phone to join"
+          />
+          <p className={joined ? 'status joined' : 'status waiting'}>
+            {joined
+              ? 'Customer connected — waiting for their details…'
+              : 'Waiting for the customer to scan and connect…'}
+          </p>
+          <button type="button" className="link" onClick={reset}>
+            Cancel
+          </button>
         </div>
       )}
 

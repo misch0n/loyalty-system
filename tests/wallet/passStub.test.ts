@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { addToWallet } from '../../src/wallet/passStub';
 
 describe('addToWallet (prototype stub)', () => {
-  it('simulates an Apple Wallet add and explains the backend is needed', async () => {
+  it('simulates an Apple Wallet add and explains it is a static QR holder', async () => {
     const result = await addToWallet('apple', 'token-abc');
     expect(result.ok).toBe(true);
     expect(result.kind).toBe('apple');
     expect(result.message).toContain('Apple Wallet');
-    expect(result.message).toContain('backend');
+    expect(result.message).toContain('static');
   });
 
   it('simulates a Google Wallet add', async () => {

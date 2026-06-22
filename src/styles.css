@@ -58,6 +58,21 @@ button.link {
 }
 button.link.danger { color: var(--danger); }
 
+/* Anchor styled as a button (react-router <Link className="button">). */
+a.button {
+  display: inline-block;
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: var(--brand-ink);
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+a.button:hover { filter: brightness(1.08); }
+a.button.primary { background: var(--accent); border-color: var(--accent); }
+
 input, select {
   font: inherit;
   padding: 0.5rem;

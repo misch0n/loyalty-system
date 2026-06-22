@@ -47,18 +47,21 @@ describe('storeKind', () => {
 });
 
 describe('transportKind', () => {
-  it('is the prototype peer transport outside production', async () => {
-    vi.stubEnv('PROD', false);
-    const env = await loadEnv();
-    expect(env.isProduction).toBe(false);
-    expect(env.transportKind).toBe('peer');
+  it('defaults to the real peer transport (the prototype)', async () => {
+    expect((await loadEnv()).transportKind).toBe('peer');
   });
 
-  it('switches to the server transport in a production build', async () => {
+  it('switches to the server transport only when VITE_TRANSPORT=server', async () => {
+    vi.stubEnv('VITE_TRANSPORT', 'server');
+    expect((await loadEnv()).transportKind).toBe('server');
+  });
+
+  it('stays on peer in a production build (deployed prototype still needs PeerJS)', async () => {
+    // The GitHub Pages deploy is a production `vite build` yet IS the prototype.
     vi.stubEnv('PROD', true);
     const env = await loadEnv();
     expect(env.isProduction).toBe(true);
-    expect(env.transportKind).toBe('server');
+    expect(env.transportKind).toBe('peer');
   });
 });
 
