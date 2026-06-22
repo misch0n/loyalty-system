@@ -5,7 +5,7 @@
 > [`SPEC.md`](SPEC.md); working rules in [`../CLAUDE.md`](../CLAUDE.md).
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 
-**Last updated:** 2026-06-22 (device pairing) · **Phase:** v1 prototype — feature-complete against
+**Last updated:** 2026-06-22 (prototype tools menu, login-based roles, pair without login) · **Phase:** v1 prototype — feature-complete against
 SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 
 ---
@@ -25,7 +25,7 @@ SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 
 | Criterion | State | Where |
 |---|---|---|
-| Staff/admin login + role gating | ✅ | `services/StaffService.ts`, `ui/auth`, `ui/common/RequireAuth.tsx` |
+| Staff/admin login + role gating | ✅ | `services/StaffService.ts`, `ui/auth/LoginScreen.tsx`, `ui/common/RequireAuth.tsx` — signed-in devices show staff/admin screens; everyone else defaults to customer |
 | Self-service registration (primary path); no approval queue | ✅ | `ui/customer/SelfRegister.tsx`, `CustomerService.selfRegister`, `adapters/identity/LocalStorageIdentityStore.ts` |
 | Staff-initiated registration over real PeerJS (secondary path); duplicate warning | ✅ | `ui/staff/IssueCard.tsx`, `adapters/transport/PeerTransport.ts` |
 | No single-browser / dual-pane simulation | ✅ (LocalBridgeTransport removed) | `adapters/transport/` |
@@ -43,14 +43,26 @@ SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 | Add-to-wallet stubbed but visible; Apple = static stub, Google = REST stub | ✅ | `wallet/passStub.ts` |
 | Storage behind `DataStore`; Transport behind `Transport`; Email behind `Mailer`; Identity behind `IdentityStore` — swap = no UI/service change | ✅ | `ports/`, `adapters/`, `services/Services.ts` |
 | Two-device demo over PeerJS + TURN (real cross-device, not simulated) | ✅ impl; cellular verification = manual live-demo step | `adapters/transport/PeerTransport.ts`, `config/env.ts` |
-| Device pairing — staff hosts, customer joins; live DataStore sync across devices | ✅ prototype-only (see divergence e) | `adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` |
+| Device pairing — staff hosts, customer joins; live DataStore sync across devices | ✅ prototype-only (see divergences e, f) | `adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` — role determined by initiation (no login required at `/pair`); host → `/staff`, customer → `/` |
 | Domain unit-tested; file tree matches SPEC §12 | ✅ | `tests/`, layout matches |
 | Adapters/transports/services unit-tested (regression cover) | ✅ | `tests/adapters/*`, `tests/services/*`, `tests/qr/*` |
 
 ## What is real vs. stubbed (prototype intentionally)
 
 - **Auth** is mocked: passwords compared as plain strings; seed accounts
-  `admin/admin`, `staff/staff`. Production → hashed, server-side.
+  `admin/admin`, `staff/staff`. Production → hashed, server-side. Login is
+  login-based role gating: a signed-in device shows staff/admin screens;
+  everyone else defaults to customer. One shared sign-in page
+  (`ui/auth/LoginScreen.tsx`), prefilled `staff`/`staff` with one-tap fills for
+  both roles.
+- **Prototype tools menu** (`ui/common/PrototypeMenu.tsx`) is a header dropdown
+  that contains all demo scaffolding: Pair/Unpair, Reset this device, and a
+  staff/admin sign-in shortcut. Replaces the old always-visible device-switcher
+  tabs and header pair pill. Prototype-only; has no production analogue.
+- **Reset device** (`Services.reset()` → `IndexedDbStore.close()`) closes and
+  deletes the `cafe-loyalty` IndexedDB database, clears `cafe-loyalty.customer`
+  and `cafe-loyalty.actor` from local/sessionStorage, and reloads. Lets a
+  tester rerun a flow from a clean device. Prototype-only.
 - **`ApiStore`** is a production skeleton — each method maps to an HTTP call but
   throws in the prototype (no backend). Shows the contract; one-line swap.
 - **`ServerTransport`** is a production placeholder — every method throws. The
@@ -130,6 +142,11 @@ call for). UI is verified manually against the acceptance criteria.
   be confirmed via a manual live demo — it is not automatable in CI.
 - **Apple Wallet live updates** require an Apple developer account and backend
   (PassKit + APNs). The current `.pkpass` is a static QR-holder only.
+- **Recovery after Reset requires pairing.** Self-service recovery resolves
+  the customer's card from the store currently active on the device. After a
+  Reset, the customer device has a blank local store; recovery will only find
+  the card if the device is paired to the till (whose store acts as the server).
+  A reset customer device must pair before attempting `/recover`.
 
 ## Spec divergences (prototype vs. production)
 
@@ -162,6 +179,15 @@ e. **Device pairing is a prototype-only construct.** `adapters/sync/` uses PeerJ
    coordination. In production the server handles this and the entire sync layer
    (`adapters/sync/`, `PairingProvider`, `/pair` screen) is removed — it is not a
    path toward the production sync architecture.
+
+f. **Prototype UX scaffolding (PrototypeMenu, Reset, initiation-based pairing role).**
+   The spec does not define demo-management UI. The prototype surfaces it behind a
+   "prototype" header dropdown (`src/ui/common/PrototypeMenu.tsx`): Pair/Unpair,
+   Reset this device, and a sign-in shortcut. Pairing role (till vs. customer) is
+   determined by which device initiates — no explicit role selector or login
+   required at `/pair`. The `QrScanner` at `/pair` passes `allowManual={false}`
+   (QR-only; no typed-code fallback). All of this is prototype scaffolding with no
+   production equivalent.
 
 ## Pointers
 

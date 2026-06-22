@@ -52,7 +52,7 @@ Points live in an **append-only ledger**. Balance and "reward available" are
 
 | Area | Capabilities |
 |---|---|
-| **Auth (mock)** | Staff/admin login with role gating. Disabling a departed employee instantly revokes access. |
+| **Auth (mock)** | Login-based device role: signed-in devices show staff/admin screens; everyone else defaults to customer. One shared sign-in page (`src/ui/auth/LoginScreen.tsx`) — admin credentials unlock admin tools. Prefilled with `staff`/`staff`; one-tap fills for both roles available. Disabling a departed employee instantly revokes access. |
 | **Self-service registration** | PRIMARY path: customer visits `/register`, creates their own card in one step — remembered on the browser via `IdentityStore`. No approval queue, no staff involvement. |
 | **Staff-initiated registration** | SECONDARY path: staff start a card at `/staff/issue` over real PeerJS; customer joins on their own device. Duplicate details **warn before** a second card is created. |
 | **Auto-provision on scan** | Scanning an unknown-but-valid token creates a token-only card on the staff device so accrual can proceed immediately. Staff still initiates the credit. |
@@ -67,7 +67,9 @@ Points live in an **append-only ledger**. Balance and "reward available" are
 | **Admin — stats** | Basic counts: active customers, points issued, rewards redeemed. |
 | **Admin — audit log** | Filterable, append-only action trail (no PII). |
 | **Backup** | JSON export/import (behind the same `DataStore` port). |
-| **Device pairing (prototype)** | Staff host a session (`/pair`); customer scans the pairing QR. While paired, the customer device's `DataStore` is transparently served by the staff device over PeerJS — acting as a stand-in for the production server. Points, redemptions, and recovery reflect live on both devices. Pairing is separate from (and additional to) staff-initiated registration. |
+| **Prototype tools menu** | A "prototype" dropdown in the header (`src/ui/common/PrototypeMenu.tsx`) groups all demo scaffolding: Pair/Unpair this device, Reset this device (closes + deletes IndexedDB, clears storage, reloads), and a staff/admin sign-in shortcut. Replaces the old always-visible device-switcher tabs and header pair pill. |
+| **Reset device** | `Services.reset()` (backed by `IndexedDbStore.close()`) drops the `cafe-loyalty` database and clears `cafe-loyalty.customer` / `cafe-loyalty.actor` keys so a workflow can be rerun from a clean device state. Prototype-only. |
+| **Device pairing (prototype)** | Staff open `/pair` — the initiating device auto-becomes the till (host, shows the pairing QR); the scanning device joins as the customer. No login required at `/pair`; role is determined by which side initiates. After pairing, the host routes to `/staff` and the customer device routes to `/`. The customer device's `DataStore` is transparently served by the staff device over PeerJS — a stand-in for the production server. Manual code entry is not available at `/pair` (QR-only; `QrScanner` receives `allowManual={false}`). |
 | **Wallet (stub)** | Apple Wallet: static `.pkpass` QR-holder (no developer account; web page is the iOS status surface). Google Wallet: dynamic loyalty pass via REST. Both stubbed in `wallet/passStub.ts`; real passes need the backend. |
 | **Base-URL landing** | `/` routes by context: authenticated staff/admin → staff home; recognized browser → `/status/:token`; otherwise → landing with Join / Lost-my-card / Staff sign-in. Staff/admin session always takes precedence (never auto-shows a customer card). |
 
@@ -279,7 +281,7 @@ src/
 │   └── IdentityStore.ts   # NEW — browser identity (token storage)
 ├── adapters/
 │   ├── storage/
-│   │   ├── IndexedDbStore.ts   # prototype storage (schema v2, recoveryCodes store)
+│   │   ├── IndexedDbStore.ts   # prototype storage (schema v2, recoveryCodes store); close() drops DB
 │   │   ├── ApiStore.ts         # production HTTP stub
 │   │   └── schema.ts           # IndexedDB schema + seed data
 │   ├── transport/
@@ -303,12 +305,15 @@ src/
 │   ├── ConfigService.ts · AuditService.ts
 │   ├── RecoveryService.ts # self-service recovery (single-use expiring codes)
 │   └── Services.ts        # ← composition root; wires adapters/sync → SyncKit (services.sync)
+│                          #   exposes reset() — closes + drops IndexedDB (prototype-only)
 ├── qr/                    # encode (payloads) + scan (camera wrapper)
 ├── wallet/                # passStub.ts + production integration notes
 └── ui/
-    ├── auth/ · staff/ · admin/
+    ├── auth/              # LoginScreen (shared staff/admin sign-in, one-tap fills)
+    ├── staff/ · admin/
     ├── customer/          # CustomerHome · SelfRegister · Recover · Status · …
-    └── common/            # QrDisplay, QrScanner, Layout, PairingContext/usePairing, PairDevices, guards
+    └── common/            # QrDisplay, QrScanner (allowManual prop), Layout, PairingContext/usePairing,
+                           #   PairDevices (QR-only; role by initiation), PrototypeMenu, guards
 tests/                     # Vitest: domain, service, adapter, qr, wallet, config (176 passing)
 .env.example               # documents required build-time secrets
 .github/workflows/deploy.yml   # build + test + deploy (injects secrets at build time)
@@ -364,10 +369,13 @@ locally (TURN + EmailJS). `.env.local` is gitignored.
 **Two-device demo:** PeerJS transport is the default. Open `http://localhost:5173`
 on two devices on the same network (or use the deployed Pages URL). For
 registration: scan the registration QR from the customer device. For live pairing:
-staff open `/pair` (auto-hosts), customer scans the pairing QR — state then
-reflects live on both devices.
+the staff device opens the "Prototype" menu in the header and selects Pair — it
+auto-hosts and shows the pairing QR; the customer device scans it and is routed to
+the customer area. State then reflects live on both devices. Use "Reset this
+device" (also in the Prototype menu) to rerun a workflow from a clean state.
 
-Staff and admin logins: `admin / admin` or `staff / staff`.
+Sign in as staff/admin: `admin / admin` or `staff / staff` (available via the
+Prototype menu or the sign-in link on the landing page).
 
 ### Deployment
 Pushing to `main` runs [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml):
