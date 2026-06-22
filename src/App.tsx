@@ -15,6 +15,7 @@ import { StaffAdmin } from './ui/admin/StaffAdmin';
 import { ProgramConfig } from './ui/admin/ProgramConfig';
 import { Stats } from './ui/admin/Stats';
 import { AuditLog } from './ui/admin/AuditLog';
+import { PairDevices } from './ui/common/PairDevices';
 import { CustomerHome } from './ui/customer/CustomerHome';
 import { SelfRegister } from './ui/customer/SelfRegister';
 import { Register } from './ui/customer/Register';
@@ -28,6 +29,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<CustomerHome />} />
         <Route path="/login" element={<LoginScreen />} />
+        <Route path="/pair" element={<PairDevices />} />
 
         {/* Staff */}
         <Route

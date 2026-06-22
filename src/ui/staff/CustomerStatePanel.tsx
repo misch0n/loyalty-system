@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useServices } from '../common/ServicesContext';
 import { useSession } from '../common/SessionContext';
+import { usePairing } from '../common/PairingContext';
 import { ProgressBar } from '../common/Progress';
 import { isValidAccrual } from '../../domain/loyalty';
 import type { CustomerState } from '../../services/LoyaltyService';
@@ -22,6 +23,7 @@ interface Props {
 export function CustomerStatePanel({ customerId, children }: Props) {
   const { loyalty } = useServices();
   const { actor } = useSession();
+  const { dataVersion } = usePairing();
   const [state, setState] = useState<CustomerState | null>(null);
   const [points, setPoints] = useState(1);
   const [flash, setFlash] = useState<string | null>(null);
@@ -34,9 +36,11 @@ export function CustomerStatePanel({ customerId, children }: Props) {
     if (next) setPoints(next.config.pointsPerPurchase);
   }, [loyalty, customerId]);
 
+  // Refetch on mount, and whenever paired data changes (e.g. the customer device
+  // acts while paired).
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, [refresh, dataVersion]);
 
   if (!state) return <p>Loading customer…</p>;
   if (state.customer.status === 'deleted') {

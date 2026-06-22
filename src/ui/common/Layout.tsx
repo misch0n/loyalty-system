@@ -7,6 +7,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useSession } from './SessionContext';
+import { usePairing } from './PairingContext';
 
 function NavTab({ to, children }: { to: string; children: ReactNode }) {
   return (
@@ -18,6 +19,7 @@ function NavTab({ to, children }: { to: string; children: ReactNode }) {
 
 export function Layout({ children }: { children: ReactNode }) {
   const { actor, logout } = useSession();
+  const { status: pairStatus, unpair } = usePairing();
   const location = useLocation();
   const inStaffArea = location.pathname.startsWith('/staff') || location.pathname.startsWith('/admin');
 
@@ -39,6 +41,21 @@ export function Layout({ children }: { children: ReactNode }) {
           <NavTab to="/admin/stats">Admin</NavTab>
           <NavTab to="/">Customer</NavTab>
         </nav>
+
+        <div className="pair-pill" title="Prototype device pairing (server stand-in)">
+          {pairStatus === 'paired' ? (
+            <>
+              <span className="who joined">● Paired</span>
+              <button type="button" className="link" onClick={unpair}>
+                Unpair
+              </button>
+            </>
+          ) : (
+            <NavTab to="/pair">
+              {pairStatus === 'hosting' || pairStatus === 'connecting' ? 'Pairing…' : 'Pair'}
+            </NavTab>
+          )}
+        </div>
 
         <div className="session-box">
           {actor ? (

@@ -10,6 +10,7 @@ import { App } from './App';
 import { createServices, type Services } from './services/Services';
 import { ServicesProvider } from './ui/common/ServicesContext';
 import { SessionProvider } from './ui/common/SessionContext';
+import { PairingProvider } from './ui/common/PairingContext';
 import './styles.css';
 
 function Root() {
@@ -26,9 +27,11 @@ function Root() {
   return (
     <ServicesProvider value={services}>
       <SessionProvider>
-        <HashRouter>
-          <App />
-        </HashRouter>
+        <PairingProvider>
+          <HashRouter>
+            <App />
+          </HashRouter>
+        </PairingProvider>
       </SessionProvider>
     </ServicesProvider>
   );

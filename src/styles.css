@@ -73,6 +73,10 @@ a.button {
 a.button:hover { filter: brightness(1.08); }
 a.button.primary { background: var(--accent); border-color: var(--accent); }
 
+/* Prototype pairing pill in the header. */
+.pair-pill { display: inline-flex; align-items: center; gap: 0.4rem; }
+.pair-pill .who.joined { color: var(--accent); font-weight: 600; }
+
 input, select {
   font: inherit;
   padding: 0.5rem;
@@ -268,7 +272,23 @@ label.checkbox input { width: auto; margin-top: 0.2rem; }
 .wallet-stubs { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.75rem 0; }
 .wallet-stubs button { background: #111; border-color: #111; }
 
-.scanner-region { width: 100%; max-width: 320px; margin: 0 auto 0.75rem; }
+.scanner-region {
+  width: 100%;
+  max-width: 320px;
+  min-height: 240px;
+  margin: 0 auto 0.75rem;
+  border: 2px solid var(--brand);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #000;
+}
+/* html5-qrcode injects a <video>; make the live preview fill the viewfinder. */
+.scanner-region video {
+  width: 100% !important;
+  height: auto !important;
+  display: block;
+}
+.scanner-region img { display: none; } /* hide the lib's info icon clutter */
 .manual-entry { display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; margin-top: 0.75rem; }
 .manual-entry label { margin: 0; flex: 1; }
 

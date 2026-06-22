@@ -21,6 +21,8 @@ import { ApiStore } from '../adapters/storage/ApiStore';
 import { EmailJsMailer } from '../adapters/email/EmailJsMailer';
 import { NoopMailer } from '../adapters/email/NoopMailer';
 import { LocalStorageIdentityStore } from '../adapters/identity/LocalStorageIdentityStore';
+import { createObservableStore } from '../adapters/sync/ObservableStore';
+import { createSwitchableStore } from '../adapters/sync/SwitchableStore';
 
 import { AuditService } from './AuditService';
 import { ConfigService } from './ConfigService';
@@ -29,11 +31,24 @@ import { CustomerService } from './CustomerService';
 import { LoyaltyService } from './LoyaltyService';
 import { RecoveryService } from './RecoveryService';
 
+/**
+ * Prototype sync kit — the seam that lets a paired device stand in for the
+ * server. `observable` is the local store wrapped to emit on every mutation (the
+ * host serves + watches it); `switchable` is the live store the services use —
+ * flipping its target to a remote peer-client routes all reads/writes to the
+ * paired host with no service/UI changes.
+ */
+export interface SyncKit {
+  observable: { store: DataStore; onMutate(cb: () => void): () => void };
+  switchable: { store: DataStore; setTarget(t: DataStore): void; getTarget(): DataStore };
+}
+
 export interface Services {
   store: DataStore;
   transport: Transport;
   mailer: Mailer;
   identity: IdentityStore;
+  sync: SyncKit;
   audit: AuditService;
   config: ConfigService;
   staff: StaffService;
@@ -74,7 +89,14 @@ function createIdentityStore(): IdentityStore {
 }
 
 export async function createServices(): Promise<Services> {
-  const store = createStore();
+  // Local store → observable (emits on mutation) → switchable (the live target).
+  // Services bind to the switchable store, so pairing can re-point it at a remote
+  // peer-client without touching any service or screen.
+  const local = createStore();
+  const observable = createObservableStore(local);
+  const switchable = createSwitchableStore(observable.store);
+  const store = switchable.store;
+
   const transport = await createTransport();
   const mailer = createMailer();
   const identity = createIdentityStore();
@@ -84,6 +106,7 @@ export async function createServices(): Promise<Services> {
     transport,
     mailer,
     identity,
+    sync: { observable, switchable },
     audit,
     config: new ConfigService(store, audit),
     staff: new StaffService(store, audit),
