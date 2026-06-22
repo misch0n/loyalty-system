@@ -122,7 +122,9 @@ export function PairingProvider({ children }: { children: ReactNode }) {
         bump(); // first refresh now reads from the paired host
       } catch {
         services.sync.switchable.setTarget(services.sync.observable.store);
-        setError('Could not pair with the till. Make sure the code is current and try again.');
+        setError(
+          'Couldn’t connect to the till. Have staff re-open the pairing code, check both devices are online, then scan again.',
+        );
         setStatus('error');
         setRole(null);
       }

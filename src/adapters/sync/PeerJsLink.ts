@@ -11,13 +11,28 @@ import Peer, { type DataConnection } from 'peerjs';
 import { iceServers } from '../../config/env';
 import type { LinkState, PeerLink } from './PeerLink';
 
+/** Give ICE/TURN negotiation time, but never hang "Connecting…" forever. */
+const CONNECT_TIMEOUT_MS = 25_000;
+
 export class PeerJsLink implements PeerLink {
   private conn: DataConnection | null = null;
   private _state: LinkState = 'connecting';
   private readonly messageHandlers = new Set<(m: unknown) => void>();
   private readonly stateHandlers = new Set<(s: LinkState) => void>();
 
-  private constructor(private readonly peer: Peer) {}
+  private constructor(private readonly peer: Peer) {
+    // The public PeerJS broker drops idle peers; if the host falls off the broker
+    // a later join fails with 'peer-unavailable'. Reconnect to stay reachable.
+    peer.on('disconnected', () => {
+      if (this._state !== 'closed') {
+        try {
+          peer.reconnect();
+        } catch {
+          /* already reconnecting or destroyed */
+        }
+      }
+    });
+  }
 
   get state(): LinkState {
     return this._state;
@@ -52,8 +67,19 @@ export class PeerJsLink implements PeerLink {
     link.attach(conn);
     await new Promise<void>((resolve, reject) => {
       if (conn.open) return resolve();
-      conn.on('open', () => resolve());
-      conn.on('error', (err) => reject(err));
+      const timer = setTimeout(
+        () => reject(new Error('Timed out connecting to the till.')),
+        CONNECT_TIMEOUT_MS,
+      );
+      const settle = (run: () => void) => {
+        clearTimeout(timer);
+        run();
+      };
+      conn.on('open', () => settle(resolve));
+      conn.on('error', (err) => settle(() => reject(err)));
+      // A missing/stale host id surfaces as a PEER error ('peer-unavailable'),
+      // not a connection error — without this the join would hang silently.
+      peer.on('error', (err) => settle(() => reject(err)));
     });
     return link;
   }
