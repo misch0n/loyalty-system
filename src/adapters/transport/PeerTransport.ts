@@ -1,27 +1,32 @@
 /**
- * DEVELOPMENT-ONLY transport stub — not for production.
+ * PeerTransport — the prototype's REAL cross-device registration transport.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * This adapter exists ONLY for live two-device demos: a real customer phone and
- * a real staff device talking over PeerJS / WebRTC. It is:
- *   • selected ONLY when `import.meta.env.VITE_DEV_TRANSPORT === 'peer'`
- *     (and never in a production build — see config/env.ts + the composition root),
- *   • lazy-imported so it tree-shakes out of the default bundle,
- *   • a demo scaffold, NOT a shipping transport.
+ * PROTOTYPE-ONLY (not throwaway mock): a real customer phone and a real staff
+ * device talk over PeerJS / WebRTC. The staff device opens a session; the QR it
+ * shows carries the page URL + peer id; the customer's phone opens it, connects
+ * back, and registration details flow over the P2P channel.
  *
- * Production replaces this seam entirely with the real server-mediated
- * registration flow. Do not build production features on top of it.
+ *   • Signaling: public PeerJS broker.
+ *   • Relay: TURN (see config/env `iceServers`) — MANDATORY for the typical demo
+ *     where customer is on cellular and staff on wifi; without it NAT traversal
+ *     silently fails.
+ *
+ * Production replaces this seam entirely with the server-mediated flow (the
+ * customer's browser hits a real server URL). Same `Transport` interface; swap
+ * the adapter in the composition root.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import Peer, { type DataConnection } from 'peerjs';
+import { iceServers } from '../../config/env';
 import type {
   CustomerJoinedHandler,
   CustomerSubmittedHandler,
   RegistrationDetails,
   RegistrationSession,
   Transport,
-} from '../../../ports/Transport';
+} from '../../ports/Transport';
 
 type PeerMessage =
   | { kind: 'joined'; sessionId: string }
@@ -38,9 +43,9 @@ export class PeerTransport implements Transport {
 
   private ensurePeer(): Peer {
     if (!this.peer) {
-      // Public PeerJS broker; a TURN server would be configured here for relay
-      // in a real two-device demo behind NAT.
-      this.peer = new Peer();
+      // Public PeerJS broker for signaling; TURN relay supplied via iceServers so
+      // the connection survives cross-network NAT (cellular ↔ wifi).
+      this.peer = new Peer(undefined as unknown as string, { config: { iceServers } });
       this.peer.on('connection', (conn) => this.registerConnection(conn));
     }
     return this.peer;

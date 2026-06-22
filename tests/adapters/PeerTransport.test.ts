@@ -1,8 +1,8 @@
 /**
- * The PeerJS transport is DEV-ONLY demo scaffolding, but its message-routing
- * logic still deserves regression cover. We mock `peerjs` with an in-memory fake
- * peer/connection so the routing, session payloads, broadcast and teardown can
- * be driven without any real WebRTC networking.
+ * PeerTransport is the prototype's real cross-device transport; its
+ * message-routing logic deserves regression cover. We mock `peerjs` with an
+ * in-memory fake peer/connection so the routing, session payloads, broadcast and
+ * teardown can be driven without any real WebRTC networking.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -59,7 +59,7 @@ const fake = vi.hoisted(() => {
 
 vi.mock('peerjs', () => ({ default: fake.FakePeer }));
 
-import { PeerTransport } from '../../src/adapters/transport/dev/PeerTransport';
+import { PeerTransport } from '../../src/adapters/transport/PeerTransport';
 
 beforeEach(() => {
   fake.FakePeer.instances = [];

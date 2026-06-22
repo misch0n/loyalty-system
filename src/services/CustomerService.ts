@@ -8,7 +8,7 @@
 import type { Customer } from '../domain/models';
 import type { CustomerPatch, DataStore } from '../ports/DataStore';
 import type { RegistrationDetails } from '../ports/Transport';
-import { generateToken } from '../domain/tokens';
+import { generateToken, isValidToken } from '../domain/tokens';
 import {
   findDuplicates,
   isRecoverable,
@@ -17,7 +17,7 @@ import {
   type FieldError,
 } from '../domain/validation';
 import type { AuditService } from './AuditService';
-import type { Actor } from './types';
+import { SYSTEM_ACTOR, type Actor } from './types';
 
 export interface RegistrationResult {
   ok: boolean;
@@ -38,6 +38,52 @@ export class CustomerService {
   async issueCard(actor: Actor): Promise<Customer> {
     const customer = await this.store.createCustomer({ token: generateToken() });
     await this.audit.log(actor, 'card.issue', customer.id);
+    return customer;
+  }
+
+  /**
+   * Self-service registration (the primary path): the customer creates their own
+   * card from their own device in one step — token + optional details + consent.
+   * No staff actor and no approval queue; an empty card is harmless until a staff
+   * member commits a real point. Converges on the same validation/audit pipeline
+   * as staff-initiated registration. Returns the created customer (with token).
+   */
+  async selfRegister(details: RegistrationDetails): Promise<RegistrationResult> {
+    const errors = validateRegistration(details);
+    if (errors.length > 0) return { ok: false, errors };
+
+    const customer = await this.store.createCustomer({
+      token: generateToken(),
+      displayName: details.displayName?.trim() || undefined,
+      email: details.email?.trim() || undefined,
+      phone: details.phone?.trim() || undefined,
+      consentAt: new Date().toISOString(),
+    });
+
+    await this.audit.log(SYSTEM_ACTOR, 'card.issue', customer.id, 'self-register');
+    await this.audit.log(
+      SYSTEM_ACTOR,
+      'customer.register',
+      customer.id,
+      isTokenOnly(details) ? 'token-only' : 'with-details',
+    );
+    return { ok: true, customer };
+  }
+
+  /**
+   * Auto-provision on scan. Because each device has its own store, a card created
+   * elsewhere (e.g. self-registered on the customer's phone) won't exist in the
+   * staff device's store the first time it's scanned. If the scanned token is
+   * well-formed but unknown here, create a token-only card for it so staff can
+   * credit it. Staff still initiates the credit — this only makes the card known.
+   */
+  async provisionFromToken(actor: Actor, token: string): Promise<Customer> {
+    const existing = await this.store.getCustomerByToken(token);
+    if (existing) return existing;
+    if (!isValidToken(token)) throw new Error('That is not a valid card code.');
+
+    const customer = await this.store.createCustomer({ token });
+    await this.audit.log(actor, 'card.provision', customer.id, 'scan');
     return customer;
   }
 

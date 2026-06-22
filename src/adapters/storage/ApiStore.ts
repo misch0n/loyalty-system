@@ -16,6 +16,7 @@ import type {
   AppendTransactionInput,
   AuditFilter,
   CreateCustomerInput,
+  CreateRecoveryCodeInput,
   CreateStaffInput,
   CustomerPatch,
   CustomerQuery,
@@ -97,6 +98,13 @@ export class ApiStore implements DataStore {
   }
   redeemReward(customerId: string, staffId: string): Promise<RedeemResult> {
     return this.request('POST', `/customers/${customerId}/redeem`, { staffId });
+  }
+
+  createRecoveryCode(input: CreateRecoveryCodeInput): Promise<void> {
+    return this.request('POST', '/recovery-codes', input);
+  }
+  consumeRecoveryCode(code: string): Promise<string | null> {
+    return this.request('POST', '/recovery-codes/consume', { code });
   }
 
   createStaff(input: CreateStaffInput): Promise<StaffAccount> {

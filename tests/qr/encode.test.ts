@@ -6,8 +6,12 @@ describe('payloads', () => {
     expect(cardPayload('abc123')).toBe('abc123');
   });
 
-  it('registration payload carries the transport join payload verbatim', () => {
-    expect(registrationPayload('register/sess-1')).toBe('register/sess-1');
+  it('registration payload wraps the peer id into the full register URL', () => {
+    const url = registrationPayload('peer:sess-1');
+    // Absolute URL into the HashRouter register route, peer prefix stripped.
+    expect(url).toContain('#/register/sess-1');
+    expect(url.startsWith('http')).toBe(true);
+    expect(url).not.toContain('peer:');
   });
 });
 

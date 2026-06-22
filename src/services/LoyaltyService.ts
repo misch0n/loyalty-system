@@ -6,6 +6,7 @@
 
 import type { Customer, LoyaltyTransaction, ProgramConfig } from '../domain/models';
 import type { DataStore, RedeemResult } from '../ports/DataStore';
+import type { Mailer } from '../ports/Mailer';
 import {
   balance,
   clampAccrual,
@@ -13,6 +14,7 @@ import {
   rewardAvailable,
   type Progress,
 } from '../domain/loyalty';
+import { appUrl } from '../config/links';
 import type { AuditService } from './AuditService';
 import type { Actor } from './types';
 
@@ -29,6 +31,8 @@ export class LoyaltyService {
   constructor(
     private readonly store: DataStore,
     private readonly audit: AuditService,
+    /** Optional: when present, reward-available notifications are emailed. */
+    private readonly mailer?: Mailer,
   ) {}
 
   /** Resolve full derived state for a customer (by token, for staff scan). */
@@ -88,6 +92,7 @@ export class LoyaltyService {
   ): Promise<LoyaltyTransaction> {
     const config = await this.store.getConfig();
     const points = clampAccrual(requestedPoints, config);
+    const before = balance(await this.store.listTransactions(customerId));
     const tx = await this.store.appendTransaction({
       customerId,
       type: 'accrual',
@@ -96,7 +101,40 @@ export class LoyaltyService {
       note,
     });
     await this.audit.log(actor, 'loyalty.accrue', customerId, `+${points}`);
+
+    // Notify on the threshold crossing only (no repeat once already available).
+    // Awaited but self-contained: notifyRewardAvailable never throws, so a failed
+    // send cannot break the accrual.
+    if (!rewardAvailable(before, config) && rewardAvailable(before + points, config)) {
+      await this.notifyRewardAvailable(customerId);
+    }
     return tx;
+  }
+
+  /** Best-effort reward-available email. Never blocks or fails an accrual. */
+  private async notifyRewardAvailable(customerId: string): Promise<void> {
+    if (!this.mailer) return;
+    try {
+      const [customer, config] = await Promise.all([
+        this.store.getCustomerById(customerId),
+        this.store.getConfig(),
+      ]);
+      if (!customer || customer.status !== 'active' || !customer.email) return;
+      const link = appUrl(`/status/${customer.token}`);
+      await this.mailer.send({
+        to: customer.email,
+        kind: 'reward-available',
+        params: {
+          reward: config.rewardDescription,
+          card_link: link,
+          subject: `Your ${config.rewardDescription} is ready`,
+          message: `You've earned a reward: ${config.rewardDescription}. Show your card on your next visit to redeem it.\n\nView your card: ${link}`,
+        },
+      });
+    } catch {
+      // Transactional email is a best-effort side channel. Swallow failures and
+      // do NOT log — an error could carry the recipient address (PII).
+    }
   }
 
   /** Redeem one reward. Delegates the atomic check+write to the store. */

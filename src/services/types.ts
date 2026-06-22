@@ -8,3 +8,9 @@ export interface Actor {
   username: string;
   role: StaffRole;
 }
+
+/**
+ * The system itself as the audit actor, for customer-initiated actions that have
+ * no staff behind them (self-registration, self-service recovery).
+ */
+export const SYSTEM_ACTOR = { id: 'system', role: 'system' as const };

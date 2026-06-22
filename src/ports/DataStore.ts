@@ -71,6 +71,12 @@ export interface AuditFilter {
   limit?: number;
 }
 
+export interface CreateRecoveryCodeInput {
+  code: string; // opaque random secret (the link/code value)
+  customerId: string;
+  expiresAt: number; // epoch ms
+}
+
 export interface DataStore {
   // ── customers ────────────────────────────────────────────────────────────
   createCustomer(input: CreateCustomerInput): Promise<Customer>;
@@ -99,6 +105,15 @@ export interface DataStore {
   listStaff(): Promise<StaffAccount[]>;
   getConfig(): Promise<ProgramConfig>;
   updateConfig(patch: Partial<ProgramConfig>): Promise<ProgramConfig>;
+
+  // ── recovery codes (single-use, short-expiry) ──────────────────────────────
+  createRecoveryCode(input: CreateRecoveryCodeInput): Promise<void>;
+  /**
+   * Atomically validate + consume a recovery code. Returns the customerId if the
+   * code exists, is unused, and is unexpired (marking it used in the same
+   * transaction); otherwise returns null. Single-use: a second consume returns null.
+   */
+  consumeRecoveryCode(code: string): Promise<string | null>;
 
   // ── audit ──────────────────────────────────────────────────────────────────
   appendAudit(entry: AppendAuditInput): Promise<void>;

@@ -15,9 +15,20 @@ import type {
 } from '../../domain/models';
 
 export const DB_NAME = 'cafe-loyalty';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export const CONFIG_KEY = 'singleton';
+
+/**
+ * A single-use, short-expiry recovery code. Maps an opaque random secret to a
+ * customerId only — never any PII. Consumed atomically (see IndexedDbStore).
+ */
+export interface RecoveryCodeRecord {
+  code: string;
+  customerId: string;
+  expiresAt: number; // epoch ms
+  usedAt?: number; // epoch ms; set once on consume
+}
 
 export interface LoyaltyDB extends DBSchema {
   config: {
@@ -43,6 +54,10 @@ export interface LoyaltyDB extends DBSchema {
     key: string;
     value: AuditLogEntry;
     indexes: { byTimestamp: string; byAction: string };
+  };
+  recoveryCodes: {
+    key: string;
+    value: RecoveryCodeRecord;
   };
 }
 

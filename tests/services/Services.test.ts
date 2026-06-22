@@ -1,13 +1,13 @@
 /**
  * Composition root smoke test. Verifies the default wiring resolves a complete,
- * working service graph (IndexedDbStore + LocalBridgeTransport) — the path the
- * app actually boots through.
+ * working service graph (IndexedDbStore + PeerTransport) — the path the app
+ * actually boots through outside production.
  */
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createServices } from '../../src/services/Services';
-import { LocalBridgeTransport } from '../../src/adapters/transport/LocalBridgeTransport';
+import { PeerTransport } from '../../src/adapters/transport/PeerTransport';
 
 beforeEach(() => {
   // Fresh IndexedDB so the seed runs cleanly for each construction.
@@ -23,8 +23,11 @@ describe('createServices', () => {
     expect(services.staff).toBeDefined();
     expect(services.customers).toBeDefined();
     expect(services.loyalty).toBeDefined();
-    // Default transport is the in-browser bridge (peer is dev-only/opt-in).
-    expect(services.transport).toBeInstanceOf(LocalBridgeTransport);
+    expect(services.recovery).toBeDefined();
+    expect(services.mailer).toBeDefined();
+    expect(services.identity).toBeDefined();
+    // Prototype transport is the real PeerJS adapter (production swaps it).
+    expect(services.transport).toBeInstanceOf(PeerTransport);
   });
 
   it('produces services that share one store (an action is visible end-to-end)', async () => {

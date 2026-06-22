@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { freshServices, STAFF } from '../helpers/freshStore';
+import { SpyMailer } from '../helpers/spyMailer';
 import type { LoyaltyService } from '../../src/services/LoyaltyService';
 import type { CustomerService } from '../../src/services/CustomerService';
 
@@ -62,6 +63,38 @@ describe('redemption', () => {
     expect(succeeded).toHaveLength(1);
     const state = await loyalty.getStateById(customerId);
     expect(state?.balance).toBe(0);
+  });
+});
+
+describe('reward-available notification', () => {
+  it('emails the customer once when the accrual crosses the threshold', async () => {
+    const mailer = new SpyMailer();
+    const services = freshServices(mailer);
+    const shell = await services.customers.issueCard(STAFF);
+    await services.customers.finalizeRegistration(STAFF, shell.id, {
+      email: 'reward@cafe.test',
+      consent: true,
+    });
+
+    // Default threshold 9, cap 3 per accrual.
+    await services.loyalty.accrue(STAFF, shell.id, 3); // 3
+    await services.loyalty.accrue(STAFF, shell.id, 3); // 6
+    expect(mailer.sent).toHaveLength(0);
+    await services.loyalty.accrue(STAFF, shell.id, 3); // 9 — crosses
+    expect(mailer.sent).toHaveLength(1);
+    expect(mailer.sent[0].kind).toBe('reward-available');
+    expect(mailer.sent[0].to).toBe('reward@cafe.test');
+
+    await services.loyalty.accrue(STAFF, shell.id, 3); // 12 — already available, no repeat
+    expect(mailer.sent).toHaveLength(1);
+  });
+
+  it('does not email a token-only customer (no contact detail)', async () => {
+    const mailer = new SpyMailer();
+    const services = freshServices(mailer);
+    const shell = await services.customers.issueCard(STAFF);
+    for (let i = 0; i < 3; i++) await services.loyalty.accrue(STAFF, shell.id, 3);
+    expect(mailer.sent).toHaveLength(0);
   });
 });
 

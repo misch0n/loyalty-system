@@ -16,6 +16,7 @@ import type {
   AppendTransactionInput,
   AuditFilter,
   CreateCustomerInput,
+  CreateRecoveryCodeInput,
   CreateStaffInput,
   CustomerPatch,
   CustomerQuery,
@@ -40,6 +41,7 @@ import {
   DEFAULT_CONFIG,
   SEED_STAFF,
   type LoyaltyDB,
+  type RecoveryCodeRecord,
 } from './schema';
 
 export class IndexedDbStore implements DataStore {
@@ -51,22 +53,28 @@ export class IndexedDbStore implements DataStore {
 
   private async open(): Promise<IDBPDatabase<LoyaltyDB>> {
     const db = await openDB<LoyaltyDB>(DB_NAME, DB_VERSION, {
-      upgrade(database) {
-        database.createObjectStore('config', { keyPath: 'id' });
+      upgrade(database, oldVersion) {
+        if (oldVersion < 1) {
+          database.createObjectStore('config', { keyPath: 'id' });
 
-        const staff = database.createObjectStore('staff', { keyPath: 'id' });
-        staff.createIndex('byUsername', 'username', { unique: true });
+          const staff = database.createObjectStore('staff', { keyPath: 'id' });
+          staff.createIndex('byUsername', 'username', { unique: true });
 
-        const customers = database.createObjectStore('customers', { keyPath: 'id' });
-        customers.createIndex('byToken', 'token', { unique: true });
-        customers.createIndex('byStatus', 'status');
+          const customers = database.createObjectStore('customers', { keyPath: 'id' });
+          customers.createIndex('byToken', 'token', { unique: true });
+          customers.createIndex('byStatus', 'status');
 
-        const transactions = database.createObjectStore('transactions', { keyPath: 'id' });
-        transactions.createIndex('byCustomer', 'customerId');
+          const transactions = database.createObjectStore('transactions', { keyPath: 'id' });
+          transactions.createIndex('byCustomer', 'customerId');
 
-        const audit = database.createObjectStore('audit', { keyPath: 'id' });
-        audit.createIndex('byTimestamp', 'timestamp');
-        audit.createIndex('byAction', 'action');
+          const audit = database.createObjectStore('audit', { keyPath: 'id' });
+          audit.createIndex('byTimestamp', 'timestamp');
+          audit.createIndex('byAction', 'action');
+        }
+        if (oldVersion < 2) {
+          // Recovery codes keyed by the opaque code itself (no PII stored).
+          database.createObjectStore('recoveryCodes', { keyPath: 'code' });
+        }
       },
     });
 
@@ -235,6 +243,33 @@ export class IndexedDbStore implements DataStore {
     await tx.done;
 
     return { ok: true, transaction: entry, balance: current + decision.delta };
+  }
+
+  // ── recovery codes (single-use, short-expiry) ──────────────────────────────
+
+  async createRecoveryCode(input: CreateRecoveryCodeInput): Promise<void> {
+    const db = await this.dbPromise;
+    const record: RecoveryCodeRecord = {
+      code: input.code,
+      customerId: input.customerId,
+      expiresAt: input.expiresAt,
+    };
+    await db.add('recoveryCodes', record);
+  }
+
+  async consumeRecoveryCode(code: string): Promise<string | null> {
+    const db = await this.dbPromise;
+    // Single IndexedDB transaction = atomic check (exists/unused/unexpired)
+    // plus mark-used write, mirroring redeemReward's no-double-spend pattern.
+    const tx = db.transaction('recoveryCodes', 'readwrite');
+    const record = await tx.store.get(code);
+    if (!record || record.usedAt !== undefined || record.expiresAt <= Date.now()) {
+      await tx.done;
+      return null;
+    }
+    await tx.store.put({ ...record, usedAt: Date.now() });
+    await tx.done;
+    return record.customerId;
   }
 
   // ── staff & config ──────────────────────────────────────────────────────────

@@ -41,6 +41,8 @@ const calls: Array<[string, (s: DataStore) => Promise<unknown>]> = [
   ['appendTransaction', (s) => s.appendTransaction({ customerId: 'c', type: 'accrual', points: 1, staffId: 's' })],
   ['listTransactions', (s) => s.listTransactions('c')],
   ['redeemReward', (s) => s.redeemReward('c', 's')],
+  ['createRecoveryCode', (s) => s.createRecoveryCode({ code: 'r', customerId: 'c', expiresAt: 1 })],
+  ['consumeRecoveryCode', (s) => s.consumeRecoveryCode('r')],
   ['createStaff', (s) => s.createStaff({ username: 'u', passwordHash: 'p', role: 'staff' })],
   ['getStaffByUsername', (s) => s.getStaffByUsername('u')],
   ['setStaffActive', (s) => s.setStaffActive('id', true)],

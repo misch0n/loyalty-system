@@ -46,6 +46,52 @@ describe('finalizeRegistration', () => {
   });
 });
 
+describe('selfRegister (self-service primary path)', () => {
+  it('creates a card with token, details and consent in one step', async () => {
+    const result = await customers.selfRegister({
+      displayName: 'Sam',
+      email: 'sam@cafe.test',
+      consent: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.customer?.token).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(result.customer?.consentAt).toBeTruthy();
+    expect(customers.canRecover(result.customer!)).toBe(true);
+  });
+
+  it('allows a token-only self-registration', async () => {
+    const result = await customers.selfRegister({ consent: true });
+    expect(result.ok).toBe(true);
+    expect(customers.canRecover(result.customer!)).toBe(false);
+  });
+
+  it('rejects self-registration without consent', async () => {
+    const result = await customers.selfRegister({ email: 'x@cafe.test', consent: false });
+    expect(result.ok).toBe(false);
+    expect(result.errors?.some((e) => e.field === 'consent')).toBe(true);
+  });
+});
+
+describe('provisionFromToken (auto-provision on scan)', () => {
+  it('creates a token-only card for an unknown well-formed token', async () => {
+    const token = 'A'.repeat(22);
+    const provisioned = await customers.provisionFromToken(STAFF, token);
+    expect(provisioned.token).toBe(token);
+    expect(provisioned.status).toBe('active');
+    expect(await customers.getByToken(token)).toMatchObject({ id: provisioned.id });
+  });
+
+  it('returns the existing card when the token is already known (no duplicate)', async () => {
+    const shell = await customers.issueCard(STAFF);
+    const again = await customers.provisionFromToken(STAFF, shell.token);
+    expect(again.id).toBe(shell.id);
+  });
+
+  it('rejects a malformed token', async () => {
+    await expect(customers.provisionFromToken(STAFF, 'not-a-token')).rejects.toThrow();
+  });
+});
+
 describe('checkDuplicates', () => {
   it('warns when details match an existing active customer', async () => {
     const shell = await customers.issueCard(STAFF);
