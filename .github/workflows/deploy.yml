@@ -19,6 +19,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The prototype's build-time secrets (EmailJS, TURN) live on the github-pages
+    # environment, so the build job must declare it to read them — otherwise the
+    # VITE_* values bake in empty and email/relay silently degrade.
+    environment: github-pages
     steps:
       - name: Checkout
         uses: actions/checkout@v4
