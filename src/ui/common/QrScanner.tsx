@@ -13,11 +13,13 @@ interface Props {
   onResult: (text: string) => void;
   /** Label for the manual field, e.g. "Customer token" or "Session code". */
   manualLabel?: string;
+  /** Hide the type/paste fallback (e.g. pairing, where there's no code to type). */
+  allowManual?: boolean;
 }
 
 const ELEMENT_ID = 'qr-scanner-region';
 
-export function QrScanner({ onResult, manualLabel = 'Customer token' }: Props) {
+export function QrScanner({ onResult, manualLabel = 'Customer token', allowManual = true }: Props) {
   const [scanning, setScanning] = useState(false);
   const [manual, setManual] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +74,7 @@ export function QrScanner({ onResult, manualLabel = 'Customer token' }: Props) {
         )}
       </div>
       {error && <p className="error">{error}</p>}
+      {allowManual && (
       <form className="manual-entry" onSubmit={submitManual}>
         <label>
           {manualLabel}
@@ -86,6 +89,7 @@ export function QrScanner({ onResult, manualLabel = 'Customer token' }: Props) {
           Look up
         </button>
       </form>
+      )}
     </div>
   );
 }

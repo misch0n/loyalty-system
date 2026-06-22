@@ -23,6 +23,7 @@ import { NoopMailer } from '../adapters/email/NoopMailer';
 import { LocalStorageIdentityStore } from '../adapters/identity/LocalStorageIdentityStore';
 import { createObservableStore } from '../adapters/sync/ObservableStore';
 import { createSwitchableStore } from '../adapters/sync/SwitchableStore';
+import { DB_NAME } from '../adapters/storage/schema';
 
 import { AuditService } from './AuditService';
 import { ConfigService } from './ConfigService';
@@ -55,6 +56,8 @@ export interface Services {
   customers: CustomerService;
   loyalty: LoyaltyService;
   recovery: RecoveryService;
+  /** Prototype-only: wipe this device's local store (used by the Reset action). */
+  reset(): Promise<void>;
 }
 
 function createStore(): DataStore {
@@ -113,5 +116,15 @@ export async function createServices(): Promise<Services> {
     customers: new CustomerService(store, audit),
     loyalty: new LoyaltyService(store, audit, mailer),
     recovery: new RecoveryService(store, mailer, audit),
+    reset: async () => {
+      // Close our connection first so deleteDatabase isn't blocked, then drop it.
+      await (local as { close?: () => Promise<void> }).close?.();
+      await new Promise<void>((resolve) => {
+        const req = indexedDB.deleteDatabase(DB_NAME);
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+        req.onblocked = () => resolve();
+      });
+    },
   };
 }

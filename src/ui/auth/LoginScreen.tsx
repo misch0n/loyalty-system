@@ -12,8 +12,9 @@ export function LoginScreen() {
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? '/staff';
 
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  // Prefilled for the demo — staff by default; one tap fills admin.
+  const [username, setUsername] = useState('staff');
+  const [password, setPassword] = useState('staff');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -34,9 +35,15 @@ export function LoginScreen() {
     }
   }
 
+  function fill(role: 'staff' | 'admin') {
+    setUsername(role);
+    setPassword(role);
+    setError(null);
+  }
+
   return (
     <div className="card auth-card">
-      <h1>Staff sign in</h1>
+      <h1>Staff / admin sign in</h1>
       <form onSubmit={onSubmit}>
         <label>
           Username
@@ -62,7 +69,15 @@ export function LoginScreen() {
         </button>
       </form>
       <p className="hint">
-        Demo accounts: <code>admin / admin</code> or <code>staff / staff</code>.
+        Demo accounts:{' '}
+        <button type="button" className="link" onClick={() => fill('staff')}>
+          staff
+        </button>{' '}
+        or{' '}
+        <button type="button" className="link" onClick={() => fill('admin')}>
+          admin
+        </button>{' '}
+        (admin unlocks the full program + audit tools).
       </p>
     </div>
   );

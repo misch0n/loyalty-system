@@ -51,6 +51,12 @@ export class IndexedDbStore implements DataStore {
     this.dbPromise = this.open();
   }
 
+  /** Close the underlying connection so a prototype reset can delete the DB. */
+  async close(): Promise<void> {
+    const db = await this.dbPromise;
+    db.close();
+  }
+
   private async open(): Promise<IDBPDatabase<LoyaltyDB>> {
     const db = await openDB<LoyaltyDB>(DB_NAME, DB_VERSION, {
       upgrade(database, oldVersion) {

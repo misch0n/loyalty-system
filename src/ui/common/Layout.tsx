@@ -4,10 +4,10 @@
  * areas and the customer view during a demo; real devices use one area each.
  */
 
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, Link, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useSession } from './SessionContext';
-import { usePairing } from './PairingContext';
+import { PrototypeMenu } from './PrototypeMenu';
 
 function NavTab({ to, children }: { to: string; children: ReactNode }) {
   return (
@@ -19,7 +19,6 @@ function NavTab({ to, children }: { to: string; children: ReactNode }) {
 
 export function Layout({ children }: { children: ReactNode }) {
   const { actor, logout } = useSession();
-  const { status: pairStatus, unpair } = usePairing();
   const location = useLocation();
   const inStaffArea = location.pathname.startsWith('/staff') || location.pathname.startsWith('/admin');
 
@@ -27,34 +26,13 @@ export function Layout({ children }: { children: ReactNode }) {
     <div className="app-shell">
       <header className="app-header">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            ☕
-          </span>
-          <span>Café Loyalty</span>
-          <span className="proto-tag" title="Prototype — demo data only">
-            prototype
-          </span>
-        </div>
-
-        <nav className="device-switcher" aria-label="Demo device">
-          <NavTab to="/staff">Staff</NavTab>
-          <NavTab to="/admin/stats">Admin</NavTab>
-          <NavTab to="/">Customer</NavTab>
-        </nav>
-
-        <div className="pair-pill" title="Prototype device pairing (server stand-in)">
-          {pairStatus === 'paired' ? (
-            <>
-              <span className="who joined">● Paired</span>
-              <button type="button" className="link" onClick={unpair}>
-                Unpair
-              </button>
-            </>
-          ) : (
-            <NavTab to="/pair">
-              {pairStatus === 'hosting' || pairStatus === 'connecting' ? 'Pairing…' : 'Pair'}
-            </NavTab>
-          )}
+          <Link to="/" className="brand-home" aria-label="Home">
+            <span className="brand-mark" aria-hidden="true">
+              ☕
+            </span>
+            <span>Café Loyalty</span>
+          </Link>
+          <PrototypeMenu />
         </div>
 
         <div className="session-box">
