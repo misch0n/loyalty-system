@@ -37,6 +37,18 @@ jobs:
 
       - name: Build
         run: npm run build
+        # Prototype secrets are injected at build time from repository secrets and
+        # baked into the static bundle (no server exists). They are exposed to
+        # anyone who reads the bundle — keep them throwaway/rate-limited and rotate
+        # after demos. EmailJS enables recovery + notification email; the TURN
+        # credentials enable cross-network (cellular ↔ wifi) PeerJS relay.
+        env:
+          VITE_EMAILJS_SERVICE_ID: ${{ secrets.VITE_EMAILJS_SERVICE_ID }}
+          VITE_EMAILJS_TEMPLATE_ID: ${{ secrets.VITE_EMAILJS_TEMPLATE_ID }}
+          VITE_EMAILJS_PUBLIC_KEY: ${{ secrets.VITE_EMAILJS_PUBLIC_KEY }}
+          VITE_TURN_HOST: ${{ secrets.VITE_TURN_HOST }}
+          VITE_TURN_USERNAME: ${{ secrets.VITE_TURN_USERNAME }}
+          VITE_TURN_CREDENTIAL: ${{ secrets.VITE_TURN_CREDENTIAL }}
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
