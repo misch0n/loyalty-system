@@ -77,6 +77,14 @@ a.button.primary { background: var(--accent); border-color: var(--accent); }
 .pair-pill { display: inline-flex; align-items: center; gap: 0.4rem; }
 .pair-pill .who.joined { color: var(--accent); font-weight: 600; }
 
+/* "Lost your card?" — a quiet fallback at the very end of the join form. */
+.recover-link {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  text-align: center;
+}
+
 input, select {
   font: inherit;
   padding: 0.5rem;

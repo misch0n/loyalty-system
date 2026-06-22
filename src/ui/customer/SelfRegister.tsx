@@ -104,8 +104,8 @@ export function SelfRegister() {
         </button>
       </form>
 
-      <p className="muted small">
-        Already joined?&nbsp;<Link to="/recover">Recover your card</Link>.
+      <p className="muted small recover-link">
+        Lost your card?&nbsp;<Link to="/recover">Recover it by email</Link>.
       </p>
     </div>
   );
