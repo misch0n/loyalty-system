@@ -14,6 +14,7 @@ import { usePairing } from './PairingContext';
 import { QrDisplay } from './QrDisplay';
 import { QrScanner } from './QrScanner';
 import { appUrl } from '../../config/links';
+import { turnConfigured } from '../../config/env';
 
 /** Accept either a bare peer id or a full pairing URL carrying `?host=`. */
 function hostIdFrom(text: string): string {
@@ -30,6 +31,16 @@ export function PairDevices() {
 
   const isStaff = Boolean(actor);
   const hostParam = params.get('host');
+
+  // Cross-network pairing needs a TURN relay; without it only same-network works.
+  // Surfacing this turns a silent connection failure into a clear cause.
+  const turnWarning = !turnConfigured ? (
+    <p className="warn">
+      Relay (TURN) isn’t configured in this build, so pairing only works when both devices are on
+      the <strong>same network</strong>. For different networks (e.g. one on cellular), set TURN
+      credentials and redeploy.
+    </p>
+  ) : null;
 
   // Staff: open a pairing session automatically. Customer with a scanned-URL
   // host param: auto-join once.
@@ -74,6 +85,7 @@ export function PairDevices() {
           Prototype only: have the customer open <strong>Pair with the till</strong> and scan this
           code. It stands in for the server so their screen updates as you add points.
         </p>
+        {turnWarning}
         {error && <p className="error">{error}</p>}
         {peerId ? (
           <>
@@ -102,6 +114,7 @@ export function PairDevices() {
         Point your camera at the pairing code on the staff screen. While paired, your points update
         the moment staff add them.
       </p>
+      {turnWarning}
       {error && <p className="error">{error}</p>}
       {status === 'connecting' ? (
         <p className="status waiting">Connecting to the till…</p>
