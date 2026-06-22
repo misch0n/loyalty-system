@@ -19,8 +19,11 @@ A single-café digital loyalty system. Staff scan a customer's QR and commit loy
 4. Minimal, mostly-optional personal data.
 
 ## Non-negotiable architecture rules
-- **Ports & adapters.** The app codes against interfaces in `ports/`. Storage and cross-device transport are **swappable adapters**. UI talks to `services/` only — **never** to adapters or storage directly.
+- **Ports & adapters.** The app codes against interfaces in `ports/`. Storage, transport, email, and identity are **swappable adapters**. UI talks to `services/` only — **never** to adapters or storage directly.
 - **`DataStore` is async (returns Promises) everywhere**, even though IndexedDB could be sync. This keeps prototype call sites identical to the future HTTP adapter. Never write synchronous storage access.
+- **`Mailer` port** (`ports/Mailer.ts`): prototype uses `EmailJsMailer` (client-side EmailJS); production swaps a server-side provider. `NoopMailer` is the unconfigured fallback.
+- **`IdentityStore` port** (`ports/IdentityStore.ts`): prototype uses `LocalStorageIdentityStore` (stores customer token only, no PII); production swaps a server-cookie adapter. Async throughout.
+- **`Transport` port** (`ports/Transport.ts`): prototype uses `PeerTransport` (PeerJS + TURN); production swaps `ServerTransport` (server-mediated). See "Prototype transport" below.
 - **Append-only ledger, not a counter+flag.** Balance and "reward available" are **derived** by summing `LoyaltyTransaction`s. Corrections are `reversal` entries — never destructive edits.
 - **Identity = random opaque token.** The QR/pass holds a 128-bit random token. **Never** derive it from name/phone. No PII in the QR.
 - **PII is optional.** The token is identity; name/email/phone only enable recovery + notifications. Support a fully token-only account.
@@ -28,6 +31,7 @@ A single-café digital loyalty system. Staff scan a customer's QR and commit loy
 - **Redemption is atomic** (check balance + write in one step) — no double-spend.
 - **Every staff/admin action writes an audit entry.**
 - **`domain/` is pure** — no I/O, no React, no browser APIs. It must be unit-testable in isolation.
+- **No mocked customer workflows.** Prototype flows mirror production exactly; only the backing adapters differ. No simulated dual-pane, no in-browser bridge standing in for real device interaction.
 
 ## Restraints / out of scope (do NOT build)
 - No money handling of any kind (prepurchase, gift cards, stored value, payments).
@@ -35,15 +39,16 @@ A single-café digital loyalty system. Staff scan a customer's QR and commit loy
 - No marketing automation, no advanced analytics (basic counts only), no native apps, no multi-tenant.
 - Don't add dependencies or cleverness the spec didn't call for. Small and boring beats clever — it's what keeps this maintainable.
 
-## Dev-only transport (strict)
-`adapters/transport/dev/PeerTransport.ts` (PeerJS) exists **only** for live two-device demos.
-- Selected only when `VITE_DEV_TRANSPORT === 'peer'`.
-- Prominent header comment: "DEVELOPMENT-ONLY transport stub — not for production."
-- **Excluded from / no-op in production builds.** It must be unmistakable in review that this is demo scaffolding. The default transport is the in-browser `LocalBridgeTransport`.
+## Prototype transport
+**PeerJS + TURN is the prototype's real cross-device transport** (`adapters/transport/PeerTransport.ts`). There is no single-browser mock; the simulated dual-pane is gone. Selected via `VITE_TRANSPORT=peer` (the default). TURN credentials are build-time-injected demo secrets — throwaway, rotated after demos.
+
+`adapters/transport/ServerTransport.ts` is the **production placeholder** (throws on every call). Swapping it in is the production migration step for the registration seam.
+
+**Prototype-only constraint:** PeerJS + TURN are not production infrastructure. They are kept here because the prototype must run on real devices without a backend. Production is server-mediated.
 
 ## Stack
-- Prototype: React + TypeScript + Vite, react-router (`HashRouter` or 404.html SPA fallback), IndexedDB (`idb`/Dexie), `qrcode` + `html5-qrcode`/`@zxing/browser`, `peerjs`, Vitest.
-- Production (target): same React frontend; **Node + TypeScript + Express/Fastify + PostgreSQL** backend; flat-rate VPS + Cloudflare. Apple Wallet updates need the backend (PassKit + APNs); Google Wallet via REST.
+- Prototype: React + TypeScript + Vite, react-router (`HashRouter` or 404.html SPA fallback), IndexedDB (`idb`/Dexie), `qrcode` + `html5-qrcode`/`@zxing/browser`, `peerjs` (real dep, not devDep), EmailJS (via `fetch`, no npm dep), Metered TURN relay, Vitest.
+- Production (target): same React frontend; **Node + TypeScript + Express/Fastify + PostgreSQL** backend; flat-rate VPS + Cloudflare. Apple Wallet updates need the backend (PassKit + APNs); Google Wallet via REST. Email via a server-side provider.
 - TypeScript throughout. Match the file tree in `docs/SPEC.md §12`.
 
 ## UI
