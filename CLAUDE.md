@@ -46,6 +46,8 @@ A single-café digital loyalty system. Staff scan a customer's QR and commit loy
 
 **Prototype-only constraint:** PeerJS + TURN are not production infrastructure. They are kept here because the prototype must run on real devices without a backend. Production is server-mediated.
 
+PeerJS also backs a second, separate channel: **session-scoped device pairing** (`src/adapters/sync/`). The staff device hosts; the customer device joins by scanning a pairing QR (`/pair`). While paired, the customer device's `DataStore` is transparently served by the staff device over RPC — acting as the prototype stand-in for a production server. In production this layer is dropped entirely; the server coordinates state centrally. The pairing channel is unrelated to the `Transport` port (registration handoff) — they are independent PeerJS connections.
+
 ## Stack
 - Prototype: React + TypeScript + Vite, react-router (`HashRouter` or 404.html SPA fallback), IndexedDB (`idb`/Dexie), `qrcode` + `html5-qrcode`/`@zxing/browser`, `peerjs` (real dep, not devDep), EmailJS (via `fetch`, no npm dep), Metered TURN relay, Vitest.
 - Production (target): same React frontend; **Node + TypeScript + Express/Fastify + PostgreSQL** backend; flat-rate VPS + Cloudflare. Apple Wallet updates need the backend (PassKit + APNs); Google Wallet via REST. Email via a server-side provider.

@@ -67,6 +67,7 @@ Points live in an **append-only ledger**. Balance and "reward available" are
 | **Admin — stats** | Basic counts: active customers, points issued, rewards redeemed. |
 | **Admin — audit log** | Filterable, append-only action trail (no PII). |
 | **Backup** | JSON export/import (behind the same `DataStore` port). |
+| **Device pairing (prototype)** | Staff host a session (`/pair`); customer scans the pairing QR. While paired, the customer device's `DataStore` is transparently served by the staff device over PeerJS — acting as a stand-in for the production server. Points, redemptions, and recovery reflect live on both devices. Pairing is separate from (and additional to) staff-initiated registration. |
 | **Wallet (stub)** | Apple Wallet: static `.pkpass` QR-holder (no developer account; web page is the iOS status surface). Google Wallet: dynamic loyalty pass via REST. Both stubbed in `wallet/passStub.ts`; real passes need the backend. |
 | **Base-URL landing** | `/` routes by context: authenticated staff/admin → staff home; recognized browser → `/status/:token`; otherwise → landing with Join / Lost-my-card / Staff sign-in. Staff/admin session always takes precedence (never auto-shows a customer card). |
 
@@ -82,10 +83,12 @@ talks only to services; services orchestrate the pure domain against interfaces
 flowchart TB
     subgraph ui["ui/ · React screens"]
         AUTH[auth] & STAFF[staff] & ADMIN[admin] & CUST[customer]
+        PAIR[PairingProvider / PairDevices]:::proto
     end
 
     subgraph services["services/ · orchestration"]
         SVC["CustomerService · LoyaltyService · RecoveryService<br/>StaffService · ConfigService · AuditService"]
+        SYNC["SyncKit (services.sync)"]:::proto
     end
 
     subgraph domain["domain/ · pure logic (no I/O)"]
@@ -107,10 +110,21 @@ flowchart TB
         EJS[EmailJsMailer]:::proto
         NOOP[NoopMailer]:::proto
         LSI[LocalStorageIdentityStore]:::proto
+        subgraph sync["adapters/sync/ · prototype pairing"]
+            OBS[ObservableStore]:::proto
+            SWI[SwitchableStore]:::proto
+            PCS[PeerClientStore]:::proto
+            SSV[StoreServer]:::proto
+            PJL[PeerJsLink · PeerJS+TURN]:::proto
+        end
     end
 
     ui --> services --> domain
     services --> ports
+    PAIR --> SYNC
+    SYNC --> OBS & SWI & SSV
+    SWI -.wraps.-> DS
+    PCS -.proxies via.-> PJL
     DS -.implemented by.-> IDB & API
     TR -.implemented by.-> PEER & SRV
     ML -.implemented by.-> EJS & NOOP
@@ -274,20 +288,28 @@ src/
 │   ├── email/
 │   │   ├── EmailJsMailer.ts    # client-side EmailJS via fetch
 │   │   └── NoopMailer.ts       # fallback when EmailJS unconfigured
-│   └── identity/
-│       └── LocalStorageIdentityStore.ts   # stores token only (no PII)
+│   ├── identity/
+│   │   └── LocalStorageIdentityStore.ts   # stores token only (no PII)
+│   └── sync/                   # PROTOTYPE-ONLY — device pairing via PeerJS
+│       ├── PeerLink.ts         # 1:1 channel interface + SyncMessage envelopes
+│       ├── PeerJsLink.ts       # PeerJS+TURN implementation (host/join)
+│       ├── ObservableStore.ts  # DataStore wrapper that emits on mutation
+│       ├── SwitchableStore.ts  # DataStore whose target swaps local↔remote at runtime
+│       ├── PeerClientStore.ts  # DataStore that proxies calls to host over RPC
+│       ├── StoreServer.ts      # host side: serves inbound RPC; pushes changed events
+│       └── storeMethods.ts     # canonical DataStore method list + mutating subset
 ├── services/              # orchestrate domain + ports
 │   ├── CustomerService.ts · LoyaltyService.ts · StaffService.ts
 │   ├── ConfigService.ts · AuditService.ts
-│   ├── RecoveryService.ts # NEW — self-service recovery (single-use expiring codes)
-│   └── Services.ts        # ← composition root (only place naming adapters)
+│   ├── RecoveryService.ts # self-service recovery (single-use expiring codes)
+│   └── Services.ts        # ← composition root; wires adapters/sync → SyncKit (services.sync)
 ├── qr/                    # encode (payloads) + scan (camera wrapper)
 ├── wallet/                # passStub.ts + production integration notes
 └── ui/
     ├── auth/ · staff/ · admin/
     ├── customer/          # CustomerHome · SelfRegister · Recover · Status · …
-    └── common/            # QrDisplay, QrScanner, Layout, contexts, guards
-tests/                     # Vitest: domain, service, adapter, qr, wallet, config (166 passing)
+    └── common/            # QrDisplay, QrScanner, Layout, PairingContext/usePairing, PairDevices, guards
+tests/                     # Vitest: domain, service, adapter, qr, wallet, config (176 passing)
 .env.example               # documents required build-time secrets
 .github/workflows/deploy.yml   # build + test + deploy (injects secrets at build time)
 ```
@@ -302,6 +324,7 @@ tests/                     # Vitest: domain, service, adapter, qr, wallet, confi
 | **`Transport`** (registration handoff) | `PeerTransport` (PeerJS + TURN) | `ServerTransport` (server-mediated) | One line in `Services.ts` |
 | **`Mailer`** (email) | `EmailJsMailer` (client-side EmailJS) or `NoopMailer` | Server-side provider | One line in `Services.ts` |
 | **`IdentityStore`** (browser identity) | `LocalStorageIdentityStore` | Server-cookie adapter | One line in `Services.ts` |
+| **`adapters/sync/` (device pairing)** | `PeerJsLink` + `SwitchableStore` stack | Server-mediated DataStore — remove the sync layer | Rewire composition root |
 
 ### Prototype transport
 `adapters/transport/PeerTransport.ts` uses PeerJS with a Metered TURN relay for
@@ -311,6 +334,18 @@ publicly readable in the static bundle, rotated after demos. See `.env.example`
 for the full list. `adapters/transport/ServerTransport.ts` is the production
 placeholder (every method throws until the backend exists).
 
+### Prototype device pairing
+`adapters/sync/` is a second PeerJS-backed channel, separate from registration.
+The staff device hosts a session and displays a pairing QR (`/pair`); the customer
+device joins by scanning it. Once paired, the customer device's `DataStore` is
+transparently replaced (via `SwitchableStore`) with a `PeerClientStore` that
+proxies all reads and writes to the host over RPC — the host's `StoreServer` serves
+them against its local `ObservableStore` and pushes `changed` notifications after
+any mutation. Screens (`Status`, `CustomerStatePanel`) refetch on the `dataVersion`
+counter exposed by `PairingProvider`. This is the **no-backend stand-in for the
+production server**: in production, the server coordinates state centrally and the
+sync layer is dropped entirely.
+
 ---
 
 ## Running it
@@ -318,7 +353,7 @@ placeholder (every method throws until the backend exists).
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 166 unit tests (Vitest)
+npm test           # 176 unit tests (Vitest)
 npm run build      # static output in dist/
 npm run typecheck  # strict TS, no emit
 ```
@@ -327,8 +362,10 @@ Copy `.env.example` to `.env.local` and fill in your credentials before running
 locally (TURN + EmailJS). `.env.local` is gitignored.
 
 **Two-device demo:** PeerJS transport is the default. Open `http://localhost:5173`
-on two devices on the same network (or use the deployed Pages URL), then scan the
-registration QR from the customer device.
+on two devices on the same network (or use the deployed Pages URL). For
+registration: scan the registration QR from the customer device. For live pairing:
+staff open `/pair` (auto-hosts), customer scans the pairing QR — state then
+reflects live on both devices.
 
 Staff and admin logins: `admin / admin` or `staff / staff`.
 
@@ -358,6 +395,7 @@ flowchart LR
     G[Swap LocalStorageIdentityStore → server-cookie adapter<br/>one line in Services.ts] --> H[Secure cross-device identity]
     I[Implement wallet passes<br/>PassKit + APNs / Google REST] --> J[replace passStub.ts]
     K[Real hashed-password auth] --> L[server-side sessions]
+    M[Drop adapters/sync/ pairing layer<br/>server coordinates state centrally] --> N[No PeerJS in data path]
 ```
 
 Because every app call already goes through async ports, **no UI or service call

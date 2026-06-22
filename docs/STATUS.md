@@ -5,8 +5,8 @@
 > [`SPEC.md`](SPEC.md); working rules in [`../CLAUDE.md`](../CLAUDE.md).
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 
-**Last updated:** 2026-06-22 · **Phase:** v1 prototype — feature-complete against
-SPEC §15 (Appendix A implemented).
+**Last updated:** 2026-06-22 (device pairing) · **Phase:** v1 prototype — feature-complete against
+SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 
 ---
 
@@ -15,10 +15,11 @@ SPEC §15 (Appendix A implemented).
 - React + TypeScript + Vite SPA, IndexedDB storage, deployed to GitHub Pages.
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
-- **166 unit tests** passing (`npm test`); strict typecheck + production build green.
+- **176 unit tests** passing (`npm test`); strict typecheck + production build green.
 - CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`
   and `VITE_TURN_*` secrets) → deploys on push to `main`.
 - Four swappable seams: `DataStore`, `Transport`, `Mailer`, `IdentityStore`.
+- Prototype device-pairing layer in `src/adapters/sync/` (dropped in production).
 
 ## Acceptance criteria (SPEC §15)
 
@@ -42,6 +43,7 @@ SPEC §15 (Appendix A implemented).
 | Add-to-wallet stubbed but visible; Apple = static stub, Google = REST stub | ✅ | `wallet/passStub.ts` |
 | Storage behind `DataStore`; Transport behind `Transport`; Email behind `Mailer`; Identity behind `IdentityStore` — swap = no UI/service change | ✅ | `ports/`, `adapters/`, `services/Services.ts` |
 | Two-device demo over PeerJS + TURN (real cross-device, not simulated) | ✅ impl; cellular verification = manual live-demo step | `adapters/transport/PeerTransport.ts`, `config/env.ts` |
+| Device pairing — staff hosts, customer joins; live DataStore sync across devices | ✅ prototype-only (see divergence e) | `adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` |
 | Domain unit-tested; file tree matches SPEC §12 | ✅ | `tests/`, layout matches |
 | Adapters/transports/services unit-tested (regression cover) | ✅ | `tests/adapters/*`, `tests/services/*`, `tests/qr/*` |
 
@@ -69,12 +71,19 @@ SPEC §15 (Appendix A implemented).
 - **Storage** is IndexedDB in the browser — per-device, demo only, not secure
   storage. Cross-device state is reconciled by auto-provision-on-scan (customer
   PII stays on the customer's device; staff see a token-only card until corrected).
+  When devices are **paired** (`adapters/sync/`), the customer device reads from
+  the staff device's store live; a self-registered card not yet on the staff device
+  is auto-provisioned when staff scan it and then becomes visible on the customer
+  side immediately.
+- **`adapters/sync/` (device pairing)** is PROTOTYPE-ONLY. It uses PeerJS + TURN
+  as a stand-in for the production server's coordination role. In production the
+  sync layer is removed; the server mediates all state.
 - **Build-time secrets** (`VITE_EMAILJS_*`, `VITE_TURN_*`) are baked into the
   static bundle — publicly readable, throwaway, rotate after demos.
 
 ## Test coverage
 
-`npm test` runs **166 Vitest unit tests** covering every non-UI module:
+`npm test` runs **176 Vitest unit tests** covering every non-UI module:
 
 - **domain/** — `loyalty`, `tokens`, `validation` (pure logic).
 - **services/** — `Customer` (incl. `selfRegister`, `provisionFromToken`),
@@ -84,6 +93,9 @@ SPEC §15 (Appendix A implemented).
   redeem, `createRecoveryCode`/`consumeRecoveryCode`, export/import round-trip,
   error paths), `ApiStore` (every method rejects as a stub), `PeerTransport`
   (peerjs mocked), `EmailJsMailer`, `NoopMailer`, `LocalStorageIdentityStore`.
+- **adapters/sync/** — sync round-trip via in-memory `FakeLink`
+  (`tests/adapters/sync/sync.test.ts`); `PeerJsLink` host/join
+  (`tests/adapters/sync/peerJsLink.test.ts`, PeerJS mocked).
 - **qr/** (`encode`, `scan` with html5-qrcode mocked), **wallet/** (`passStub`),
   **config/** (`env` flag mapping, `links.ts` URL building).
 
@@ -143,6 +155,13 @@ d. **No server-side session for identity.** `IdentityStore` uses `localStorage`
    in the prototype. Clearing browser storage removes the identity link;
    self-service recovery re-establishes it. Production uses a server-side session
    or cookie.
+
+e. **Device pairing is a prototype-only construct.** `adapters/sync/` uses PeerJS
+   to let the staff device act as a temporary server for the customer device's
+   `DataStore`. This is the no-backend stand-in for server-mediated state
+   coordination. In production the server handles this and the entire sync layer
+   (`adapters/sync/`, `PairingProvider`, `/pair` screen) is removed — it is not a
+   path toward the production sync architecture.
 
 ## Pointers
 
