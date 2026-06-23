@@ -40,7 +40,7 @@
 | Correction/reversal, logged | ✅ | `LoyaltyService.reverse` |
 | Deletion/opt-out — customer self-delete from card menu; staff-confirmed also available | ✅ | `CustomerService.selfDelete(token)` ← `ui/screens/customer/CardMenu/CardMenu.tsx`; `IndexedDbStore.softDeleteCustomer` |
 | Admin: staff CRUD (**create with name/username/password/PIN/role** via sheet form + reset PIN + "Sign out all devices"), config (step-up PIN re-auth on save), stats, audit viewer, alerts | ✅ | `ui/screens/admin/Admin/Admin.tsx` and `ui/screens/admin/_parts/`; staff `name` displayed in panel + activity (`StaffAccount.name`, `Actor.name`) |
-| Staff/admin session never auto-displays customer card (entry routing) | ✅ | `ui/app/EntryResolver.tsx` — trusted staff+active→`/staff`; remembered card→`/card/:token`; else→`/welcome` |
+| Staff/admin session never auto-displays customer card (entry routing) | ✅ | `ui/app/EntryResolver.tsx` — any active staff/admin (trusted or ephemeral)→role panel (admin→`/admin`, staff→`/staff`); trusted+locked→`/staff/unlock`; remembered card→`/card/:token`; else→`/welcome` |
 | Inactivity lock (5 min) → PIN re-auth at `/staff/unlock` | ✅ | `ui/app/AuthContext.tsx`, `ui/screens/staff/Unlock/Unlock.tsx`, `StaffService.loginWithPin` |
 | Epoch-based "Sign out all devices" revocation | ✅ | `StaffService.revokeAllSessions`, `ProgramConfig.sessionEpoch` |
 | Suspicious-activity alerts (velocity, repeat-target, off-hours, etc.) — monitoring only | ✅ | `domain/alerts.ts`, `LoyaltyService.getAlerts()`, `ui/screens/admin/_parts/Alert/Alert.tsx` |
