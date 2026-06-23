@@ -30,10 +30,12 @@ export function useEntryTarget(): string | null {
   // null = not yet read; '' = read, no remembered card; string = the token.
   const [cardToken, setCardToken] = useState<string | null>(null);
 
-  // A trusted device that is active or locked routes to staff without ever
-  // needing the identity read, so only fetch the card when we might use it.
-  // Gate on `ready` so we don't act on the pre-boot 'anon' default.
-  const staffTarget = ready && trusted && status === 'active';
+  // An ACTIVE staff/admin session routes to its panel — whether the device is a
+  // trusted terminal or just an ephemeral (this-session) sign-in — so a signed-in
+  // staffer is never dropped onto the customer card. Only a *locked* state is
+  // trusted-only (ephemeral sessions don't lock; they end). Gate on `ready` so we
+  // don't act on the pre-boot 'anon' default.
+  const staffTarget = ready && status === 'active';
   const staffLocked = ready && trusted && status === 'locked';
   const needCard = ready && !staffTarget && !staffLocked;
 

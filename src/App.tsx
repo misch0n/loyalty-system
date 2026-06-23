@@ -20,6 +20,7 @@ import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { LogoGesturesProvider } from './ui/app/LogoGestures';
 import { DevTrigger } from './ui/app/DevTrigger';
 import { EntryResolver } from './ui/app/EntryResolver';
+import { useAuth } from './ui/app/AuthContext';
 import { ROUTES } from './ui/app/routes';
 import { isPrototype } from './config/env';
 
@@ -38,13 +39,20 @@ import { PairDevices } from './ui/common/PairDevices';
 
 export function App() {
   const navigate = useNavigate();
+  const { actor, status } = useAuth();
   const [protoOpen, setProtoOpen] = useState(false);
+
+  // When already signed in, the logo (tap OR long-press) goes to the role home
+  // — never back to the sign-in page. Sign-in is reached manually (long-press)
+  // only while signed out.
+  const signedIn = Boolean(actor) && status === 'active';
+  const roleHome = actor?.role === 'admin' ? ROUTES.admin : ROUTES.staff;
 
   return (
     <LogoGesturesProvider
       value={{
         onHome: () => navigate('/'),
-        onHold: () => navigate(ROUTES.login),
+        onHold: () => navigate(signedIn ? roleHome : ROUTES.login),
       }}
     >
       <Routes>

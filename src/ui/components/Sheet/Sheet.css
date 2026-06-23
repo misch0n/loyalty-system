@@ -1,8 +1,16 @@
 /* Sheet — bottom-sheet + menu rows. Donor classes copied verbatim from theme.css. */
 .sheet-back{position:fixed; inset:0; z-index:30; background:rgba(25,42,32,.45); display:flex; align-items:flex-end}
 .sheet{background:var(--paper); border-radius:24px 24px 0 0; width:100%; max-width:430px; margin:0 auto;
-  padding:10px 22px calc(26px + env(safe-area-inset-bottom)); box-shadow:0 -12px 40px rgba(25,42,32,.3)}
-.sheet .grab{width:42px; height:4px; border-radius:99px; background:var(--line); margin:6px auto 16px}
+  padding:0 22px calc(26px + env(safe-area-inset-bottom)); box-shadow:0 -12px 40px rgba(25,42,32,.3);
+  /* Tall content (e.g. the dev-panel QR) scrolls instead of being pushed off the
+     top of the viewport; transform animates the snap-back after a drag. */
+  max-height:92dvh; overflow-y:auto; overscroll-behavior:contain; will-change:transform;
+  transition:transform .22s ease}
+/* Top drag zone: a comfortable hit area around the grab handle. Pressing here
+   and pulling down slides the sheet away. */
+.sheet-drag{padding:10px 0 6px; margin:0 -22px; cursor:grab; touch-action:none}
+.sheet-drag:active{cursor:grabbing}
+.sheet .grab{width:42px; height:4px; border-radius:99px; background:var(--line); margin:0 auto 12px}
 .menu-row{display:flex; align-items:center; gap:14px; padding:15px 2px; border-top:1px solid var(--line); width:100%;
   background:transparent; border-left:0; border-right:0; border-bottom:0; text-align:left; cursor:pointer; font:inherit; color:var(--ink)}
 .menu-row.first{border-top:0}

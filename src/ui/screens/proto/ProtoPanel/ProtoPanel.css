@@ -88,11 +88,13 @@
   width: 100%;
 }
 
-/* QrDisplay renders a <figure class="qr"> with a fixed 240px <img>. Without a
-   reset the browser's default figure margins (40px each side) push the image
-   past the panel and it gets clipped — "not displayed fully". Reset the figure
-   and let the QR scale to the panel width so the whole code always shows. */
+/* QrDisplay renders a <figure class="qr">, but the shared `.qr` class is ALSO
+   the card's small 84px QR image (Qr.css) — that rule would otherwise clamp this
+   figure to 84px and clip the 240px code. Override width/height here and let the
+   QR scale to the panel so the whole code always shows. */
 .proto .proto-qr .qr {
+  width: auto;
+  height: auto;
   margin: 0;
   display: flex;
   flex-direction: column;
@@ -100,7 +102,7 @@
   gap: 8px;
 }
 .proto .proto-qr .qr img {
-  width: min(240px, 64vw);
+  width: min(230px, 62vw);
   height: auto;
   background: #fff;
   padding: 10px;

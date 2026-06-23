@@ -64,6 +64,42 @@ describe('Sheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('drag the handle down past the threshold dismisses; a small drag snaps back', async () => {
+    // A long downward drag on the grab zone closes the sheet.
+    const onClose = vi.fn();
+    await mount(
+      <Sheet open onClose={onClose}>
+        body
+      </Sheet>,
+    );
+    const drag = container.querySelector('.sheet-drag') as HTMLElement;
+    const fire = (type: string, clientY: number) =>
+      act(() => {
+        drag.dispatchEvent(new MouseEvent(type, { bubbles: true, clientY }));
+      });
+    fire('pointerdown', 100);
+    fire('pointermove', 300); // +200px, past the 110px dismiss threshold
+    fire('pointerup', 300);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // A short drag does NOT dismiss — the sheet snaps back.
+    const onClose2 = vi.fn();
+    await mount(
+      <Sheet open onClose={onClose2}>
+        body
+      </Sheet>,
+    );
+    const drag2 = container.querySelector('.sheet-drag') as HTMLElement;
+    const fire2 = (type: string, clientY: number) =>
+      act(() => {
+        drag2.dispatchEvent(new MouseEvent(type, { bubbles: true, clientY }));
+      });
+    fire2('pointerdown', 100);
+    fire2('pointermove', 150); // +50px, under the threshold
+    fire2('pointerup', 150);
+    expect(onClose2).not.toHaveBeenCalled();
+  });
+
   it('closes on Escape', async () => {
     const onClose = vi.fn();
     await mount(

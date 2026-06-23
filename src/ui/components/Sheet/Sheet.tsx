@@ -2,12 +2,14 @@
  * Sheet — bottom-sheet primitive (Ckyka card "⋯" menu).
  *
  * Slides up from the bottom over a dimmed scrim. Grab-handle affordance,
- * tap-scrim-to-close, Escape-to-close, and a light focus trap. Pure
- * presentation; `onClose` is supplied by the screen. Re-styled to the donor
- * `.sheet-back / .sheet / .grab` markup; focus-trap logic reused from the old kit.
+ * tap-scrim-to-close, Escape-to-close, and a light focus trap. The sheet is
+ * also **drag-dismissable**: pressing the grab handle (the top of the sheet)
+ * and dragging down slides it away; released past a threshold it closes, else it
+ * snaps back. Tall content scrolls inside the sheet rather than being clipped.
+ * Pure presentation; `onClose` is supplied by the screen.
  */
-import { useEffect, useRef } from 'react';
-import type { MouseEventHandler, ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { MouseEventHandler, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import './Sheet.css';
 
 export interface SheetProps {
@@ -21,11 +23,24 @@ export interface SheetProps {
 const FOCUSABLE =
   'a[href],button:not([disabled]),textarea,input,select,[tabindex]:not([tabindex="-1"])';
 
+/** Drag distance (px) past which releasing dismisses the sheet. */
+const DISMISS_AFTER = 110;
+
 export function Sheet({ open, onClose, children, label }: SheetProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // Drag-to-dismiss: how far the sheet is currently pulled down, and whether a
+  // drag is in progress (used to disable the snap-back transition mid-drag).
+  const [dragY, setDragY] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const draggingRef = useRef(false);
+  const startYRef = useRef(0);
+
   useEffect(() => {
     if (!open) return;
+    // Reset the drag offset whenever the sheet (re)opens.
+    setDragY(0);
+    setDragging(false);
     const panel = panelRef.current;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const first = panel?.querySelector<HTMLElement>(FOCUSABLE);
@@ -63,6 +78,36 @@ export function Sheet({ open, onClose, children, label }: SheetProps) {
     };
   }, [open, onClose]);
 
+  const onDragStart = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    startYRef.current = e.clientY;
+    draggingRef.current = true;
+    setDragging(true);
+    try {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    } catch {
+      // pointer capture is a progressive enhancement; ignore if unsupported
+    }
+  }, []);
+
+  const onDragMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return;
+    const dy = e.clientY - startYRef.current;
+    setDragY(dy > 0 ? dy : 0); // only downward drags move the sheet
+  }, []);
+
+  const onDragEnd = useCallback(() => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    setDragging(false);
+    setDragY((current) => {
+      if (current > DISMISS_AFTER) {
+        onClose();
+        return current;
+      }
+      return 0; // snap back
+    });
+  }, [onClose]);
+
   if (!open) return null;
 
   const stop: MouseEventHandler = (e) => e.stopPropagation();
@@ -77,8 +122,20 @@ export function Sheet({ open, onClose, children, label }: SheetProps) {
         aria-label={label}
         tabIndex={-1}
         onClick={stop}
+        style={{
+          transform: dragY ? `translateY(${dragY}px)` : undefined,
+          transition: dragging ? 'none' : undefined,
+        }}
       >
-        <div className="grab" aria-hidden="true" />
+        <div
+          className="sheet-drag"
+          onPointerDown={onDragStart}
+          onPointerMove={onDragMove}
+          onPointerUp={onDragEnd}
+          onPointerCancel={onDragEnd}
+        >
+          <div className="grab" aria-hidden="true" />
+        </div>
         {children}
       </div>
     </div>
