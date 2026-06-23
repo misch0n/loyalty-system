@@ -44,27 +44,43 @@
   font-size: 12.5px;
   color: var(--ink-soft);
 }
-/* Embedded map centred on the café. The "Get directions" button sits below it. */
+/* Embedded map centred on the café, with a thin border. The "Get directions"
+   button and the contact/Instagram links sit centred beneath it. */
 .findus-map {
   width: 100%;
   height: 200px;
-  border: 0;
+  border: 1px solid var(--line);
   border-radius: 16px;
   display: block;
-  margin: 4px 0 14px;
+  margin: 4px 0 16px;
   background: var(--sage-100);
 }
-.findus-directions {
-  width: 100%;
-  margin-bottom: 14px;
-}
-.findus .actions {
+.findus-actions {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
   align-items: center;
+  gap: 16px;
 }
-.findus-contact,
-.findus-instagram {
-  flex: 1;
+/* Centred, auto-width directions button (not full bleed). */
+.findus-directions {
   width: auto;
+  padding: 13px 26px;
+}
+/* Centred Contact us + Instagram, rendered as underlined text links. */
+.findus-links {
+  display: flex;
+  justify-content: center;
+  gap: 26px;
+}
+.findus-link {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--forest);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+.findus-link:hover {
+  color: var(--terra);
 }

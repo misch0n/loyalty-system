@@ -45,36 +45,31 @@ export function FindUs() {
         referrerPolicy="no-referrer-when-downgrade"
       />
 
-      <Button
-        as="a"
-        variant="line"
-        className="findus-directions"
-        href={cafeMapUrl}
-        target="_blank"
-        rel="noreferrer"
-      >
-        Get directions
-      </Button>
-
-      <div className="actions">
+      <div className="findus-actions">
         <Button
           as="a"
-          variant="ghost"
-          className="findus-contact"
-          href={`mailto:${cafeContactEmail}`}
-        >
-          Contact us
-        </Button>
-        <Button
-          as="a"
-          variant="ghost"
-          className="findus-instagram"
-          href={cafeInstagramUrl}
+          variant="line"
+          className="findus-directions"
+          href={cafeMapUrl}
           target="_blank"
           rel="noreferrer"
         >
-          Instagram
+          Get directions
         </Button>
+
+        <div className="findus-links">
+          <a className="findus-link" href={`mailto:${cafeContactEmail}`}>
+            Contact us
+          </a>
+          <a
+            className="findus-link"
+            href={cafeInstagramUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Instagram
+          </a>
+        </div>
       </div>
     </div>
   );
