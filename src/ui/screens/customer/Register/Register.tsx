@@ -12,7 +12,7 @@
  * gestures stay reachable on a screen the reference renders mark-less.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogoMark } from '../../../components/Logo/Logo';
 import { Eyebrow, Title, Sub } from '../../../components/Heading/Heading';
@@ -34,7 +34,7 @@ export function Register() {
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
-  const [emailTouched, setEmailTouched] = useState(false);
+  const [showEmailError, setShowEmailError] = useState(false);
   const [consent, setConsent] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<FieldName, string>>>({});
@@ -45,10 +45,22 @@ export function Register() {
   // a plausible address before we let them submit).
   const emailInvalid = email.trim() !== '' && !isValidEmail(email);
 
+  // Debounced red-border feedback: while typing, flag an invalid address only
+  // after a short pause; clear instantly once the field is empty or valid.
+  useEffect(() => {
+    const trimmed = email.trim();
+    if (trimmed === '' || isValidEmail(trimmed)) {
+      setShowEmailError(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowEmailError(true), 600);
+    return () => window.clearTimeout(timer);
+  }, [email]);
+
   async function onSubmit() {
     if (submitting) return;
     if (emailInvalid) {
-      setEmailTouched(true);
+      setShowEmailError(true);
       return;
     }
     setErrors({});
@@ -126,11 +138,11 @@ export function Register() {
             setEmail(next);
             if (errors.email) setErrors((e) => ({ ...e, email: undefined }));
           }}
-          onBlur={() => setEmailTouched(true)}
-          aria-invalid={emailTouched && emailInvalid}
+          onBlur={() => setShowEmailError(emailInvalid)}
+          aria-invalid={showEmailError}
           hint={
             errors.email ??
-            (emailTouched && emailInvalid
+            (showEmailError
               ? 'Enter a valid email, or leave it blank.'
               : 'So we can tell you when a free coffee is ready.')
           }

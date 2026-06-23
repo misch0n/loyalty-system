@@ -47,6 +47,13 @@
 .field input.ip:focus-visible {
   box-shadow: inset 0 0 0 1.5px var(--line), 0 0 0 3px rgba(199, 110, 68, 0.4);
 }
+/* Invalid value (e.g. a malformed email) — red border accent. */
+.field input.ip[aria-invalid='true'] {
+  box-shadow: inset 0 0 0 1.5px var(--terra);
+}
+.field input.ip[aria-invalid='true']:focus-visible {
+  box-shadow: inset 0 0 0 1.5px var(--terra), 0 0 0 3px rgba(199, 110, 68, 0.4);
+}
 .field .hint {
   font-size: 11px;
   color: var(--ink-soft);
