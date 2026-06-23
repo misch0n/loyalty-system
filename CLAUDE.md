@@ -24,6 +24,7 @@ A single-café digital loyalty system. Staff scan a customer's QR and commit loy
 - **`Mailer` port** (`ports/Mailer.ts`): prototype uses `EmailJsMailer` (client-side EmailJS); production swaps a server-side provider. `NoopMailer` is the unconfigured fallback.
 - **`IdentityStore` port** (`ports/IdentityStore.ts`): prototype uses `LocalStorageIdentityStore` (stores customer token only, no PII); production swaps a server-cookie adapter. Async throughout.
 - **`Transport` port** (`ports/Transport.ts`): prototype uses `PeerTransport` (PeerJS + TURN); production swaps `ServerTransport` (server-mediated). See "Prototype transport" below.
+- **`WalletProvider` port** (`ports/WalletProvider.ts`): prototype uses `StaticWalletProvider` (pre-generated walletwallet.dev URLs; `pushUpdate` is a no-op); production swaps `ServerWalletProvider` (PassKit + APNs / Google REST). Selected via `VITE_WALLET` env flag (default `static`).
 - **Append-only ledger, not a counter+flag.** Balance and "reward available" are **derived** by summing `LoyaltyTransaction`s. Corrections are `reversal` entries — never destructive edits.
 - **Identity = random opaque token.** The QR/pass holds a 128-bit random token. **Never** derive it from name/phone. No PII in the QR.
 - **PII is optional.** The token is identity; name/email/phone only enable recovery + notifications. Support a fully token-only account.
@@ -46,16 +47,19 @@ A single-café digital loyalty system. Staff scan a customer's QR and commit loy
 
 **Prototype-only constraint:** PeerJS + TURN are not production infrastructure. They are kept here because the prototype must run on real devices without a backend. Production is server-mediated.
 
-PeerJS also backs a second, separate channel: **session-scoped device pairing** (`src/adapters/sync/`). Every device defaults to hosting (`PeerJsHost` — one peer, many clients). Scanning another device's pairing QR (shown in the Prototype tools menu) makes the scanning device a customer of that till; the till accepts many customers simultaneously. While paired, each customer device's `DataStore` is transparently served by the till over RPC — acting as the prototype stand-in for a production server. Unpairing sends `{ t: 'unpair' }` to all connected peers and each device resumes hosting. In production this layer is dropped entirely; the server coordinates state centrally. The pairing channel is unrelated to the `Transport` port (registration handoff) — they are independent PeerJS connections.
+PeerJS also backs a second, separate channel: **session-scoped device pairing** (`src/adapters/sync/`). Every device defaults to hosting (`PeerJsHost` — one peer, many clients). Scanning another device's pairing QR (shown in the Prototype panel, opened by tapping the logo) makes the scanning device a customer of that till; the till accepts many customers simultaneously. While paired, each customer device's `DataStore` is transparently served by the till over RPC — acting as the prototype stand-in for a production server. Unpairing sends `{ t: 'unpair' }` to all connected peers and each device resumes hosting. In production this layer is dropped entirely; the server coordinates state centrally. The pairing channel is unrelated to the `Transport` port (registration handoff) — they are independent PeerJS connections.
 
 ## Stack
 - Prototype: React + TypeScript + Vite, react-router (`HashRouter` or 404.html SPA fallback), IndexedDB (`idb`/Dexie), `qrcode` + `html5-qrcode`/`@zxing/browser`, `peerjs` (real dep, not devDep), EmailJS (via `fetch`, no npm dep), Metered TURN relay, Vitest.
 - Production (target): same React frontend; **Node + TypeScript + Express/Fastify + PostgreSQL** backend; flat-rate VPS + Cloudflare. Apple Wallet updates need the backend (PassKit + APNs); Google Wallet via REST. Email via a server-side provider.
-- TypeScript throughout. Match the file tree in `docs/SPEC.md §12`.
+- TypeScript throughout. The `src/domain/`, `src/ports/`, `src/adapters/`, and `src/services/` layers match `docs/SPEC.md §12`. The `src/ui/` layout diverges (see STATUS.md divergence g) — record any further UI deviations there.
 
 ## UI
-- **Functional for v1** — polish is a later pass. Hold a quality floor: responsive to mobile, visible keyboard focus, reduced-motion respected.
-- Plain, active-voice, **consistent** labels: "Add points" not "Submit"; the "Redeem" button yields a "Redeemed" confirmation. Name things by what the user controls, not system internals. Errors say what happened and how to fix it. (See frontend-design conventions.)
+- **Design system:** `src/ui/theme.css` defines all tokens (forest/sage/blush/cream/terra palette, Fraunces/DM Sans/DM Mono fonts, 44px touch targets, focus-visible terra ring, reduced-motion, safe-area). Import `styles.css` first, then `theme.css` (tokens win on conflict). Presentational components live in `src/ui/kit/`; import from the barrel `src/ui/kit/index.ts`. No business logic in kit components.
+- **Structure:** `src/ui/app/` — Shell (logo gestures), AuthContext, EntryResolver, routes. `src/ui/screens/{customer,staff,admin,proto}/` — the screens. `src/ui/common/` — ServicesContext, PairingContext, QrDisplay, QrScanner, PrivacyNotice, PairDevices.
+- **`AuthContext`** (`src/ui/app/AuthContext.tsx`) manages staff/admin PIN session, inactivity lock, and epoch revocation. Replaces the old `SessionContext`. Guards use `useAuth` inside each screen — no `RequireAuth` wrapper.
+- **Navigation:** no home dashboard. Recognized customer → `/card/:token` (hub). Unrecognized → `/welcome`. Entry resolved by `EntryResolver` at `/`. Long-press logo (≥600ms) → staff/admin sign-in; tap logo → Prototype panel (build-flag gated).
+- Plain, active-voice, **consistent** labels: "Add points" not "Submit"; the "Redeem" button yields a "Redeemed" confirmation. Name things by what the user controls, not system internals. Errors say what happened and how to fix it.
 
 ## Coding standards
 - Strict TypeScript; no `any` in domain/ports.
