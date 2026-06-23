@@ -60,14 +60,18 @@ export async function clickText(page: Page, text: string): Promise<void> {
   if (!clicked) throw new Error(`no clickable element with text "${text}"`);
 }
 
-/** Tap the left or right half of the logo (drives the split-tap gesture). */
-export async function tapLogo(page: Page, side: 'left' | 'right'): Promise<void> {
-  const box = await page.$eval('.logo-gesture', (el) => {
+/** Tap the logo (a tap → home; the dev panel is a separate corner trigger). */
+export async function tapLogo(page: Page): Promise<void> {
+  const c = await page.$eval('.logo-gesture', (el) => {
     const r = el.getBoundingClientRect();
-    return { x: r.x, y: r.y, w: r.width, h: r.height };
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
   });
-  const x = box.x + box.w * (side === 'left' ? 0.25 : 0.75);
-  await page.mouse.click(x, box.y + box.h / 2);
+  await page.mouse.click(c.x, c.y);
+}
+
+/** Tap the hidden top-left developer-tools trigger (prototype only). */
+export async function tapDevTrigger(page: Page): Promise<void> {
+  await page.click('.dev-trigger');
 }
 
 /** Long-press the logo (≥600ms) → staff sign-in. */
@@ -82,7 +86,14 @@ export async function holdLogo(page: Page, ms = 800): Promise<void> {
   await page.mouse.up();
 }
 
-/** Tap PIN digits on the keypad (each key carries data-k). */
+/** Fill the staff sign-in form (username + password) and submit. */
+export async function signIn(page: Page, username: string, password: string): Promise<void> {
+  await page.type('input[autocomplete="username"]', username);
+  await page.type('input[autocomplete="current-password"]', password);
+  await clickText(page, 'Sign in');
+}
+
+/** Tap PIN digits on the keypad (each key carries data-k) — used on unlock. */
 export async function typePin(page: Page, digits: string): Promise<void> {
   for (const d of digits) {
     await page.click(`.key[data-k="${d}"]`);

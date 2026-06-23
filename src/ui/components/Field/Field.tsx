@@ -50,31 +50,33 @@ export interface ConsentProps {
 
 /**
  * A consent checkbox (`.consent`): the filled `.box` check plus inline label
- * text. The whole row toggles on click.
+ * text. Only the box is the toggle control, so the label may itself contain
+ * interactive elements (e.g. a "privacy notice" link) without nesting buttons.
  */
 export function Consent({ checked, onChange, children }: ConsentProps) {
   return (
-    <button
-      type="button"
-      className="consent"
-      role="checkbox"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      style={{
-        background: 'transparent',
-        border: 0,
-        textAlign: 'left',
-        cursor: 'pointer',
-        padding: 0,
-        font: 'inherit',
-        width: '100%',
-      }}
-    >
-      <span className="box" style={{ opacity: checked ? 1 : 0.3 }}>
-        {CHECK_SVG}
-      </span>
-      <span>{children}</span>
-    </button>
+    <div className="consent">
+      <button
+        type="button"
+        className="consent-box"
+        role="checkbox"
+        aria-checked={checked}
+        aria-label="I agree"
+        onClick={() => onChange(!checked)}
+        style={{
+          background: 'transparent',
+          border: 0,
+          cursor: 'pointer',
+          padding: 0,
+          display: 'inline-flex',
+        }}
+      >
+        <span className="box" style={{ opacity: checked ? 1 : 0.3 }}>
+          {CHECK_SVG}
+        </span>
+      </button>
+      <span className="consent-text">{children}</span>
+    </div>
   );
 }
 

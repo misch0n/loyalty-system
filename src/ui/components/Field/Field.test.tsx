@@ -58,11 +58,23 @@ describe('Consent', () => {
       </Consent>,
     );
     await act(async () => {
-      container.querySelector('.consent')?.dispatchEvent(
+      container.querySelector('.consent-box')?.dispatchEvent(
         new MouseEvent('click', { bubbles: true }),
       );
     });
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it('keeps the box as the only toggle so the label can hold a link', async () => {
+    await mount(
+      <Consent checked={false} onChange={() => {}}>
+        I agree to the <button type="button">privacy notice</button>
+      </Consent>,
+    );
+    // The consent wrapper is no longer a button (no nested-button), so an
+    // interactive element in the label is valid.
+    expect(container.querySelector('.consent')?.tagName).toBe('DIV');
+    expect(container.querySelector('.consent-box')?.getAttribute('role')).toBe('checkbox');
   });
 });
 

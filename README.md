@@ -14,7 +14,7 @@ working rules for agents in [`CLAUDE.md`](CLAUDE.md); current build status in
 > ⚠️ **Prototype only.** Browser storage is **not** secure storage. Do not enter
 > real customer data.
 
-**Live demo:** https://misch0n.github.io/loyalty-system/ · Demo PINs: admin `4321` / staff `1234` (or username/password: `admin / admin`, `staff / staff`).
+**Live demo:** https://misch0n.github.io/loyalty-system/ · Sign in with username/password: `admin / admin` or `staff / staff` (PINs `4321` / `1234` are the quick re-auth on a remembered device).
 
 ---
 
@@ -51,7 +51,7 @@ Points live in an **append-only ledger**. Balance and "reward available" are
 
 | Area | Capabilities |
 |---|---|
-| **Auth — staff/admin PIN + session** | Staff and admin authenticate with a 4–8-digit PIN (seed: admin `4321` / staff `1234`). "Remember this device" creates a trusted terminal session; otherwise the session is ephemeral. 5-minute inactivity locks the device → PIN re-auth at `/staff/unlock`. Admin can revoke all sessions via epoch-based sign-out. `StaffService.loginWithPin`, `setPin`, `revokeAllSessions`. Username/password still accepted. `AuthContext` (`src/ui/app/AuthContext.tsx`) replaces the old `SessionContext`. |
+| **Auth — staff/admin sign-in + session** | Accounts carry **name + username + password + PIN**. The first sign-in on a device is **username/password** (seed: `admin / admin`, `staff / staff`); on success the visitor routes to their role home (admin → `/admin`, staff → `/staff`). "Remember this device" creates a trusted terminal; a 5-minute inactivity lock then re-auths with the quick **PIN** (seed: admin `4321` / staff `1234`) at `/staff/unlock` rather than the full form. A non-remembered device prefills the last username. Admin can revoke all sessions via epoch-based sign-out. `StaffService.login` / `loginWithPin` / `setPin` / `revokeAllSessions`; `AuthContext.loginWithPassword` / `unlock` (`src/ui/app/AuthContext.tsx`). |
 | **Self-service registration** | PRIMARY path: customer visits `/register`, creates their own card in one step — remembered on the browser via `IdentityStore`. No approval queue, no staff involvement. Recovery tier disclosed at registration (email → self-recovery link; name-only → staff best-effort; neither → not recoverable). |
 | **Staff-initiated registration** | SECONDARY path: staff start a card over real PeerJS; customer joins on their own device. Duplicate details **warn before** a second card is created. |
 | **Auto-provision on scan** | Scanning an unknown-but-valid token creates a token-only card on the staff device so accrual can proceed immediately. Staff still initiates the credit. |
@@ -72,9 +72,9 @@ Points live in an **append-only ledger**. Balance and "reward available" are
 | **Card view (customer hub)** | A recognized customer lands directly on `/card/:token` — no home dashboard. `EnlargedQr` overlay provides the full-screen QR + wallet button. Card "⋯" menu (`CardMenu`) provides self-delete. The "Gold" tier pill is decorative (v1 has no tiers). |
 | **Welcome** | Shown to unrecognized visitors only. Carries **Find us** (location/hours) below the fold. |
 | **Reset device** | `Services.reset()` drops the `cafe-loyalty` IndexedDB database and clears storage keys so a workflow can be rerun from a clean device state. Prototype-only. |
-| **Device pairing (prototype)** | Every device defaults to hosting. Scanning another device's pairing QR (accessed via the **Prototype panel** — logo tap) makes this device a customer of that till. The till accepts many customer devices simultaneously. Unpairing sends `{ t: 'unpair' }` to all peers; each resumes hosting. `/pair` is scan-only (`?host=` auto-joins). |
-| **Prototype panel** | `src/ui/screens/proto/ProtoPanel/ProtoPanel.tsx` (build-flag gated, non-production). Opened by **tapping the right half** of the `LogoGestures` mark. Hosts pairing QR/scan/unpair/reset/sign-in/demo-cards. Replaces old header `PrototypeMenu`. |
-| **Logo gestures** | `LogoGestures` (`src/ui/app/LogoGestures.tsx`) — tap left half → home; tap right half → Prototype panel (gated on `isPrototype`, not `import.meta.env.PROD`); long-press ≥600ms → staff/admin sign-in. Visually-hidden keyboard path to sign-in. No global "Staff sign-in" subtitle. |
+| **Device pairing (prototype)** | Every device defaults to hosting. Scanning another device's pairing QR (accessed via the **developer panel** — hidden top-left dev trigger) makes this device a customer of that till. The till accepts many customer devices simultaneously. Unpairing sends `{ t: 'unpair' }` to all peers; each resumes hosting. `/pair` is scan-only (`?host=` auto-joins). |
+| **Developer (Prototype) panel** | `src/ui/screens/proto/ProtoPanel/ProtoPanel.tsx` (build-flag gated, non-production). Opened by a **hidden top-left `DevTrigger`** (`src/ui/app/DevTrigger.tsx`) present on every view. Stripped to three centred controls, in order: **QR · Scan to pair · Reset**. (Demo-card jumping, view-jumps and the sign-in shortcut were removed; every prototype card starts at zero and registration rotates which preset token is handed out.) |
+| **Logo gestures** | `LogoGestures` (`src/ui/app/LogoGestures.tsx`) — **tap → home** (role-aware via `EntryResolver`); long-press ≥600ms → staff/admin sign-in. The developer panel has its own hidden `DevTrigger`, not a logo tap. Visually-hidden keyboard path to sign-in. No global "Staff sign-in" subtitle. |
 | **Card QR = card URL (B2)** | The card QR encodes the full card-page URL. `tokenFromCardScan()` extracts the token; bare tokens still accepted. No PII in the URL. |
 | **Family / couples sharing (B7)** | Opening the card URL or QR on a second device shows that card without overwriting either device's saved card. Balance pools naturally (one ledger, one token). No feature code needed. |
 
@@ -365,7 +365,7 @@ src/
     │   ├── staff/         # Login/, Unlock/ (PIN re-auth), Panel/, Scan/
     │   │                  #   _parts/: TopBar/ ScanView/ CustChip/ StateLabel/
     │   ├── admin/         # Admin/ (tabbed); _parts/: Stat/ FeedRow/ Alert/ StepUp/
-    │   └── proto/         # ProtoPanel/ (logo-tap right-half, build-flag gated)
+    │   └── proto/         # ProtoPanel/ (hidden top-left DevTrigger, build-flag gated)
     └── common/            # ServicesContext, PairingContext/usePairing, QrDisplay, QrScanner,
                            #   PrivacyNotice, PairDevices
 tests/                     # Vitest: domain, service, adapter, qr, wallet, config, ui/app/session
@@ -401,8 +401,8 @@ Every device defaults to hosting: `PeerJsHost` creates one PeerJS peer that
 accepts **many simultaneous client connections**. Each accepted connection becomes
 a `ConnLink` handed to an `onClient` subscriber; the host spawns one `StoreServer`
 per client, so change notifications fan out to every paired device. The till's
-pairing QR lives in the **Prototype panel** (logo tap, not a dedicated page); `/pair`
-is now scan-only and auto-joins on a `?host=` URL parameter.
+pairing QR lives in the **developer panel** (hidden top-left dev trigger, not a
+dedicated page); `/pair` is now scan-only and auto-joins on a `?host=` URL parameter.
 
 Once a customer device scans the QR, `joinHost(remoteId)` dials the till and
 returns an open `ConnLink`. The customer device's `DataStore` is transparently
@@ -437,16 +437,19 @@ locally (TURN + EmailJS). `.env.local` is gitignored.
 **Two-device demo:** PeerJS transport is the default. Open `http://localhost:5173`
 on two devices on the same network (or use the deployed Pages URL). For
 registration: scan the registration QR from the customer device. For live pairing:
-tap the logo on one device to open the Prototype panel — its pairing QR is shown;
-tap "Scan a code" on the other device to scan it. The scanned device becomes the
-customer and is routed to `/`; the till is routed to `/staff` on first pair. The
-till shows the live paired-device count and an "Unpair all" button; a paired
-customer shows "Paired to the till" with Unpair + Reset. Multiple customer devices
-can pair to the same till simultaneously. State reflects live on all paired
-devices. Use "Reset this device" (also in the Prototype panel) to rerun a workflow
+tap the hidden top-left **dev trigger** on one device to open the developer panel —
+its pairing QR is shown; tap "Scan to pair" on the other device to scan it. The
+scanned device becomes the customer and is routed to `/`; the till is routed to
+`/staff` on first pair. The till shows the live paired-device count and an "Unpair
+all" button; a paired customer shows "Paired to the till" with Unpair. Multiple
+customer devices can pair to the same till simultaneously. State reflects live on
+all paired devices. Use "Reset" (also in the developer panel) to rerun a workflow
 from a clean state.
 
-Sign in as staff/admin: PIN `4321` (admin) or `1234` (staff) via the long-press `LogoGestures` mark or the Prototype panel. Username/password (`admin / admin`, `staff / staff`) also accepted. Reward threshold is 10 coffees (configurable via Admin → Program).
+Sign in as staff/admin: long-press the `LogoGestures` mark to reach sign-in, then
+enter username/password (`admin / admin` or `staff / staff`). On a device you tick
+"Remember this device", a later idle visit asks only for the PIN (`4321` admin /
+`1234` staff). Reward threshold is 10 coffees (configurable via Admin → Program).
 
 ### Deployment
 Pushing to `main` runs [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml):

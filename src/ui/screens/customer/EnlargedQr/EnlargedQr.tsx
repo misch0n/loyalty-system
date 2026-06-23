@@ -33,7 +33,7 @@ export interface EnlargedQrProps {
   code: string;
 }
 
-type WalletPhase = 'idle' | 'working' | 'error';
+type WalletPhase = 'idle' | 'error';
 
 /**
  * Mobile heuristic for showing the wallet button: a touch device on a small-ish
@@ -52,33 +52,46 @@ export function EnlargedQr({ open, onClose, customerId, token, name, code }: Enl
   const [qr, setQr] = useState<string | null>(null);
   const [phase, setPhase] = useState<WalletPhase>('idle');
   const [showWallet, setShowWallet] = useState(false);
+  // Pre-resolved pass URL for the current OS. Computed when the overlay opens so
+  // the button's click handler can open the window SYNCHRONOUSLY — opening it
+  // after an `await` loses the user-gesture context and pop-up blockers eat it
+  // (that was why "Add to wallet" appeared to do nothing).
+  const [passUrl, setPassUrl] = useState<string | null>(null);
+
+  const os = detectWalletKind();
 
   useEffect(() => {
     if (!open) return;
     setShowWallet(isMobileSurface());
     setPhase('idle');
+    setPassUrl(null);
     let active = true;
     void toDataUrl(cardPayload(token)).then((url) => {
       if (active) setQr(url);
     });
+    // Resolve the wallet pass up front (the static provider is a cheap local
+    // lookup) so tapping the button is a synchronous window.open.
+    void wallet
+      .ensurePass(customerId)
+      .then((pass) => {
+        if (!active) return;
+        setPassUrl(os === 'apple' ? pass.appleUrl : pass.googleUrl);
+      })
+      .catch(() => {
+        if (active) setPhase('error');
+      });
     return () => {
       active = false;
     };
-  }, [open, token]);
+  }, [open, token, customerId, wallet, os]);
 
-  async function onAddToWallet() {
-    setPhase('working');
-    try {
-      const pass = await wallet.ensurePass(customerId);
-      const url = detectWalletKind() === 'apple' ? pass.appleUrl : pass.googleUrl;
-      window.open(url, '_blank', 'noopener');
-      setPhase('idle');
-    } catch {
+  function onAddToWallet() {
+    if (!passUrl) {
       setPhase('error');
+      return;
     }
+    window.open(passUrl, '_blank', 'noopener');
   }
-
-  const os = detectWalletKind();
 
   return (
     <Overlay open={open} onClose={onClose} label="Your card code, enlarged">
@@ -96,7 +109,7 @@ export function EnlargedQr({ open, onClose, customerId, token, name, code }: Enl
           onClick={(e) => e.stopPropagation()}
           role="presentation"
         >
-          <WalletButton os={os} onClick={onAddToWallet} disabled={phase === 'working'} />
+          <WalletButton os={os} onClick={onAddToWallet} disabled={!passUrl && phase !== 'error'} />
           {phase === 'error' && (
             <p className="enlarged-qr-error" role="alert">
               Couldn’t prepare your pass. Try again.

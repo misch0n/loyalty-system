@@ -6,10 +6,43 @@
   margin-bottom: 4px;
 }
 
-.register-privacy {
-  margin: 10px 0 6px;
-  font-size: 12px;
+/* The accented, tappable "privacy notice" link inside the consent text. It
+   opens the privacy notice + terms in a sheet (no longer always expanded). */
+.privacy-link {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--forest);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.privacy-link:hover {
+  color: var(--terra);
+}
+
+/* Privacy notice + terms content (shown in the sheet). */
+.privacy .privacy-title {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 19px;
+  margin: 0 0 12px;
+}
+.privacy ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
   color: var(--ink-soft);
+  line-height: 1.5;
+}
+.privacy li + li {
+  margin-top: 8px;
+}
+.privacy strong {
+  color: var(--ink);
 }
 
 .register-caveat {

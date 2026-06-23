@@ -50,3 +50,26 @@
 .staff-login .remember-row {
   justify-content: center;
 }
+
+/* Username/password form: full-width fields, a centred remember toggle, and a
+   forest submit button beneath. */
+.staff-login__form {
+  width: 100%;
+  max-width: 320px;
+  margin: 0 auto;
+  text-align: left;
+}
+.staff-login__form .field {
+  margin-bottom: 14px;
+}
+.staff-login__remember {
+  display: flex;
+  justify-content: center;
+  margin: 4px 0 16px;
+}
+.staff-login__form .staff-login__error {
+  text-align: center;
+}
+.staff-login__alt {
+  margin-top: 18px;
+}

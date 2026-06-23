@@ -6,7 +6,7 @@ import {
   gotoApp,
   holdLogo,
   launchBrowser,
-  typePin,
+  signIn,
   waitForText,
 } from './support';
 
@@ -18,7 +18,7 @@ afterAll(async () => {
   await browser?.close();
 });
 
-describe('Staff sign-in (PIN)', () => {
+describe('Staff sign-in (username + password)', () => {
   it('long-pressing the logo opens staff sign-in', async () => {
     const { page, close } = await freshSession(browser);
     try {
@@ -32,29 +32,26 @@ describe('Staff sign-in (PIN)', () => {
     }
   });
 
-  it('a wrong PIN shows an error and the pad stays usable (no freeze)', async () => {
+  it('wrong credentials show an error and the form stays usable', async () => {
     const { page, close } = await freshSession(browser);
     try {
       await gotoApp(page, '#/login');
       await waitForText(page, /Staff sign-in/);
-      await typePin(page, '9999');
-      await waitForText(page, /didn.t match/i);
-      // the keypad is not stuck disabled
-      const disabled = await page.$eval('.key[data-k="1"]', (el) => (el as HTMLButtonElement).disabled);
-      expect(disabled).toBe(false);
-      // and the dots reset to empty
-      expect(await page.$$eval('.pin-dots i.on', (els) => els.length)).toBe(0);
+      await signIn(page, 'staff', 'wrong');
+      await waitForText(page, /wrong|match/i);
+      // still on the sign-in screen with the form present
+      expect(await page.$('input[autocomplete="username"]')).not.toBeNull();
     } finally {
       await close();
     }
   });
 
-  it('the correct PIN signs in to the staff panel', async () => {
+  it('correct staff credentials sign in to the counter panel', async () => {
     const { page, close } = await freshSession(browser);
     try {
       await gotoApp(page, '#/login');
       await waitForText(page, /Staff sign-in/);
-      await typePin(page, '1234'); // seed staff PIN
+      await signIn(page, 'staff', 'staff'); // seed staff account
       await waitForText(page, /On shift|Scan a customer/);
       expect(page.url()).toMatch(/#\/staff$/);
       expect(await bodyText(page)).toMatch(/Scan a customer/);

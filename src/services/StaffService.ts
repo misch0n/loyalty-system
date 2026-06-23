@@ -5,9 +5,11 @@
  * seed accounts are admin/admin and staff/staff). Production replaces this with
  * hashed passwords verified server-side — the call sites do not change.
  *
- * Sign-in is by PIN (`loginWithPin`); admins manage PINs via `create(..., pin)`
- * and `setPin`. PINs are 4–8 digits, unique among active accounts, and are
- * NEVER logged (they are credentials).
+ * First sign-in is by username/password (`login`). The PIN (`loginWithPin`) is
+ * the quick re-auth used when a remembered device unlocks after an idle lock.
+ * Admins manage PINs via `create(..., pin, name)` and `setPin`. PINs are 4–8
+ * digits, unique among active accounts, and are NEVER logged (they are
+ * credentials). Accounts also carry a display `name` used for attribution/UI.
  */
 
 import type { StaffAccount, StaffRole } from '../domain/models';
@@ -40,7 +42,12 @@ export class StaffService {
       );
       return { ok: false, reason: 'Wrong username or password, or the account is disabled.' };
     }
-    const actor: Actor = { id: account.id, username: account.username, role: account.role };
+    const actor: Actor = {
+      id: account.id,
+      username: account.username,
+      name: account.name,
+      role: account.role,
+    };
     await this.audit.log(actor, 'staff.login', account.id);
     return { ok: true, actor };
   }
@@ -57,7 +64,12 @@ export class StaffService {
       await this.audit.log({ id: 'unknown', role: 'system' }, 'staff.login.failed');
       return { ok: false, reason: 'Wrong PIN, or the account is disabled.' };
     }
-    const actor: Actor = { id: account.id, username: account.username, role: account.role };
+    const actor: Actor = {
+      id: account.id,
+      username: account.username,
+      name: account.name,
+      role: account.role,
+    };
     await this.audit.log(actor, 'staff.login', account.id);
     return { ok: true, actor };
   }
@@ -91,10 +103,12 @@ export class StaffService {
     password: string,
     role: StaffRole,
     pin?: string,
+    name?: string,
   ): Promise<StaffAccount> {
     const trimmed = username.trim();
     if (!trimmed) throw new Error('Username is required.');
     if (!password) throw new Error('Password is required.');
+    const cleanName = name?.trim() || undefined;
     const existing = await this.store.getStaffByUsername(trimmed);
     if (existing) throw new Error('That username is already taken.');
     let cleanPin: string | undefined;
@@ -104,6 +118,7 @@ export class StaffService {
     }
     const account = await this.store.createStaff({
       username: trimmed,
+      name: cleanName,
       passwordHash: password, // mock: plain in prototype, hashed in production
       role,
       pin: cleanPin,

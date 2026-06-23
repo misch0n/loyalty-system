@@ -13,6 +13,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { GestureLogo } from '../../../app/LogoGestures';
 import { LogoMark } from '../../../components/Logo/Logo';
 import { Eyebrow, Title, Sub } from '../../../components/Heading/Heading';
+import { Button } from '../../../components/Button/Button';
 import { PinPad } from '../../../components/PinPad/PinPad';
 import { useAuth } from '../../../app/AuthContext';
 import { ROUTES } from '../../../app/routes';
@@ -22,11 +23,13 @@ const PIN_LENGTH = 4;
 
 export function Unlock(): JSX.Element {
   const navigate = useNavigate();
-  const { status, ready, unlock, recordActivity } = useAuth();
+  const { actor, status, ready, unlock, logout, recordActivity } = useAuth();
 
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+
+  const greetName = actor?.name ?? actor?.username;
 
   useEffect(() => {
     if (status !== 'locked' || pin.length !== PIN_LENGTH || verifying) return;
@@ -38,7 +41,8 @@ export function Unlock(): JSX.Element {
         if (cancelled) return;
         if (result.ok) {
           recordActivity();
-          navigate(ROUTES.staff, { replace: true });
+          const home = actor?.role === 'admin' ? ROUTES.admin : ROUTES.staff;
+          navigate(home, { replace: true });
           return;
         }
         setPin('');
@@ -50,7 +54,12 @@ export function Unlock(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [pin, status, verifying, unlock, navigate, recordActivity]);
+  }, [pin, status, verifying, unlock, navigate, recordActivity, actor]);
+
+  const onSwitchUser = () => {
+    logout();
+    navigate(ROUTES.login, { replace: true });
+  };
 
   if (!ready) {
     return (
@@ -74,7 +83,9 @@ export function Unlock(): JSX.Element {
         </GestureLogo>
 
         <Eyebrow className="staff-login__eyebrow">Ckyka rewards</Eyebrow>
-        <Title className="staff-login__title">Enter your PIN to continue</Title>
+        <Title className="staff-login__title">
+          {greetName ? `Welcome back, ${greetName}` : 'Enter your PIN to continue'}
+        </Title>
         <Sub className="staff-login__sub">This device stays signed in — just confirm it’s you.</Sub>
 
         <div className="staff-login__gap" aria-hidden="true" />
@@ -94,6 +105,11 @@ export function Unlock(): JSX.Element {
             {error}
           </p>
         )}
+
+        <div className="spacer" />
+        <Button variant="ghost" className="staff-login__alt" onClick={onSwitchUser}>
+          Sign in as someone else
+        </Button>
       </div>
     </div>
   );

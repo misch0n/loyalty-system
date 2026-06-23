@@ -4,9 +4,12 @@
  * There is no global chrome: each screen renders its own full-bleed `.screen`
  * surface and its own logo where the reference shows one. The app provides the
  * logo-gesture handlers once via `LogoGesturesProvider`:
- *   - tap left half  → home ('/' → entry resolver)
- *   - tap right half → prototype tools panel (prototype build only)
- *   - long-press     → staff/admin sign-in
+ *   - tap        → home ('/' → entry resolver → welcome/card/staff/admin)
+ *   - long-press → staff/admin sign-in
+ *
+ * The prototype tools panel is opened by its own dedicated hidden trigger in the
+ * top-left corner (`DevTrigger`), present on every view in prototype builds —
+ * keeping it independent of the logo's "go home" behaviour.
  *
  * Route guards for staff/admin live inside the screens (they consult `useAuth`).
  * HashRouter keeps GitHub Pages happy — client routes live after the `#`.
@@ -15,6 +18,7 @@
 import { useState } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { LogoGesturesProvider } from './ui/app/LogoGestures';
+import { DevTrigger } from './ui/app/DevTrigger';
 import { EntryResolver } from './ui/app/EntryResolver';
 import { ROUTES } from './ui/app/routes';
 import { isPrototype } from './config/env';
@@ -40,7 +44,6 @@ export function App() {
     <LogoGesturesProvider
       value={{
         onHome: () => navigate('/'),
-        onTools: isPrototype ? () => setProtoOpen(true) : undefined,
         onHold: () => navigate(ROUTES.login),
       }}
     >
@@ -71,7 +74,10 @@ export function App() {
       </Routes>
 
       {isPrototype ? (
-        <ProtoPanel open={protoOpen} onClose={() => setProtoOpen(false)} />
+        <>
+          <DevTrigger onOpen={() => setProtoOpen(true)} />
+          <ProtoPanel open={protoOpen} onClose={() => setProtoOpen(false)} />
+        </>
       ) : null}
     </LogoGesturesProvider>
   );

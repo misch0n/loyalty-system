@@ -33,6 +33,13 @@ export interface StaffAccount {
   id: string;
   username: string;
   /**
+   * Display name used for staff attribution in the activity log, the staff
+   * panel "on shift" line, and admin analytics. Distinct from `username` (the
+   * sign-in handle). Optional for backward compatibility with seed/legacy
+   * records; display falls back to `username` when absent.
+   */
+  name?: string;
+  /**
    * Production stores a hash here. The prototype mocks auth and keeps a plain
    * value purely so the login screen has something to compare against; it must
    * never hold a real credential.

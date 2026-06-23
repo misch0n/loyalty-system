@@ -55,6 +55,8 @@ export interface CreateStaffInput {
   username: string;
   passwordHash: string;
   role: StaffRole;
+  /** Display name (attribution + UI). Optional; falls back to username. */
+  name?: string;
   /** Optional sign-in PIN (4–8 digits). Absent for password-only accounts. */
   pin?: string;
 }

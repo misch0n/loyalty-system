@@ -285,6 +285,7 @@ export class IndexedDbStore implements DataStore {
     const account: StaffAccount = {
       id: generateId(),
       username: input.username,
+      name: input.name,
       passwordHash: input.passwordHash,
       pin: input.pin,
       role: input.role,

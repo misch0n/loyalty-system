@@ -27,6 +27,8 @@ export type AuthStatus = 'anon' | 'active' | 'locked';
 export interface PersistedSession {
   actorId: string;
   username: string;
+  /** Display name, persisted so the panel can greet by name after a reload. */
+  name?: string;
   role: StaffRole;
   epoch: number;
   lastActivity: number;
@@ -53,6 +55,7 @@ export function parseSession(raw: string | null): PersistedSession | null {
       return {
         actorId: o.actorId,
         username: o.username,
+        name: typeof o.name === 'string' ? o.name : undefined,
         role: o.role,
         epoch: o.epoch,
         lastActivity: o.lastActivity,
@@ -66,7 +69,12 @@ export function parseSession(raw: string | null): PersistedSession | null {
 
 /** The audit/UI actor projected from a persisted session. */
 export function actorFrom(session: PersistedSession): Actor {
-  return { id: session.actorId, username: session.username, role: session.role };
+  return {
+    id: session.actorId,
+    username: session.username,
+    name: session.name,
+    role: session.role,
+  };
 }
 
 /** True once the inactivity window has fully elapsed since last activity. */

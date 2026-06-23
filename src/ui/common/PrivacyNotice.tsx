@@ -1,12 +1,14 @@
 /**
- * Short, accurate privacy notice shown at registration. Template-style (national
- * DPA templates); the café is the data controller. Kept concise on purpose.
+ * Short, accurate privacy notice + terms shown at registration. Template-style
+ * (national DPA templates); the café is the data controller. Kept concise on
+ * purpose. Rendered on demand (e.g. inside a sheet) when the customer taps the
+ * "privacy notice" link, rather than always expanded.
  */
 
 export function PrivacyNotice() {
   return (
-    <details className="privacy" open>
-      <summary>Privacy notice — please read before consenting</summary>
+    <div className="privacy">
+      <h2 className="privacy-title">Privacy notice &amp; terms</h2>
       <ul>
         <li>
           <strong>What we collect:</strong> any name, email or phone you choose
@@ -33,6 +35,6 @@ export function PrivacyNotice() {
           Google and an international data transfer.
         </li>
       </ul>
-    </details>
+    </div>
   );
 }

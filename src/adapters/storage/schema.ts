@@ -78,6 +78,7 @@ export const SEED_STAFF: StaffAccount[] = [
   {
     id: 'seed-admin',
     username: 'admin',
+    name: 'Manager',
     passwordHash: 'admin',
     pin: '4321',
     role: 'admin',
@@ -87,6 +88,7 @@ export const SEED_STAFF: StaffAccount[] = [
   {
     id: 'seed-staff',
     username: 'staff',
+    name: 'Sam',
     passwordHash: 'staff',
     pin: '1234',
     role: 'staff',

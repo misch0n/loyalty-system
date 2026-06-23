@@ -4,7 +4,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { ProtoPanel } from './ProtoPanel';
 import { ServicesProvider } from '../../../common/ServicesContext';
-import { PRESET_CARD_TOKENS } from '../../../../wallet/passes';
 import type { Services } from '../../../../services/Services';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -17,7 +16,7 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useNavigate: () => navigateMock };
 });
 
-// Pairing + auth are external wiring (PeerJS / sessionStorage) — stub them.
+// Pairing is external wiring (PeerJS / sessionStorage) — stub it.
 vi.mock('../../../common/PairingContext', () => ({
   usePairing: () => ({
     peerId: null,
@@ -26,9 +25,6 @@ vi.mock('../../../common/PairingContext', () => ({
     ensureHosting: vi.fn(),
     unpair: vi.fn(),
   }),
-}));
-vi.mock('../../../app/AuthContext', () => ({
-  useAuth: () => ({ actor: null }),
 }));
 
 const resetMock = vi.fn(async () => {});
@@ -63,21 +59,30 @@ async function mount(open = true): Promise<void> {
   });
 }
 
+function findButton(text: string): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll<HTMLButtonElement>('.pbtn')).find((b) =>
+    b.textContent?.includes(text),
+  );
+}
+
 describe('ProtoPanel', () => {
   it('renders nothing when closed', async () => {
     await mount(false);
     expect(container.querySelector('.proto')).toBeNull();
   });
 
-  it('renders the Prototype badge and demo control groups', async () => {
+  it('shows only the three developer controls: QR, scan to pair, reset', async () => {
     await mount();
     expect(container.querySelector('.badge')?.textContent).toBe('Prototype');
-    const labels = Array.from(container.querySelectorAll('.lab')).map((n) => n.textContent);
-    expect(labels.some((l) => l?.startsWith('Active customer'))).toBe(true);
-    expect(labels).toContain('Jump card state');
-    expect(labels).toContain('Data');
-    expect(labels).toContain('Jump to view');
-    expect(labels).toContain('Device pairing');
+    // QR area (status until a peer id arrives), plus the two action buttons.
+    expect(container.querySelector('.proto-status')).not.toBeNull();
+    expect(findButton('Scan to pair')).toBeTruthy();
+    expect(findButton('Reset')).toBeTruthy();
+    // The old demo-card / jump-to-view controls are gone.
+    expect(container.querySelector('select')).toBeNull();
+    expect(findButton('Staff')).toBeUndefined();
+    expect(findButton('Admin')).toBeUndefined();
+    expect(findButton('Card')).toBeUndefined();
   });
 
   it('reset calls services.reset', async () => {
@@ -90,11 +95,8 @@ describe('ProtoPanel', () => {
       value: { ...realLocation, hash: '', reload: vi.fn() },
     });
     await mount();
-    const resetBtn = Array.from(container.querySelectorAll('.pbtn')).find((b) =>
-      b.textContent?.includes('Reset'),
-    ) as HTMLButtonElement;
     await act(async () => {
-      resetBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      findButton('Reset')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     expect(resetMock).toHaveBeenCalledTimes(1);
     Object.defineProperty(window, 'location', {
@@ -103,26 +105,11 @@ describe('ProtoPanel', () => {
     });
   });
 
-  it('selecting a demo customer navigates to its card', async () => {
+  it('"Scan to pair" navigates to the pair route', async () => {
     await mount();
-    const select = container.querySelector('select') as HTMLSelectElement;
     await act(async () => {
-      select.value = PRESET_CARD_TOKENS[1];
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+      findButton('Scan to pair')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
-    expect(navigateMock).toHaveBeenCalledWith(
-      `/card/${encodeURIComponent(PRESET_CARD_TOKENS[1])}`,
-    );
-  });
-
-  it('"Jump to view · Staff" navigates to the staff route', async () => {
-    await mount();
-    const staffBtn = Array.from(container.querySelectorAll('.pbtn')).find(
-      (b) => b.textContent === 'Staff',
-    ) as HTMLButtonElement;
-    await act(async () => {
-      staffBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
-    expect(navigateMock).toHaveBeenCalledWith('/staff');
+    expect(navigateMock).toHaveBeenCalledWith('/pair');
   });
 });

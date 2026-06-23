@@ -18,6 +18,7 @@ import { LogoMark } from '../../../components/Logo/Logo';
 import { Eyebrow, Title, Sub } from '../../../components/Heading/Heading';
 import { Field, Consent } from '../../../components/Field/Field';
 import { Button } from '../../../components/Button/Button';
+import { Sheet } from '../../../components/Sheet/Sheet';
 import { GestureLogo } from '../../../app/LogoGestures';
 import { cardPath } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
@@ -34,6 +35,7 @@ export function Register() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [consent, setConsent] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<FieldName, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -102,7 +104,7 @@ export function Register() {
           type="email"
           inputMode="email"
           autoComplete="email"
-          placeholder="maria@…"
+          placeholder="maria@test.com"
           value={email}
           onChange={setEmail}
           hint={errors.email ?? 'So we can tell you when a free coffee is ready.'}
@@ -110,11 +112,16 @@ export function Register() {
         />
 
         <Consent checked={consent} onChange={setConsent}>
-          I agree to the privacy notice. We keep only what&apos;s needed.
+          I agree to the{' '}
+          <button
+            type="button"
+            className="privacy-link"
+            onClick={() => setShowPrivacy(true)}
+          >
+            privacy notice
+          </button>
+          . We keep only what&apos;s needed.
         </Consent>
-        <div className="register-privacy">
-          <PrivacyNotice />
-        </div>
         {errors.consent && (
           <p className="register-field-error" role="alert">
             {errors.consent}
@@ -136,6 +143,14 @@ export function Register() {
           {submitting ? 'Creating your card…' : 'Create my card'}
         </Button>
       </div>
+
+      <Sheet
+        open={showPrivacy}
+        onClose={() => setShowPrivacy(false)}
+        label="Privacy notice and terms"
+      >
+        <PrivacyNotice />
+      </Sheet>
     </div>
   );
 }

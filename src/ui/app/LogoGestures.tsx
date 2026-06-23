@@ -1,18 +1,21 @@
 /**
- * Logo gestures (UX-SPEC §2 + the user's split-tap model).
+ * Logo gestures (UX-SPEC §2).
  *
  * In the Ckyka reference each screen renders its own logo (Welcome hero, staff
- * topbar, a discreet mark on the customer header) — there is NO global chrome and
- * NO "Staff sign-in" subtitle. So the gesture behaviour lives in a small context
- * + a `<GestureLogo>` wrapper that any screen can put around its logo:
+ * topbar, a discreet mark on the customer header) — there is NO global chrome.
+ * The gesture behaviour lives in a small context + a `<GestureLogo>` wrapper
+ * that any screen can put around its logo:
  *
- *   - tap LEFT half   → onHome  (home: '/' → entry resolver → welcome/card/staff)
- *   - tap RIGHT half  → onTools (prototype tools panel; prototype build only)
- *   - long-press ≥600ms → onHold (staff/admin sign-in)
+ *   - tap               → onHome  (home: '/' → entry resolver → welcome/card/staff/admin)
+ *   - long-press ≥600ms → onHold  (staff/admin sign-in)
+ *
+ * The prototype tools panel is NOT a logo gesture any more — it has its own
+ * dedicated hidden corner trigger (see `DevTrigger`) so the logo can be a clean
+ * "go home" affordance for staff and admin without competing with redirects.
  *
  * App supplies the handlers once via `LogoGesturesProvider`; screens stay
- * presentational. A visually-hidden, always-focusable "Staff sign-in" button
- * gives a guaranteed keyboard path to onHold (the long-press is pointer-only).
+ * presentational. A visually-hidden, always-focusable button gives a guaranteed
+ * keyboard path to onHold (the long-press is pointer-only).
  */
 import {
   createContext,
@@ -21,21 +24,14 @@ import {
   useEffect,
   useRef,
   type KeyboardEvent,
-  type PointerEvent,
   type ReactNode,
 } from 'react';
 import './logo-gestures.css';
 
 const HOLD_MS = 600;
 
-/** Which half of the logo a tap landed in (left = home, right = tools). */
-export function tapSide(clientX: number, rect: { left: number; width: number }): 'left' | 'right' {
-  return clientX - rect.left >= rect.width / 2 ? 'right' : 'left';
-}
-
 export interface LogoHandlers {
   onHome?: () => void;
-  onTools?: () => void;
   onHold?: () => void;
 }
 
@@ -66,7 +62,7 @@ export function GestureLogo({
   children: ReactNode;
   className?: string;
 }): JSX.Element {
-  const { onHome, onTools, onHold } = useLogoGestures();
+  const { onHome, onHold } = useLogoGestures();
 
   const holdTimer = useRef<number | null>(null);
   const heldRef = useRef(false);
@@ -89,17 +85,13 @@ export function GestureLogo({
     }, HOLD_MS);
   }, [clearTimer, onHold]);
 
-  const endPress = useCallback(
-    (side: 'left' | 'right') => {
-      if (!pressingRef.current) return;
-      pressingRef.current = false;
-      clearTimer();
-      if (heldRef.current) return; // a completed hold already fired
-      if (side === 'right' && onTools) onTools();
-      else onHome?.();
-    },
-    [clearTimer, onTools, onHome],
-  );
+  const endPress = useCallback(() => {
+    if (!pressingRef.current) return;
+    pressingRef.current = false;
+    clearTimer();
+    if (heldRef.current) return; // a completed hold already fired
+    onHome?.();
+  }, [clearTimer, onHome]);
 
   const cancelPress = useCallback(() => {
     pressingRef.current = false;
@@ -107,14 +99,6 @@ export function GestureLogo({
   }, [clearTimer]);
 
   useEffect(() => clearTimer, [clearTimer]);
-
-  const onPointerUp = useCallback(
-    (e: PointerEvent<HTMLButtonElement>) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      endPress(tapSide(e.clientX, rect));
-    },
-    [endPress],
-  );
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent<HTMLButtonElement>) => {
@@ -129,7 +113,7 @@ export function GestureLogo({
     (e: KeyboardEvent<HTMLButtonElement>) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       e.preventDefault();
-      endPress('left'); // a keyboard has no left/right half — tap goes home
+      endPress();
     },
     [endPress],
   );
@@ -141,7 +125,7 @@ export function GestureLogo({
         className="logo-gesture"
         aria-label="Ckyka Rewards — tap for home, hold for staff sign-in"
         onPointerDown={beginPress}
-        onPointerUp={onPointerUp}
+        onPointerUp={endPress}
         onPointerCancel={cancelPress}
         onKeyDown={onKeyDown}
         onKeyUp={onKeyUp}

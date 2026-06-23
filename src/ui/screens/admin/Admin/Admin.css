@@ -21,3 +21,17 @@
   cursor: pointer;
   padding: 0;
 }
+
+/* Add-staff-account sheet form. */
+.admin-create__title {
+  font-size: 22px;
+  margin: 0 0 6px;
+}
+.admin-create__role {
+  margin: 6px 0 16px;
+}
+.admin-create__error {
+  color: var(--terra-600);
+  font-size: 12.5px;
+  margin: 0 0 12px;
+}

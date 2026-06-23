@@ -42,6 +42,8 @@ import {
 
 const DEVICE_KEY = 'cafe-loyalty.staffDevice';
 const SESSION_KEY = 'cafe-loyalty.staffSession';
+/** Last signed-in username, kept (no password/PIN) to prefill the sign-in form. */
+const LAST_USER_KEY = 'cafe-loyalty.lastUser';
 
 /** How often the internal timer checks for expiry. */
 const TICK_MS = 15 * 1000;
@@ -56,10 +58,24 @@ export interface AuthValue {
   status: AuthStatus;
   /** True when "remember this device" was ON (a trusted café terminal). */
   trusted: boolean;
-  /** PIN sign-in. `remember` makes the device a trusted terminal. */
-  loginWithPin(pin: string, remember: boolean): Promise<{ ok: boolean; reason?: string }>;
-  /** Re-auth a locked trusted device. Must resolve to the same actor id. */
+  /**
+   * Username/password sign-in (the first sign-in on a device). `remember` makes
+   * the device a trusted terminal — later visits re-auth with the PIN instead.
+   * Resolves with the signed-in actor on success so the caller can route by role.
+   */
+  loginWithPassword(
+    username: string,
+    password: string,
+    remember: boolean,
+  ): Promise<{ ok: boolean; actor?: Actor; reason?: string }>;
+  /** Re-auth a locked trusted device by PIN. Must resolve to the same actor id. */
   unlock(pin: string): Promise<{ ok: boolean; reason?: string }>;
+  /**
+   * The last username that signed in on this device (no credential stored).
+   * Used to prefill the sign-in form so a returning, non-remembered device asks
+   * for the last user's password rather than a blank form.
+   */
+  lastUsername: string | null;
   /** Full sign-out: clears actor and device trust. */
   logout(): void;
   /** Reset the inactivity timer (call on scan/credit/redeem/nav). */
@@ -96,6 +112,22 @@ function clearStorage(): void {
   }
 }
 
+function readLastUsername(): string | null {
+  try {
+    return localStorage.getItem(LAST_USER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberLastUsername(username: string): void {
+  try {
+    localStorage.setItem(LAST_USER_KEY, username);
+  } catch {
+    // best-effort: prefill is a convenience, not required
+  }
+}
+
 function persist(session: PersistedSession, trusted: boolean): void {
   try {
     const raw = JSON.stringify(session);
@@ -118,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   const [status, setStatus] = useState<AuthStatus>('anon');
   const [trusted, setTrusted] = useState(false);
   const [ready, setReady] = useState(false);
+  const [lastUsername, setLastUsername] = useState<string | null>(() => readLastUsername());
 
   // The authoritative session record lives in a ref so the timer reads fresh
   // values without re-subscribing; React state mirrors it for rendering.
@@ -204,9 +237,13 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     return () => window.clearInterval(id);
   }, [status, logout]);
 
-  const loginWithPin = useCallback(
-    async (pin: string, remember: boolean): Promise<{ ok: boolean; reason?: string }> => {
-      const result = await services.staff.loginWithPin(pin);
+  const loginWithPassword = useCallback(
+    async (
+      username: string,
+      password: string,
+      remember: boolean,
+    ): Promise<{ ok: boolean; actor?: Actor; reason?: string }> => {
+      const result = await services.staff.login(username, password);
       if (!result.ok || !result.actor) {
         return { ok: false, reason: result.reason };
       }
@@ -215,6 +252,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       const session: PersistedSession = {
         actorId: signedIn.id,
         username: signedIn.username,
+        name: signedIn.name,
         role: signedIn.role,
         epoch,
         lastActivity: Date.now(),
@@ -222,10 +260,12 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       sessionRef.current = session;
       trustedRef.current = remember;
       persist(session, remember);
+      rememberLastUsername(signedIn.username);
+      setLastUsername(signedIn.username);
       setActor(signedIn);
       setTrusted(remember);
       setStatus('active');
-      return { ok: true };
+      return { ok: true, actor: signedIn };
     },
     [services],
   );
@@ -254,8 +294,18 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   );
 
   const value = useMemo<AuthValue>(
-    () => ({ actor, status, trusted, loginWithPin, unlock, logout, recordActivity, ready }),
-    [actor, status, trusted, loginWithPin, unlock, logout, recordActivity, ready],
+    () => ({
+      actor,
+      status,
+      trusted,
+      loginWithPassword,
+      unlock,
+      logout,
+      recordActivity,
+      ready,
+      lastUsername,
+    }),
+    [actor, status, trusted, loginWithPassword, unlock, logout, recordActivity, ready, lastUsername],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

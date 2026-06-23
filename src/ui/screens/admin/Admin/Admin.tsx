@@ -20,6 +20,8 @@ import { Navigate } from 'react-router-dom';
 import { Eyebrow, Title } from '../../../components/Heading/Heading';
 import { Button } from '../../../components/Button/Button';
 import { LogoMark } from '../../../components/Logo/Logo';
+import { Field, Toggle } from '../../../components/Field/Field';
+import { Sheet } from '../../../components/Sheet/Sheet';
 import { useToast } from '../../../components/Toast/Toast';
 import { GestureLogo } from '../../../app/LogoGestures';
 import { useAuth } from '../../../app/AuthContext';
@@ -115,8 +117,8 @@ export function Admin() {
           <Eyebrow>Restricted</Eyebrow>
           <Title>Admins only</Title>
           <p className="admin-empty">
-            You’re signed in as {actor.username}, but this area needs an admin account. Ask an
-            admin to sign in here.
+            You’re signed in as {actor.name ?? actor.username}, but this area needs an admin
+            account. Ask an admin to sign in here.
           </p>
         </div>
       </div>
@@ -140,6 +142,16 @@ function AdminScreen({ actor }: { actor: Actor }) {
 
   const [edit, setEdit] = useState<EditTarget | null>(null);
 
+  // Create-account form (admin defines name, username, password, PIN, role).
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [newAdmin, setNewAdmin] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
   const load = useCallback(() => {
     let cancelled = false;
     void Promise.all([
@@ -157,7 +169,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
       setAlerts(alertList);
       setStaff(staffList);
       const map: Record<string, string> = {};
-      for (const member of staffList) map[member.id] = member.username;
+      for (const member of staffList) map[member.id] = member.name ?? member.username;
       setNames(map);
       setEntries(log);
     });
@@ -208,6 +220,47 @@ function AdminScreen({ actor }: { actor: Actor }) {
       toast.show('Couldn’t make that change. Try again.');
     } finally {
       setEdit(null);
+    }
+  };
+
+  const resetCreateForm = () => {
+    setNewName('');
+    setNewUsername('');
+    setNewPassword('');
+    setNewPin('');
+    setNewAdmin(false);
+    setCreateError(null);
+  };
+
+  const submitCreate = async () => {
+    if (creating) return;
+    if (!newName.trim() || !newUsername.trim() || !newPassword) {
+      setCreateError('Name, username and password are all required.');
+      return;
+    }
+    if (newPin && !/^\d{4,8}$/.test(newPin.trim())) {
+      setCreateError('A PIN must be 4–8 digits (or leave it blank).');
+      return;
+    }
+    setCreating(true);
+    setCreateError(null);
+    try {
+      await services.staff.create(
+        actor,
+        newUsername.trim(),
+        newPassword,
+        newAdmin ? 'admin' : 'staff',
+        newPin.trim() || undefined,
+        newName.trim(),
+      );
+      resetCreateForm();
+      setCreateOpen(false);
+      toast.show(`Account created for ${newName.trim()}.`);
+      load();
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Could not create the account.');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -299,7 +352,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
               icon={<PersonIcon />}
               text={
                 <>
-                  {account.username} <span>· {account.role}</span>
+                  {account.name ?? account.username} <span>· {account.role}</span>
                 </>
               }
               time={
@@ -318,8 +371,18 @@ function AdminScreen({ actor }: { actor: Actor }) {
           )}
         </Feed>
         <Button
-          variant="line"
+          variant="forest"
           style={{ marginTop: 12 }}
+          onClick={() => {
+            resetCreateForm();
+            setCreateOpen(true);
+          }}
+        >
+          Add staff account
+        </Button>
+        <Button
+          variant="line"
+          style={{ marginTop: 10 }}
           onClick={() => setEdit({ kind: 'revokeAll' })}
         >
           Sign out all devices
@@ -356,6 +419,83 @@ function AdminScreen({ actor }: { actor: Actor }) {
         title={stepUpCopy.title}
         message={stepUpCopy.message}
       />
+
+      <Sheet
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        label="Add a staff account"
+      >
+        <div className="admin-create">
+          <Title className="admin-create__title">Add staff account</Title>
+          <p className="admin-empty">
+            The name shows on the staff panel and in the activity log. The username and
+            password are for signing in; the PIN is the quick re-auth on a remembered device.
+          </p>
+          <Field
+            label="Name"
+            type="text"
+            placeholder="Maria"
+            value={newName}
+            onChange={(v) => {
+              setCreateError(null);
+              setNewName(v);
+            }}
+            disabled={creating}
+          />
+          <Field
+            label="Username"
+            type="text"
+            autoComplete="off"
+            placeholder="maria"
+            value={newUsername}
+            onChange={(v) => {
+              setCreateError(null);
+              setNewUsername(v);
+            }}
+            disabled={creating}
+          />
+          <Field
+            label="Password"
+            type="password"
+            autoComplete="new-password"
+            placeholder="••••••••"
+            value={newPassword}
+            onChange={(v) => {
+              setCreateError(null);
+              setNewPassword(v);
+            }}
+            disabled={creating}
+          />
+          <Field
+            label="PIN"
+            optional
+            type="text"
+            inputMode="numeric"
+            placeholder="4–8 digits"
+            value={newPin}
+            onChange={(v) => {
+              setCreateError(null);
+              setNewPin(v.replace(/\D/g, ''));
+            }}
+            disabled={creating}
+          />
+          <div className="admin-create__role">
+            <Toggle on={newAdmin} onChange={setNewAdmin} label="Admin account" />
+          </div>
+          {createError && (
+            <p className="admin-create__error" role="alert">
+              {createError}
+            </p>
+          )}
+          <Button
+            variant="forest"
+            disabled={creating}
+            onClick={() => void submitCreate()}
+          >
+            {creating ? 'Creating…' : 'Create account'}
+          </Button>
+        </div>
+      </Sheet>
     </div>
   );
 }

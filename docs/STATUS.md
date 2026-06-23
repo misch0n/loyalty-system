@@ -5,7 +5,7 @@
 > [`SPEC.md`](SPEC.md); working rules in [`../CLAUDE.md`](../CLAUDE.md).
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 
-**Last updated:** 2026-06-23 (Ckyka reference-UI rebuild: entire `src/ui/` presentation replaced to match approved pixel reference; new folder-per-unit structure `src/ui/{theme/,components/<Name>/,screens/<area>/<Screen>/,app/,common/}`; Shell replaced by `LogoGestures`; reward threshold now 10; co-located component/screen tests + Puppeteer e2e suite added) · **Phase:** v1 prototype — feature-complete against SPEC §15 (Appendix A implemented) + Appendix B partially implemented (B1–B3, B6 partial via Welcome, B7 documented; B4 and B5 dropped, B6 remainder deferred).
+**Last updated:** 2026-06-23 (Auth + dev-panel UX revision: staff/admin sign-in is now **username/password first** with the PIN reserved for quick re-auth on a remembered idle device; staff accounts gained a **display name** (name/username/password/PIN) and admins create accounts from the panel; logo **tap → home** is role-aware (admin→/admin) and long-press → sign-in; the Prototype/developer panel moved to a **hidden top-left `DevTrigger`** and was stripped to **QR / Scan to pair / Reset**; register privacy notice is a tappable accented link opening a sheet; centred Welcome logo; "Add to wallet" pop-up-blocker fix) · **Phase:** v1 prototype — feature-complete against SPEC §15 (Appendix A implemented) + Appendix B partially implemented (B1–B3, B6 partial via Welcome, B7 documented; B4 and B5 dropped, B6 remainder deferred).
 
 ---
 
@@ -14,7 +14,7 @@
 - React + TypeScript + Vite SPA, IndexedDB storage, deployed to GitHub Pages.
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
-- **341 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
+- **340 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
 - **Puppeteer e2e suite** (`e2e/`, run with `npm run e2e`) drives the built app in headless Chrome: welcome, register→card, staff PIN, prototype panel, and the reference bug-list regressions (13 checks).
 - CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`,
   `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets) → deploys on push to `main`.
@@ -26,7 +26,7 @@
 
 | Criterion | State | Where |
 |---|---|---|
-| Staff/admin login + role gating | ✅ | `services/StaffService.ts`, `ui/app/AuthContext.tsx`, `ui/screens/staff/Login/Login.tsx` — PIN (seed: admin `4321` / staff `1234`) or username/password; staff guard via `useStaffGuard` inside screens |
+| Staff/admin login + role gating | ✅ | `services/StaffService.ts`, `ui/app/AuthContext.tsx`, `ui/screens/staff/Login/Login.tsx` — **username/password first** (seed: admin `admin`/`admin`, staff `staff`/`staff`); **PIN** (seed admin `4321`, staff `1234`) is the quick re-auth on a remembered idle device (`ui/screens/staff/Unlock/Unlock.tsx`); role-aware home (admin→`/admin`); staff guard via `useStaffGuard` inside screens |
 | Self-service registration (primary path); no approval queue | ✅ | `ui/screens/customer/Register/Register.tsx`, `CustomerService.selfRegister`, `adapters/identity/LocalStorageIdentityStore.ts` |
 | Staff-initiated registration over real PeerJS (secondary path); duplicate warning | ✅ | `ui/screens/staff/Scan/Scan.tsx`, `adapters/transport/PeerTransport.ts` |
 | No single-browser / dual-pane simulation | ✅ (LocalBridgeTransport removed) | `adapters/transport/` |
@@ -39,7 +39,7 @@
 | Staff recovery / reissue; token-only unrecoverable | ✅ | `ui/screens/staff/Panel/Panel.tsx`, `CustomerService.reissue` |
 | Correction/reversal, logged | ✅ | `LoyaltyService.reverse` |
 | Deletion/opt-out — customer self-delete from card menu; staff-confirmed also available | ✅ | `CustomerService.selfDelete(token)` ← `ui/screens/customer/CardMenu/CardMenu.tsx`; `IndexedDbStore.softDeleteCustomer` |
-| Admin: staff CRUD (+ PIN create/set + "Sign out all devices"), config (step-up PIN re-auth on save), stats, audit viewer, alerts | ✅ | `ui/screens/admin/Admin/Admin.tsx` and `ui/screens/admin/_parts/` |
+| Admin: staff CRUD (**create with name/username/password/PIN/role** via sheet form + reset PIN + "Sign out all devices"), config (step-up PIN re-auth on save), stats, audit viewer, alerts | ✅ | `ui/screens/admin/Admin/Admin.tsx` and `ui/screens/admin/_parts/`; staff `name` displayed in panel + activity (`StaffAccount.name`, `Actor.name`) |
 | Staff/admin session never auto-displays customer card (entry routing) | ✅ | `ui/app/EntryResolver.tsx` — trusted staff+active→`/staff`; remembered card→`/card/:token`; else→`/welcome` |
 | Inactivity lock (5 min) → PIN re-auth at `/staff/unlock` | ✅ | `ui/app/AuthContext.tsx`, `ui/screens/staff/Unlock/Unlock.tsx`, `StaffService.loginWithPin` |
 | Epoch-based "Sign out all devices" revocation | ✅ | `StaffService.revokeAllSessions`, `ProgramConfig.sessionEpoch` |
@@ -62,19 +62,26 @@
 
 ## What is real vs. stubbed (prototype intentionally)
 
-- **Auth** is mocked: PINs and passwords are stored and compared as plain strings;
-  seed accounts `admin/admin` / `staff/staff` with PINs `4321` / `1234`. Production
-  → hashed server-side. `AuthContext` (`ui/app/AuthContext.tsx`) manages the active
-  session: "remember this device" flag, 5-minute inactivity lock, epoch-based
-  revocation. PIN is never logged.
-- **Prototype panel** (`ui/screens/proto/ProtoPanel/ProtoPanel.tsx`) is opened by
-  tapping the **right half** of the `LogoGestures` mark (the left half goes home;
-  long-press → staff sign-in). Gated on `isPrototype` (env.ts) — i.e. the local
-  adapter selection, NOT `import.meta.env.PROD`: the deployed GitHub Pages demo is
-  itself a production `vite build`, so gating on `PROD` previously hid the panel on
-  the very deployment that needs it. Hosts demo scaffolding: Pair/Unpair, Reset this
-  device, sign-in shortcut, demo cards. Replaces the old header `PrototypeMenu`.
-  Prototype-only; dropped from a real server-backed build.
+- **Auth** is mocked: names, PINs and passwords are stored and compared as plain
+  strings; seed accounts `admin/admin` (name "Manager") and `staff/staff` (name
+  "Sam") with PINs `4321` / `1234`. Production → hashed server-side. Sign-in is
+  **username/password first** (`Login`); a remembered ("Remember this device")
+  terminal re-auths with the PIN (`Unlock`) after a 5-minute idle lock; a
+  non-remembered device prefills the last username. `AuthContext`
+  (`ui/app/AuthContext.tsx`) manages the active session: "remember this device"
+  flag, idle lock, epoch-based revocation, and the remembered `lastUsername`.
+  PIN/password are never logged.
+- **Prototype / developer panel** (`ui/screens/proto/ProtoPanel/ProtoPanel.tsx`)
+  is opened by a **hidden top-left `DevTrigger`** (`ui/app/DevTrigger.tsx`),
+  present on every view — NOT a logo gesture (the logo now only goes home /
+  long-press signs in). Gated on `isPrototype` (env.ts) — i.e. the local adapter
+  selection, NOT `import.meta.env.PROD`: the deployed GitHub Pages demo is itself a
+  production `vite build`, so gating on `PROD` previously hid the panel on the very
+  deployment that needs it. **Stripped to three centred controls, in order: QR,
+  Scan to pair, Reset.** The old demo-card selector, card-state jumps, view-jump
+  buttons and sign-in shortcut were removed — every prototype card starts at zero
+  and registration rotates which preset token is handed out. Prototype-only;
+  dropped from a real server-backed build.
 - **Reset device** (`Services.reset()` → `IndexedDbStore.close()`) closes and
   deletes the `cafe-loyalty` IndexedDB database, clears storage keys, and reloads.
   Lets a tester rerun a flow from a clean device. Prototype-only.
@@ -114,7 +121,7 @@
 
 ## Test coverage
 
-`npm test` runs **341 Vitest unit/component tests** (includes co-located
+`npm test` runs **340 Vitest unit/component tests** (includes co-located
 `src/ui/**/*.test.tsx` via the extended `test.include` in `vite.config.ts`):
 
 - **domain/** — `loyalty`, `tokens`, `validation` (pure logic), `alerts`
@@ -193,11 +200,12 @@ unit tests cannot.
   `SessionContext`. Staff/admin guards use `useAuth` inside each screen — no
   `RequireAuth` wrapper component.
 - **Navigation:** no home dashboard for customers. Recognized customer → `/card/:token`
-  directly. Unrecognized → `/welcome`. Entry routing is `EntryResolver` at `/`.
-  Logo gestures handled by `LogoGestures` (`src/ui/app/LogoGestures.tsx`): tap
-  left half → home, tap right half → Prototype panel (gated on `isPrototype`, not
-  `import.meta.env.PROD`), long-press ≥600ms → staff sign-in. There is no global
-  "Staff sign-in" subtitle in the shell (that bug is fixed).
+  directly. Unrecognized → `/welcome`. Signed-in staff → `/staff`, admin → `/admin`
+  (role-aware home). Entry routing is `EntryResolver` at `/`. Logo gestures handled
+  by `LogoGestures` (`src/ui/app/LogoGestures.tsx`): **tap → home**, long-press
+  ≥600ms → staff sign-in. The Prototype/developer panel is opened by a separate
+  hidden top-left `DevTrigger` (gated on `isPrototype`, not `import.meta.env.PROD`),
+  not a logo tap. There is no global "Staff sign-in" subtitle in the shell.
 - **Reward threshold is 10** (`pointsPerReward: 10` in `adapters/storage/schema.ts`
   seed). "The tenth coffee" earns the reward.
 
@@ -274,16 +282,17 @@ e. **Device pairing is a prototype-only construct.** `adapters/sync/` uses PeerJ
    server handles this and the entire sync layer (`adapters/sync/`, `PairingProvider`,
    `/pair` screen) is removed — it is not a path toward the production sync architecture.
 
-f. **Prototype UX scaffolding (ProtoPanel, Reset, pairing role, QR-in-panel).**
+f. **Prototype UX scaffolding (DevTrigger, ProtoPanel, Reset, pairing, QR-in-panel).**
    The spec does not define demo-management UI. The prototype surfaces it in
-   `src/ui/screens/proto/ProtoPanel.tsx`, opened by tapping the shell logo
-   (build-flag gated, non-production). Panel hosts pairing QR/scan/unpair/reset/
-   sign-in/demo-cards. Long-pressing the logo (≥600ms) goes directly to staff/admin
-   sign-in. `/pair` is scan-only: arriving with a `?host=` parameter auto-joins
-   without user interaction; `QrScanner` receives `allowManual={false}`. Pairing
-   role (till vs. customer) is determined by which device scans — no explicit role
-   selector or login required. All of this is prototype scaffolding with no
-   production equivalent. Replaces the old `PrototypeMenu` header dropdown.
+   `src/ui/screens/proto/ProtoPanel/ProtoPanel.tsx`, opened by a hidden top-left
+   `DevTrigger` (`src/ui/app/DevTrigger.tsx`) present on every view (build-flag
+   gated, non-production). The panel is stripped to three centred controls — pairing
+   QR, Scan to pair, Reset. Long-pressing the logo (≥600ms) goes directly to
+   staff/admin sign-in; a plain logo tap goes home. `/pair` is scan-only: arriving
+   with a `?host=` parameter auto-joins without user interaction; `QrScanner`
+   receives `allowManual={false}`. Pairing role (till vs. customer) is determined by
+   which device scans — no explicit role selector or login required. All of this is
+   prototype scaffolding with no production equivalent.
 
 g. **UI file layout diverges from SPEC §12.** SPEC §12 specifies
    `src/ui/{customer,staff,admin,auth}/` + `src/ui/common/`. The rebuilt frontend

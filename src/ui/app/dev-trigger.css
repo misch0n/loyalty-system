@@ -1,0 +1,38 @@
+/* DevTrigger — hidden top-left tap target for the prototype tools panel.
+   Near-invisible by design (discovery obfuscation, not security): a small but
+   comfortably tappable corner hit-area that sits above all screen content.
+   Prototype-only; stripped from production builds at the call site. */
+.dev-trigger {
+  position: fixed;
+  top: 0;
+  left: 0;
+  /* Kept to the extreme corner so it doesn't swallow the staff top-bar logo
+     (which sits just to the right and must stay tappable for "go home"). */
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  z-index: 1000;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A faint mark so a tester can find it, invisible enough to ignore otherwise. */
+.dev-trigger::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.14;
+}
+
+.dev-trigger:focus-visible {
+  outline: 3px solid var(--terra);
+  outline-offset: -3px;
+}

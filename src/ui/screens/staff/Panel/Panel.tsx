@@ -122,7 +122,7 @@ export function Panel(): JSX.Element {
     <div className="screen bg-cream staff-panel">
       <TopBar role={actor.role === 'admin' ? 'Admin' : 'Counter'} />
       <div className="screen-pad staff-panel__body">
-        <OnShift name={actor.username} />
+        <OnShift name={actor.name ?? actor.username} />
 
         <Button variant="forest" className="staff-panel__scan" onClick={onScan}>
           Scan a customer’s code

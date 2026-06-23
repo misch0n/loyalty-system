@@ -8,6 +8,8 @@
 
 .welcome-logo {
   margin-bottom: 30px;
+  align-self: center;
+  justify-content: center;
 }
 
 .welcome-headline {

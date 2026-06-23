@@ -6,6 +6,8 @@ import type { StaffRole } from '../domain/models';
 export interface Actor {
   id: string;
   username: string;
+  /** Display name for attribution/UI. Falls back to `username` when absent. */
+  name?: string;
   role: StaffRole;
 }
 
