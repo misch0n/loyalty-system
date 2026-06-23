@@ -107,12 +107,12 @@ describe('loyalty ledger', () => {
 
   it('redeems atomically when the balance meets the threshold', async () => {
     const c = await store.createCustomer({ token: 't' });
-    await store.appendTransaction({ customerId: c.id, type: 'accrual', points: 9, staffId: 's' });
+    await store.appendTransaction({ customerId: c.id, type: 'accrual', points: 10, staffId: 's' });
     const ok = await store.redeemReward(c.id, 's');
     expect(ok.ok).toBe(true);
     expect(ok.balance).toBe(0);
     expect(ok.transaction?.type).toBe('redemption');
-    expect(ok.transaction?.points).toBe(-9);
+    expect(ok.transaction?.points).toBe(-10);
   });
 
   it('refuses redemption below the threshold and reports the balance', async () => {
@@ -125,7 +125,7 @@ describe('loyalty ledger', () => {
 
   it('cannot double-spend across concurrent redemptions', async () => {
     const c = await store.createCustomer({ token: 't' });
-    await store.appendTransaction({ customerId: c.id, type: 'accrual', points: 9, staffId: 's' });
+    await store.appendTransaction({ customerId: c.id, type: 'accrual', points: 10, staffId: 's' });
     const [a, b] = await Promise.all([
       store.redeemReward(c.id, 's'),
       store.redeemReward(c.id, 's'),

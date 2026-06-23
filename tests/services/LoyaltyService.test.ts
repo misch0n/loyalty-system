@@ -36,7 +36,8 @@ describe('redemption', () => {
   async function fillToThreshold() {
     await loyalty.accrue(STAFF, customerId, 3);
     await loyalty.accrue(STAFF, customerId, 3);
-    await loyalty.accrue(STAFF, customerId, 3); // balance 9 == default threshold
+    await loyalty.accrue(STAFF, customerId, 3);
+    await loyalty.accrue(STAFF, customerId, 1); // balance 10 == default threshold
   }
 
   it('redeems when eligible and subtracts the threshold', async () => {
@@ -76,16 +77,17 @@ describe('reward-available notification', () => {
       consent: true,
     });
 
-    // Default threshold 9, cap 3 per accrual.
+    // Default threshold 10, cap 3 per accrual.
     await services.loyalty.accrue(STAFF, shell.id, 3); // 3
     await services.loyalty.accrue(STAFF, shell.id, 3); // 6
+    await services.loyalty.accrue(STAFF, shell.id, 3); // 9 — not yet at threshold
     expect(mailer.sent).toHaveLength(0);
-    await services.loyalty.accrue(STAFF, shell.id, 3); // 9 — crosses
+    await services.loyalty.accrue(STAFF, shell.id, 3); // 12 — crosses
     expect(mailer.sent).toHaveLength(1);
     expect(mailer.sent[0].kind).toBe('reward-available');
     expect(mailer.sent[0].to).toBe('reward@cafe.test');
 
-    await services.loyalty.accrue(STAFF, shell.id, 3); // 12 — already available, no repeat
+    await services.loyalty.accrue(STAFF, shell.id, 3); // 15 — already available, no repeat
     expect(mailer.sent).toHaveLength(1);
   });
 
