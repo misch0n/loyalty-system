@@ -5,20 +5,20 @@ import './Qr.css';
 export interface QrProps {
   /** The opaque card token. Encoded into the card-page URL (never PII). */
   token: string;
-  /** The short human-readable code shown beside the QR, e.g. "CKY · 5YUrTHtx". */
+  /** The short human-readable code shown under the QR, e.g. "CKY · 5YUrTHtx". */
   code: string;
-  /** The "tap to enlarge" prompt. Defaults to a scanning hint. */
-  label?: string;
   /** When provided, the tile becomes an enlarge trigger (click / Enter / Space). */
   onEnlarge?: () => void;
 }
 
 /**
- * The card QR tile (`.qrwrap`) on a cream background. Renders a real QR of the
- * card URL via `toDataUrl(cardPayload(token))`. If rendering fails (e.g. no
- * canvas in tests), the `<img>` is simply left empty — structure is unaffected.
+ * The card QR tile (`.qrwrap`) — a compact cream box sized to fit the QR with a
+ * small offset on all sides, centred on the card. No "tap to enlarge" label here
+ * (that hint lives below the card); just the QR and the short card code. Renders
+ * a real QR of the card URL via `toDataUrl(cardPayload(token))`; if rendering
+ * fails (e.g. no canvas in tests) the `<img>` is simply left empty.
  */
-export function Qr({ token, code, label, onEnlarge }: QrProps) {
+export function Qr({ token, code, onEnlarge }: QrProps) {
   const [src, setSrc] = useState('');
 
   useEffect(() => {
@@ -51,12 +51,10 @@ export function Qr({ token, code, label, onEnlarge }: QrProps) {
       onKeyDown={interactive ? onKeyDown : undefined}
       role={interactive ? 'button' : undefined}
       tabIndex={interactive ? 0 : undefined}
+      aria-label={interactive ? 'Card code — tap to enlarge' : undefined}
     >
       <img className="qr" src={src} alt="Card QR code" />
-      <div className="meta">
-        <div className="t">{label ?? 'Tap to enlarge for scanning'}</div>
-        <div className="c">{code}</div>
-      </div>
+      <div className="qr-code">{code}</div>
     </div>
   );
 }

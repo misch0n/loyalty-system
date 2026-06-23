@@ -27,6 +27,11 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+/** True when `email` (trimmed) is a plausibly-valid address. Empty → false. */
+export function isValidEmail(email: string): boolean {
+  return EMAIL_RE.test(email.trim());
+}
+
 export function normalizePhone(phone: string): string {
   // Compare on digits only, so "+1 (555) 123" and "15551 23" match.
   return phone.replace(/[^0-9]/g, '');

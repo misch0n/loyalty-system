@@ -1,31 +1,27 @@
-/* QR on a CREAM tile (not brown — keeps it scannable). Donor rules, verbatim. */
+/* QR on a CREAM tile (not brown — keeps it scannable). The box is sized to fit
+   the QR with a small offset on all sides and centred on the card. */
 .qrwrap {
-  margin-top: 18px;
+  margin: 18px auto 0;
+  width: max-content;
+  max-width: 100%;
   background: var(--cream);
-  border-radius: 18px;
-  padding: 14px;
+  border-radius: 16px;
+  padding: 12px;
   display: flex;
-  gap: 14px;
+  flex-direction: column;
   align-items: center;
+  gap: 8px;
   position: relative;
 }
 .qr {
-  width: 84px;
-  height: 84px;
-  flex: 0 0 auto;
+  width: 140px;
+  height: 140px;
+  display: block;
 }
-.qrwrap .meta {
-  color: var(--ink);
-}
-.qrwrap .meta .t {
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.qrwrap .meta .c {
+.qrwrap .qr-code {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-soft);
-  margin-top: 3px;
   letter-spacing: 0.04em;
 }
 .qr-trigger {

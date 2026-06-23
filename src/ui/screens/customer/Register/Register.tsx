@@ -23,7 +23,7 @@ import { GestureLogo } from '../../../app/LogoGestures';
 import { cardPath } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
 import { PrivacyNotice } from '../../../common/PrivacyNotice';
-import type { FieldError } from '../../../../domain/validation';
+import { isValidEmail, type FieldError } from '../../../../domain/validation';
 import './Register.css';
 
 type FieldName = FieldError['field'];
@@ -34,14 +34,23 @@ export function Register() {
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
+  const [emailTouched, setEmailTouched] = useState(false);
   const [consent, setConsent] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<FieldName, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // Inline email-format validation (email is optional, but if entered it must be
+  // a plausible address before we let them submit).
+  const emailInvalid = email.trim() !== '' && !isValidEmail(email);
+
   async function onSubmit() {
     if (submitting) return;
+    if (emailInvalid) {
+      setEmailTouched(true);
+      return;
+    }
     setErrors({});
     setFormError(null);
     setSubmitting(true);
@@ -91,7 +100,7 @@ export function Register() {
           optional
           type="text"
           autoComplete="name"
-          placeholder="Maria"
+          placeholder="Your name"
           value={displayName}
           onChange={setDisplayName}
           hint={errors.displayName}
@@ -104,10 +113,20 @@ export function Register() {
           type="email"
           inputMode="email"
           autoComplete="email"
-          placeholder="maria@test.com"
+          placeholder="Your email address"
           value={email}
-          onChange={setEmail}
-          hint={errors.email ?? 'So we can tell you when a free coffee is ready.'}
+          onChange={(next) => {
+            setEmail(next);
+            if (errors.email) setErrors((e) => ({ ...e, email: undefined }));
+          }}
+          onBlur={() => setEmailTouched(true)}
+          aria-invalid={emailTouched && emailInvalid}
+          hint={
+            errors.email ??
+            (emailTouched && emailInvalid
+              ? 'Enter a valid email, or leave it blank.'
+              : 'So we can tell you when a free coffee is ready.')
+          }
           disabled={submitting}
         />
 
@@ -139,7 +158,7 @@ export function Register() {
           </p>
         )}
 
-        <Button variant="forest" disabled={submitting} onClick={onSubmit}>
+        <Button variant="forest" disabled={submitting || emailInvalid} onClick={onSubmit}>
           {submitting ? 'Creating your card…' : 'Create my card'}
         </Button>
       </div>

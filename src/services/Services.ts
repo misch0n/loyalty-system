@@ -132,7 +132,7 @@ export async function createServices(): Promise<Services> {
     audit,
     config: new ConfigService(store, audit),
     staff: new StaffService(store, audit),
-    customers: new CustomerService(store, audit),
+    customers: new CustomerService(store, audit, mailer),
     loyalty: new LoyaltyService(store, audit, mailer),
     recovery: new RecoveryService(store, mailer, audit),
     reset: async () => {

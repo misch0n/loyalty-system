@@ -10,7 +10,7 @@
  * or embed them in errors.
  */
 
-export type MailKind = 'recovery' | 'reward-available';
+export type MailKind = 'recovery' | 'reward-available' | 'card-created';
 
 export interface OutboundMail {
   to: string; // recipient email address

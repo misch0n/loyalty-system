@@ -28,18 +28,14 @@ describe('Qr', () => {
   it('renders the cream wrapper, code and an img', async () => {
     await mount(<Qr token="abc123" code="CKY · 5YUrTHtx" />);
     expect(container.querySelector('.qrwrap')).not.toBeNull();
-    expect(container.querySelector('.meta .c')?.textContent).toBe('CKY · 5YUrTHtx');
+    expect(container.querySelector('.qr-code')?.textContent).toBe('CKY · 5YUrTHtx');
     expect(container.querySelector('img.qr')).not.toBeNull();
   });
 
-  it('uses the default label and a custom one', async () => {
+  it('does not render an in-tile "tap to enlarge" label', async () => {
     await mount(<Qr token="t" code="C" />);
-    expect(container.querySelector('.meta .t')?.textContent).toBe(
-      'Tap to enlarge for scanning',
-    );
-    await act(async () => root.unmount());
-    await mount(<Qr token="t" code="C" label="Show this code" />);
-    expect(container.querySelector('.meta .t')?.textContent).toBe('Show this code');
+    expect(container.querySelector('.meta')).toBeNull();
+    expect(container.textContent).not.toContain('Tap to enlarge');
   });
 
   it('fires onEnlarge on click and becomes a trigger', async () => {

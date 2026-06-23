@@ -82,7 +82,7 @@ export function LostCard() {
               type="email"
               inputMode="email"
               autoComplete="email"
-              placeholder="maria@…"
+              placeholder="Your email address"
               value={email}
               onChange={setEmail}
               disabled={submitting}

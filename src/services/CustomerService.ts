@@ -7,9 +7,11 @@
 
 import type { Customer } from '../domain/models';
 import type { CustomerPatch, DataStore } from '../ports/DataStore';
+import type { Mailer } from '../ports/Mailer';
 import type { RegistrationDetails } from '../ports/Transport';
 import { generateToken, isValidToken } from '../domain/tokens';
 import { PRESET_CARD_TOKENS } from '../wallet/passes';
+import { appUrl } from '../config/links';
 import {
   findDuplicates,
   isRecoverable,
@@ -30,7 +32,35 @@ export class CustomerService {
   constructor(
     private readonly store: DataStore,
     private readonly audit: AuditService,
+    /** Optional: when present, a welcome email confirms a new card. */
+    private readonly mailer?: Mailer,
   ) {}
+
+  /**
+   * Best-effort "your card is ready" email. Sent when a customer registers with
+   * an email. Never blocks or fails registration; failures are swallowed and
+   * never logged (the address is PII).
+   */
+  private async sendWelcome(customer: Customer): Promise<void> {
+    if (!this.mailer || !customer.email) return;
+    try {
+      const link = appUrl(`/card/${customer.token}`);
+      await this.mailer.send({
+        to: customer.email,
+        kind: 'card-created',
+        params: {
+          subject: 'Your Ckyka card is ready',
+          message:
+            'Your Ckyka loyalty card has been created. Show it on your next visit to start ' +
+            `collecting — the tenth coffee is on us.\n\nView your card: ${link}`,
+          card_link: link,
+        },
+      });
+    } catch {
+      // Transactional email is a best-effort side channel. Swallow failures and
+      // do NOT log — an error could carry the recipient address (PII).
+    }
+  }
 
   /**
    * Step 1 of registration: create a token-only shell customer. Details and
@@ -78,6 +108,7 @@ export class CustomerService {
       customer.id,
       isTokenOnly(details) ? 'token-only' : 'with-details',
     );
+    await this.sendWelcome(customer);
     return { ok: true, customer };
   }
 
@@ -137,6 +168,7 @@ export class CustomerService {
       customerId,
       isTokenOnly(details) ? 'token-only' : 'with-details',
     );
+    await this.sendWelcome(customer);
     return { ok: true, customer };
   }
 

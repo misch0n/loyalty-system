@@ -19,8 +19,9 @@ export const cafeMapUrl =
 export const cafeMapEmbedUrl =
   'https://maps.google.com/maps?q=42.693861,23.349611&z=16&hl=en&output=embed';
 
-/** Placeholder — replace with the café's real contact address once available. */
-export const cafeContactEmail = 'hello@example-cafe.test';
+/** The café's contact address ("Contact us" mailto target). */
+export const cafeContactEmail = 'ckykacafe@gmail.com';
 
-/** Placeholder — the café's real Instagram handle/link will be added later. */
-export const cafeInstagramUrl = 'https://www.instagram.com/';
+/** Instagram handle + profile link (universal link opens the app on mobile). */
+export const cafeInstagramHandle = 'ckykacoffeeshop';
+export const cafeInstagramUrl = 'https://www.instagram.com/ckykacoffeeshop/';
