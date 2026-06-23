@@ -7,11 +7,12 @@
  *    device (device-scoped `identity.clear()`; token-only cards confirm first).
  *  - not saved             → Remember this card on this device (`identity.set`).
  *
- * Delete my card → the erasure flow. Per the established self-delete pattern
- * (src/ui/customer/DeleteData.tsx) the destructive action passes the signed-in
- * staff Actor from the session; deletion is staff-confirmed. On a customer device
- * with no staff present, this surfaces the "ask at the till" path rather than
- * inventing an actor. Recovery-status line is derived from PII presence.
+ * Delete my card → self-service erasure (UX-SPEC §4.4). The card holder deletes
+ * their own card via `customers.selfDelete(token)` — the service owns the system
+ * actor, so the UI never fabricates a staff Actor. Token-only cards (no
+ * recoverable PII) confirm with an "unrecoverable" warning first. On success the
+ * device identity is cleared and the visitor lands on Welcome. Recovery-status
+ * line is derived from PII presence.
  *
  * CardView owns the open state and supplies the customer + saved flag.
  */
@@ -21,7 +22,6 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Eyebrow, Sheet } from '../../kit';
 import { ROUTES } from '../../app/routes';
 import { useServices } from '../../common/ServicesContext';
-import { useSession } from '../../common/SessionContext';
 import type { Customer } from '../../../domain/models';
 
 export interface CardMenuProps {
@@ -48,7 +48,6 @@ function recoveryLine(c: Customer): string {
 export function CardMenu({ open, onClose, customer, saved, onSavedChange }: CardMenuProps) {
   const navigate = useNavigate();
   const { identity, customers } = useServices();
-  const { actor } = useSession();
 
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -94,11 +93,10 @@ export function CardMenu({ open, onClose, customer, saved, onSavedChange }: Card
       setConfirmDelete(true);
       return;
     }
-    if (!actor) return; // guarded by the UI below
     setBusy(true);
     setError(null);
     try {
-      await customers.deleteCustomer(actor, customer.id);
+      await customers.selfDelete(customer.token);
       await identity.clear();
       navigate(ROUTES.welcome, { replace: true });
     } catch {
@@ -157,15 +155,9 @@ export function CardMenu({ open, onClose, customer, saved, onSavedChange }: Card
               {tokenOnly ? ' This card can’t be recovered — it will be gone for good.' : ''}
             </p>
           )}
-          {actor ? (
-            <Button variant="line" block className="card-menu__delete" disabled={busy} onClick={deleteCard}>
-              {confirmDelete ? 'Yes, delete my card' : 'Delete my card'}
-            </Button>
-          ) : (
-            <p className="card-menu__status">
-              A member of staff confirms deletions. Ask at the counter and they’ll remove your card.
-            </p>
-          )}
+          <Button variant="line" block className="card-menu__delete" disabled={busy} onClick={deleteCard}>
+            {confirmDelete ? 'Yes, delete my card' : 'Delete my card'}
+          </Button>
         </section>
       </div>
     </Sheet>

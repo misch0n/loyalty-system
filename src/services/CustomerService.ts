@@ -192,6 +192,21 @@ export class CustomerService {
     await this.store.softDeleteCustomer(customerId);
     await this.audit.log(actor, 'customer.delete', customerId);
   }
+
+  /**
+   * Customer self-service erasure (UX-SPEC §4.4): the card holder deletes their
+   * own card from the card menu — no staff actor exists in that flow. The service
+   * owns the system actor so the UI never fabricates one (preserving the "no UI
+   * passes SYSTEM_ACTOR" invariant). Same effect as `deleteCustomer`: soft-delete
+   * + audit. No-op (resolves) if the token resolves to nothing or an already
+   * deleted card. Never logs PII in the audit details.
+   */
+  async selfDelete(token: string): Promise<void> {
+    const customer = await this.store.getCustomerByToken(token);
+    if (!customer || customer.status === 'deleted') return;
+    await this.store.softDeleteCustomer(customer.id);
+    await this.audit.log(SYSTEM_ACTOR, 'customer.delete', customer.id);
+  }
 }
 
 function dedupeById(customers: Customer[]): Customer[] {

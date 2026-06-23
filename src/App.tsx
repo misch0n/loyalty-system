@@ -1,107 +1,72 @@
 /**
- * App shell + routing. HashRouter keeps GitHub Pages happy (client routes live
- * after the '#', so no server rewrites are needed). The header's role switcher
- * lets one browser stand in for staff, admin, and customer devices.
+ * App routing + shell (UX-SPEC §2, UI-SPEC §4). The Shell wraps every route and
+ * owns the global logo gestures: long-press → staff/admin sign-in, tap → the
+ * prototype tools panel (non-production only; in production the tap handler is
+ * omitted and the panel is never rendered).
+ *
+ * Route guards for staff/admin live inside the screens themselves (they consult
+ * `useAuth`), so there is no RequireAuth wrapper here. HashRouter keeps GitHub
+ * Pages happy — client routes live after the `#`, no server rewrites needed.
  */
 
-import { Navigate, Route, Routes } from 'react-router-dom';
-import { Layout } from './ui/common/Layout';
-import { RequireAuth } from './ui/common/RequireAuth';
-import { LoginScreen } from './ui/auth/LoginScreen';
-import { ScanHome } from './ui/staff/ScanHome';
-import { IssueCard } from './ui/staff/IssueCard';
-import { FindCustomer } from './ui/staff/FindCustomer';
-import { StaffAdmin } from './ui/admin/StaffAdmin';
-import { ProgramConfig } from './ui/admin/ProgramConfig';
-import { Stats } from './ui/admin/Stats';
-import { AuditLog } from './ui/admin/AuditLog';
+import { useState } from 'react';
+import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { Shell } from './ui/app/Shell';
+import { EntryResolver } from './ui/app/EntryResolver';
+import { ROUTES } from './ui/app/routes';
+import { isProduction } from './config/env';
+
+import { Welcome } from './ui/screens/customer/Welcome';
+import { Register } from './ui/screens/customer/Register';
+import { LostCard } from './ui/screens/customer/LostCard';
+import { RecoverConsume } from './ui/screens/customer/RecoverConsume';
+import { CardView } from './ui/screens/customer/CardView';
+import { StaffLogin } from './ui/screens/staff/StaffLogin';
+import { StaffUnlock } from './ui/screens/staff/StaffUnlock';
+import { StaffPanel } from './ui/screens/staff/StaffPanel';
+import { ScanWorkflow } from './ui/screens/staff/ScanWorkflow';
+import { AdminHome } from './ui/screens/admin/AdminHome';
+import { ProtoPanel } from './ui/screens/proto/ProtoPanel';
 import { PairDevices } from './ui/common/PairDevices';
-import { CustomerHome } from './ui/customer/CustomerHome';
-import { SelfRegister } from './ui/customer/SelfRegister';
-import { Register } from './ui/customer/Register';
-import { Recover } from './ui/customer/Recover';
-import { Status } from './ui/customer/Status';
-import { DeleteData } from './ui/customer/DeleteData';
 
 export function App() {
+  const navigate = useNavigate();
+  const [protoOpen, setProtoOpen] = useState(false);
+
   return (
-    <Layout>
+    <Shell
+      onLogoTap={isProduction ? undefined : () => setProtoOpen(true)}
+      onLogoHold={() => navigate(ROUTES.login)}
+    >
       <Routes>
-        <Route path="/" element={<CustomerHome />} />
-        <Route path="/login" element={<LoginScreen />} />
-        <Route path="/pair" element={<PairDevices />} />
-
-        {/* Staff */}
-        <Route
-          path="/staff"
-          element={
-            <RequireAuth>
-              <ScanHome />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/staff/issue"
-          element={
-            <RequireAuth>
-              <IssueCard />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/staff/find"
-          element={
-            <RequireAuth>
-              <FindCustomer />
-            </RequireAuth>
-          }
-        />
-
-        {/* Admin */}
-        <Route
-          path="/admin/staff"
-          element={
-            <RequireAuth requireAdmin>
-              <StaffAdmin />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/admin/program"
-          element={
-            <RequireAuth requireAdmin>
-              <ProgramConfig />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/admin/stats"
-          element={
-            <RequireAuth requireAdmin>
-              <Stats />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/admin/audit"
-          element={
-            <RequireAuth requireAdmin>
-              <AuditLog />
-            </RequireAuth>
-          }
-        />
+        <Route path="/" element={<EntryResolver />} />
 
         {/* Customer-facing */}
-        <Route path="/register" element={<SelfRegister />} />
-        <Route path="/register/:sessionId" element={<Register />} />
-        <Route path="/recover" element={<Recover />} />
-        <Route path="/recover/:code" element={<Recover />} />
-        <Route path="/status" element={<Status />} />
-        <Route path="/status/:token" element={<Status />} />
-        <Route path="/delete/:token" element={<DeleteData />} />
+        <Route path={ROUTES.welcome} element={<Welcome />} />
+        <Route path={ROUTES.register} element={<Register />} />
+        <Route path={ROUTES.lost} element={<LostCard />} />
+        <Route path={ROUTES.recoverWithCode} element={<RecoverConsume />} />
+        <Route path={ROUTES.recover} element={<Navigate to={ROUTES.lost} replace />} />
+        <Route path={ROUTES.card} element={<CardView />} />
+        <Route path={ROUTES.cardSelf} element={<CardView />} />
+
+        {/* Staff / admin (guards live inside the screens) */}
+        <Route path={ROUTES.login} element={<StaffLogin />} />
+        <Route path={ROUTES.staffUnlock} element={<StaffUnlock />} />
+        <Route path={ROUTES.staff} element={<StaffPanel />} />
+        <Route path={ROUTES.staffScan} element={<ScanWorkflow />} />
+        <Route path={ROUTES.admin} element={<AdminHome />} />
+        <Route path="/admin/:section" element={<AdminHome />} />
+
+        {/* Prototype scaffolding */}
+        <Route path={ROUTES.pair} element={<PairDevices />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </Layout>
+
+      {isProduction ? null : (
+        <ProtoPanel open={protoOpen} onClose={() => setProtoOpen(false)} />
+      )}
+    </Shell>
   );
 }

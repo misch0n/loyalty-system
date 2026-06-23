@@ -140,6 +140,37 @@ describe('recovery, reissue and deletion', () => {
     expect(after?.email).toBeUndefined();
   });
 
+  it('self-deletes by token: clears PII, status deleted, audits under system', async () => {
+    const services = freshServices();
+    const svc = services.customers;
+    const shell = await svc.issueCard(STAFF);
+    await svc.finalizeRegistration(STAFF, shell.id, {
+      displayName: 'Maria',
+      email: 'maria@cafe.test',
+      consent: true,
+    });
+
+    await svc.selfDelete(shell.token);
+
+    const after = await svc.getById(shell.id);
+    expect(after?.status).toBe('deleted');
+    expect(after?.displayName).toBeUndefined();
+    expect(after?.email).toBeUndefined();
+
+    const audit = await services.audit.list();
+    const entry = audit.find((a) => a.action === 'customer.delete' && a.targetId === shell.id);
+    expect(entry).toBeTruthy();
+    expect(entry?.actorRole).toBe('system');
+  });
+
+  it('self-delete is a no-op for an unknown or already-deleted token', async () => {
+    const shell = await customers.issueCard(STAFF);
+    await customers.selfDelete(shell.token);
+    // second call (already deleted) and a bogus token both resolve without throwing
+    await expect(customers.selfDelete(shell.token)).resolves.toBeUndefined();
+    await expect(customers.selfDelete('Z'.repeat(22))).resolves.toBeUndefined();
+  });
+
   it('reissues keeping the same token when rotation is declined', async () => {
     const shell = await customers.issueCard(STAFF);
     const reissued = await customers.reissue(STAFF, shell.id, false);
