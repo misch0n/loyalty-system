@@ -14,7 +14,7 @@ import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { Shell } from './ui/app/Shell';
 import { EntryResolver } from './ui/app/EntryResolver';
 import { ROUTES } from './ui/app/routes';
-import { isProduction } from './config/env';
+import { isPrototype } from './config/env';
 
 import { Welcome } from './ui/screens/customer/Welcome';
 import { Register } from './ui/screens/customer/Register';
@@ -35,7 +35,7 @@ export function App() {
 
   return (
     <Shell
-      onLogoTap={isProduction ? undefined : () => setProtoOpen(true)}
+      onLogoTap={isPrototype ? () => setProtoOpen(true) : undefined}
       onLogoHold={() => navigate(ROUTES.login)}
     >
       <Routes>
@@ -64,9 +64,9 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
-      {isProduction ? null : (
+      {isPrototype ? (
         <ProtoPanel open={protoOpen} onClose={() => setProtoOpen(false)} />
-      )}
+      ) : null}
     </Shell>
   );
 }

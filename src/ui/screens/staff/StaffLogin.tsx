@@ -13,7 +13,7 @@
  * session seam over `services.staff.loginWithPin`. It never touches adapters.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PinPad, Button } from '../../kit';
 import { useAuth } from '../../app/AuthContext';
@@ -35,10 +35,18 @@ export function StaffLogin(): JSX.Element {
 
   const lockedOut = attempts >= MAX_ATTEMPTS;
 
+  // Guards against re-entrancy WITHOUT putting `verifying` in the effect deps:
+  // doing so would re-run the effect the moment we set it, and the cleanup of
+  // the prior run would cancel the in-flight verify — leaving `verifying` stuck
+  // true (a frozen, permanently-disabled pad). The ref keeps the trigger keyed
+  // only to the PIN reaching full length.
+  const verifyingRef = useRef(false);
+
   // Auto-submit once the PIN reaches its expected length.
   useEffect(() => {
-    if (pin.length !== PIN_LENGTH || verifying || lockedOut) return;
+    if (pin.length !== PIN_LENGTH || verifyingRef.current || lockedOut) return;
     let cancelled = false;
+    verifyingRef.current = true;
     setVerifying(true);
     setError(null);
     void loginWithPin(pin, remember)
@@ -54,12 +62,13 @@ export function StaffLogin(): JSX.Element {
         setError("That PIN didn't match. Try again.");
       })
       .finally(() => {
+        verifyingRef.current = false;
         if (!cancelled) setVerifying(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [pin, remember, verifying, lockedOut, loginWithPin, navigate, recordActivity]);
+  }, [pin, remember, lockedOut, loginWithPin, navigate, recordActivity]);
 
   return (
     <div className="staff-screen">

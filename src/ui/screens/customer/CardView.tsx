@@ -182,9 +182,9 @@ export function CardView() {
           {rewardAvailable
             ? 'Free coffee ready.'
             : `${remaining} more for a free coffee`}
-          <span className="card-view__count">
-            {progress.current} / {progress.threshold}
-          </span>
+        </p>
+        <p className="card-view__count">
+          {progress.current} / {progress.threshold}
         </p>
 
         <button

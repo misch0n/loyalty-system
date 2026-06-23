@@ -110,7 +110,6 @@ export function Shell({ children, onLogoTap, onLogoHold }: ShellProps): JSX.Elem
             aria-label="Ckyka Rewards — tap for tools, hold for staff sign-in"
             onPointerDown={beginPress}
             onPointerUp={endPress}
-            onPointerLeave={cancelPress}
             onPointerCancel={cancelPress}
             onKeyDown={onKeyDown}
             onKeyUp={onKeyUp}

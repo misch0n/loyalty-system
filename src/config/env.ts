@@ -53,6 +53,21 @@ export const walletKind: WalletKind =
   import.meta.env.VITE_WALLET === 'server' ? 'server' : 'static';
 
 /**
+ * Is this the PROTOTYPE build (vs a real production-backend build)?
+ *
+ * The prototype tools panel (logo tap) must be available on the deployed GitHub
+ * Pages demo — which is itself a production `vite build`, so `isProduction` is
+ * TRUE there. Gating the panel on `isProduction` therefore wrongly hides it on
+ * the very deployment that needs it. The correct signal is the ADAPTER
+ * selection: the prototype runs on the local adapters (indexeddb / peer /
+ * static wallet); a real production build selects server-backed adapters. When
+ * ANY production adapter is wired we treat it as production and drop the
+ * prototype-only tools.
+ */
+export const isPrototype: boolean =
+  storeKind !== 'api' && transportKind !== 'server' && walletKind !== 'server';
+
+/**
  * EmailJS configuration for the prototype `Mailer` (client-side send).
  * Injected at build time; empty when not configured (local dev), in which case
  * the composition root falls back to a no-op mailer.
