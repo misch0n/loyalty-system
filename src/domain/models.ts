@@ -21,6 +21,12 @@ export interface ProgramConfig {
   maxPointsPerTransaction: number;
   /** Optional retention/expiry policy in days. 0 = disabled. */
   cardInactivityDays: number;
+  /**
+   * Session-revocation epoch (admin "sign out all devices"). A device's stored
+   * session epoch is compared against this; anything older is forced to re-auth.
+   * `undefined` is treated as 0 (no revocation has occurred). Never decreases.
+   */
+  sessionEpoch?: number;
 }
 
 export interface StaffAccount {
@@ -32,6 +38,13 @@ export interface StaffAccount {
    * never hold a real credential.
    */
   passwordHash: string;
+  /**
+   * Optional individual PIN for the staff sign-in screen (§6). Like
+   * `passwordHash`, the prototype stores a plain value purely so the PIN pad has
+   * something to compare against; production stores a hash verified server-side.
+   * Absent for accounts created without a PIN.
+   */
+  pin?: string;
   role: StaffRole;
   active: boolean;
   createdAt: string;

@@ -41,6 +41,18 @@ export const storeKind: StoreKind =
   import.meta.env.VITE_DATASTORE === 'api' ? 'api' : 'indexeddb';
 
 /**
+ * Which WalletProvider adapter to wire.
+ * - `'static'` (default, the prototype): map a customer's token to its
+ *   pre-generated walletwallet pass URLs; no key in the client.
+ * - `'server'` (production): mint-on-demand + push updates server-side. Select
+ *   with VITE_WALLET=server.
+ */
+export type WalletKind = 'static' | 'server';
+
+export const walletKind: WalletKind =
+  import.meta.env.VITE_WALLET === 'server' ? 'server' : 'static';
+
+/**
  * EmailJS configuration for the prototype `Mailer` (client-side send).
  * Injected at build time; empty when not configured (local dev), in which case
  * the composition root falls back to a no-op mailer.

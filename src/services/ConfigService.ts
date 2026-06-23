@@ -36,6 +36,8 @@ function sanitizeConfig(patch: Partial<ProgramConfig>): Partial<ProgramConfig> {
     out.maxPointsPerTransaction = Math.max(1, Math.floor(patch.maxPointsPerTransaction));
   if (patch.cardInactivityDays !== undefined)
     out.cardInactivityDays = Math.max(0, Math.floor(patch.cardInactivityDays));
+  if (patch.sessionEpoch !== undefined)
+    out.sessionEpoch = Math.max(0, Math.floor(patch.sessionEpoch));
   if (patch.rewardDescription !== undefined)
     out.rewardDescription = patch.rewardDescription.trim() || 'Free regular coffee';
   return out;

@@ -26,6 +26,7 @@ describe('createServices', () => {
     expect(services.recovery).toBeDefined();
     expect(services.mailer).toBeDefined();
     expect(services.identity).toBeDefined();
+    expect(services.wallet).toBeDefined();
     // Prototype transport is the real PeerJS adapter (production swaps it).
     expect(services.transport).toBeInstanceOf(PeerTransport);
   });

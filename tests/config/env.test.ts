@@ -46,6 +46,17 @@ describe('storeKind', () => {
   });
 });
 
+describe('walletKind', () => {
+  it('defaults to the static prototype provider', async () => {
+    expect((await loadEnv()).walletKind).toBe('static');
+  });
+
+  it('selects the server provider only when VITE_WALLET=server', async () => {
+    vi.stubEnv('VITE_WALLET', 'server');
+    expect((await loadEnv()).walletKind).toBe('server');
+  });
+});
+
 describe('transportKind', () => {
   it('defaults to the real peer transport (the prototype)', async () => {
     expect((await loadEnv()).transportKind).toBe('peer');

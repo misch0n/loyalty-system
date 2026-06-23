@@ -14,6 +14,12 @@ import {
   rewardAvailable,
   type Progress,
 } from '../domain/loyalty';
+import {
+  deriveAlerts,
+  DEFAULT_THRESHOLDS,
+  type Alert,
+  type AlertThresholds,
+} from '../domain/alerts';
 import { appUrl } from '../config/links';
 import type { AuditService } from './AuditService';
 import type { Actor } from './types';
@@ -81,6 +87,28 @@ export class LoyaltyService {
       if (tx.type === 'redemption') rewardsRedeemed += 1;
     }
     return { activeCustomers, pointsIssued, rewardsRedeemed };
+  }
+
+  /**
+   * Derive the suspicious-activity alerts for the admin view (UX §8.1). Pulls
+   * the whole ledger + config + staff names and runs the pure heuristics. The
+   * multi-add cap defaults to the program's `maxPointsPerTransaction`; pass
+   * `thresholds` to override any field. Monitoring only — never blocks.
+   */
+  async getAlerts(thresholds?: Partial<AlertThresholds>): Promise<Alert[]> {
+    const [transactions, config, staff] = await Promise.all([
+      this.store.listAllTransactions(),
+      this.store.getConfig(),
+      this.store.listStaff(),
+    ]);
+    const resolved: AlertThresholds = {
+      ...DEFAULT_THRESHOLDS,
+      multiAddCap: config.maxPointsPerTransaction,
+      ...thresholds,
+    };
+    const staffNames: Record<string, string> = {};
+    for (const member of staff) staffNames[member.id] = member.username;
+    return deriveAlerts(transactions, resolved, staffNames);
   }
 
   /** Add points (clamped to the per-transaction cap). Staff-initiated. */

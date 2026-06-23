@@ -299,6 +299,15 @@ export class IndexedDbStore implements DataStore {
     return (await db.getFromIndex('staff', 'byUsername', username)) ?? null;
   }
 
+  async getStaffByPin(pin: string): Promise<StaffAccount | null> {
+    if (!pin) return null;
+    const db = await this.dbPromise;
+    // PIN is not indexed (it's a credential, kept off the index surface). Scan
+    // the small staff set for the one active account whose PIN matches.
+    const all = await db.getAll('staff');
+    return all.find((s) => s.active && s.pin === pin) ?? null;
+  }
+
   async setStaffActive(id: string, active: boolean): Promise<void> {
     const db = await this.dbPromise;
     const tx = db.transaction('staff', 'readwrite');

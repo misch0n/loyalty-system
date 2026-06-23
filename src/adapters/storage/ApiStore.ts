@@ -113,6 +113,11 @@ export class ApiStore implements DataStore {
   getStaffByUsername(username: string): Promise<StaffAccount | null> {
     return this.request('GET', `/staff/by-username/${encodeURIComponent(username)}`);
   }
+  getStaffByPin(pin: string): Promise<StaffAccount | null> {
+    // Production verifies the PIN server-side (never trusts a client lookup); the
+    // shape is illustrative only.
+    return this.request('POST', '/staff/by-pin', { pin });
+  }
   setStaffActive(id: string, active: boolean): Promise<void> {
     return this.request('PATCH', `/staff/${id}`, { active });
   }

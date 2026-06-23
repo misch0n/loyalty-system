@@ -24,6 +24,7 @@ export const STORE_METHODS = [
   'redeemReward',
   'createStaff',
   'getStaffByUsername',
+  'getStaffByPin',
   'setStaffActive',
   'setStaffPassword',
   'listStaff',

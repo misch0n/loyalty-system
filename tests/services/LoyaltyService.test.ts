@@ -98,6 +98,28 @@ describe('reward-available notification', () => {
   });
 });
 
+describe('getAlerts', () => {
+  it('derives no alerts for an ordinary accrual', async () => {
+    await loyalty.accrue(STAFF, customerId, 1);
+    expect(await loyalty.getAlerts()).toEqual([]);
+  });
+
+  it('flags an oversized multi-add at the cap and resolves the staff name', async () => {
+    await loyalty.accrue(STAFF, customerId, 3); // default cap is 3 → at-cap flag
+    const alerts = await loyalty.getAlerts();
+    const a = alerts.find((x) => x.kind === 'oversized-multi-add');
+    expect(a).toBeDefined();
+    expect(a?.staffId).toBe(STAFF.id);
+  });
+
+  it('honours an explicit threshold override', async () => {
+    await loyalty.accrue(STAFF, customerId, 3);
+    // Raise the cap so the at-cap accrual no longer flags.
+    const alerts = await loyalty.getAlerts({ multiAddCap: 10 });
+    expect(alerts.some((x) => x.kind === 'oversized-multi-add')).toBe(false);
+  });
+});
+
 describe('reversal', () => {
   it('reverses an entry with an offsetting transaction (never a destructive edit)', async () => {
     const tx = await loyalty.accrue(STAFF, customerId, 3);

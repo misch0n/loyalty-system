@@ -41,6 +41,42 @@ export class StaffService {
     return { ok: true, actor };
   }
 
+  /**
+   * PIN sign-in (§6). Resolves the active staff account whose PIN matches and
+   * returns its Actor (username = the staff NAME used for attribution). The
+   * long-press only reveals the screen; the PIN is the actual access control.
+   */
+  async loginWithPin(pin: string): Promise<LoginResult> {
+    const account = await this.store.getStaffByPin(pin.trim());
+    if (!account || !account.active) {
+      // Never log the PIN (a credential) or any account detail beyond the id.
+      await this.audit.log({ id: 'unknown', role: 'system' }, 'staff.login.failed');
+      return { ok: false, reason: 'Wrong PIN, or the account is disabled.' };
+    }
+    const actor: Actor = { id: account.id, username: account.username, role: account.role };
+    await this.audit.log(actor, 'staff.login', account.id);
+    return { ok: true, actor };
+  }
+
+  /**
+   * Admin "sign out all devices": bump the program's session epoch so every
+   * device with an older stored epoch is forced to re-authenticate. Append-only
+   * in spirit — the epoch only ever moves forward (config-backed, not a counter
+   * the UI mutates). Returns the new epoch.
+   */
+  async revokeAllSessions(actor: Actor): Promise<number> {
+    const epoch = Date.now();
+    await this.store.updateConfig({ sessionEpoch: epoch });
+    await this.audit.log(actor, 'config.update', undefined, 'sessionEpoch');
+    return epoch;
+  }
+
+  /** The current session epoch (0 when no revocation has ever occurred). */
+  async currentSessionEpoch(): Promise<number> {
+    const config = await this.store.getConfig();
+    return config.sessionEpoch ?? 0;
+  }
+
   list(): Promise<StaffAccount[]> {
     return this.store.listStaff();
   }

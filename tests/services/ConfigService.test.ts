@@ -25,6 +25,13 @@ describe('ConfigService', () => {
     const audit = await services.audit.list({ action: 'config.update' });
     expect(audit).toHaveLength(1);
   });
+
+  it('passes sessionEpoch through the sanitiser, clamped to a ≥0 integer', async () => {
+    const updated = await services.config.update(ADMIN, { sessionEpoch: 1234.9 });
+    expect(updated.sessionEpoch).toBe(1234);
+    const negative = await services.config.update(ADMIN, { sessionEpoch: -5 });
+    expect(negative.sessionEpoch).toBe(0);
+  });
 });
 
 describe('stats', () => {

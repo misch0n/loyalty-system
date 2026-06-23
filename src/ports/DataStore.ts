@@ -100,6 +100,12 @@ export interface DataStore {
   // ── staff & config ─────────────────────────────────────────────────────────
   createStaff(input: CreateStaffInput): Promise<StaffAccount>;
   getStaffByUsername(username: string): Promise<StaffAccount | null>;
+  /**
+   * Find the single active staff account whose PIN matches (PIN sign-in, §6).
+   * Returns null when no active account has that PIN. PINs are unique among
+   * accounts that have one.
+   */
+  getStaffByPin(pin: string): Promise<StaffAccount | null>;
   setStaffActive(id: string, active: boolean): Promise<void>;
   setStaffPassword(id: string, passwordHash: string): Promise<void>;
   listStaff(): Promise<StaffAccount[]>;

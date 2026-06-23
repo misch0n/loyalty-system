@@ -15,12 +15,21 @@ import type { DataStore } from '../ports/DataStore';
 import type { Transport } from '../ports/Transport';
 import type { Mailer } from '../ports/Mailer';
 import type { IdentityStore } from '../ports/IdentityStore';
-import { storeKind, transportKind, emailConfig, isEmailConfigured } from '../config/env';
+import type { WalletProvider } from '../ports/WalletProvider';
+import {
+  storeKind,
+  transportKind,
+  walletKind,
+  emailConfig,
+  isEmailConfigured,
+} from '../config/env';
 import { IndexedDbStore } from '../adapters/storage/IndexedDbStore';
 import { ApiStore } from '../adapters/storage/ApiStore';
 import { EmailJsMailer } from '../adapters/email/EmailJsMailer';
 import { NoopMailer } from '../adapters/email/NoopMailer';
 import { LocalStorageIdentityStore } from '../adapters/identity/LocalStorageIdentityStore';
+import { StaticWalletProvider } from '../adapters/wallet/StaticWalletProvider';
+import { ServerWalletProvider } from '../adapters/wallet/ServerWalletProvider';
 import { createObservableStore } from '../adapters/sync/ObservableStore';
 import { createSwitchableStore } from '../adapters/sync/SwitchableStore';
 import { DB_NAME } from '../adapters/storage/schema';
@@ -49,6 +58,7 @@ export interface Services {
   transport: Transport;
   mailer: Mailer;
   identity: IdentityStore;
+  wallet: WalletProvider;
   sync: SyncKit;
   audit: AuditService;
   config: ConfigService;
@@ -91,6 +101,13 @@ function createIdentityStore(): IdentityStore {
   return new LocalStorageIdentityStore();
 }
 
+function createWalletProvider(store: DataStore): WalletProvider {
+  // Production swaps the static, key-free map for server-side mint-on-demand.
+  return walletKind === 'server'
+    ? new ServerWalletProvider()
+    : new StaticWalletProvider(store);
+}
+
 export async function createServices(): Promise<Services> {
   // Local store → observable (emits on mutation) → switchable (the live target).
   // Services bind to the switchable store, so pairing can re-point it at a remote
@@ -103,12 +120,14 @@ export async function createServices(): Promise<Services> {
   const transport = await createTransport();
   const mailer = createMailer();
   const identity = createIdentityStore();
+  const wallet = createWalletProvider(store);
   const audit = new AuditService(store);
   return {
     store,
     transport,
     mailer,
     identity,
+    wallet,
     sync: { observable, switchable },
     audit,
     config: new ConfigService(store, audit),
