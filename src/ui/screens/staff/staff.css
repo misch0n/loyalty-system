@@ -1,0 +1,203 @@
+/**
+ * Layout-only styles for the staff screens (UI-SPEC §4.7–§4.9).
+ *
+ * Visual primitives come from the kit + theme tokens; this file only arranges
+ * the screen scaffolding (centered column, spacing, headers). No new colors or
+ * shadows are introduced beyond the design tokens. Respects reduced-motion via
+ * the kit; nothing here animates.
+ */
+
+.staff-screen {
+  min-height: 100dvh;
+  background: var(--paper);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--screen-pad, 24px);
+  gap: var(--space-5, 20px);
+}
+
+.staff-screen__col {
+  width: 100%;
+  max-width: 28rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5, 20px);
+}
+
+/* ── Login / unlock ───────────────────────────────────────────────── */
+.staff-auth {
+  margin-top: clamp(8px, 6vh, 64px);
+  text-align: center;
+}
+
+.staff-auth__brand {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+.staff-auth__title {
+  font-family: var(--font-display, Georgia, serif);
+  font-weight: 600;
+  font-size: 1.6rem;
+  margin: var(--space-2, 8px) 0 0;
+  color: var(--ink);
+}
+
+.staff-auth__sub {
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+  margin: var(--space-2, 8px) 0 0;
+}
+
+.staff-auth__pad {
+  margin-top: var(--space-5, 20px);
+}
+
+.staff-auth__note {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  margin-top: var(--space-4, 16px);
+}
+
+.staff-auth__caution {
+  color: var(--terra-600, #af5a33);
+  font-size: 0.82rem;
+  margin-top: var(--space-2, 8px);
+}
+
+.staff-auth__remember {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  font-size: 0.9rem;
+  color: var(--ink);
+  min-height: var(--touch, 44px);
+  cursor: pointer;
+}
+
+.staff-auth__remember input {
+  width: 20px;
+  height: 20px;
+}
+
+.staff-auth__actions {
+  margin-top: var(--space-5, 20px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+}
+
+/* ── Panel ────────────────────────────────────────────────────────── */
+.staff-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+}
+
+.staff-panel__shift {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+.staff-panel__who {
+  font-family: var(--font-display, Georgia, serif);
+  font-weight: 600;
+  font-size: 1.25rem;
+}
+
+.staff-panel__pills {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+}
+
+.staff-panel__section-title {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  margin: 0 0 var(--space-2, 8px);
+}
+
+.staff-panel__activity {
+  display: flex;
+  flex-direction: column;
+}
+
+.staff-panel__empty {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  padding: var(--space-4, 16px) 0;
+}
+
+.staff-panel__footer {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-4, 16px);
+}
+
+/* ── Scan workflow ────────────────────────────────────────────────── */
+.staff-scan__camera {
+  width: 100%;
+}
+
+/* The live html5-qrcode region the scanner mounts into. */
+.staff-scan__region {
+  width: 100%;
+  min-height: 220px;
+}
+
+.staff-scan__region :is(video, canvas) {
+  width: 100% !important;
+  height: auto !important;
+  display: block;
+}
+
+.staff-scan__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+}
+
+.staff-scan__manual {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  margin-top: var(--space-3, 12px);
+}
+
+.staff-scan__manual label {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+.staff-scan__manual input {
+  min-height: var(--touch, 44px);
+  border: 1px solid var(--line, rgba(36, 48, 41, 0.12));
+  border-radius: var(--radius-control, 14px);
+  padding: 0 var(--space-3, 12px);
+  font-size: 1rem;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.staff-scan__locked {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.staff-scan__error {
+  color: var(--terra-600, #af5a33);
+  font-size: 0.9rem;
+}
