@@ -17,9 +17,8 @@ import './FindUs.css';
 
 /** Static opening-hours copy (no data source; café profile is static config). */
 const HOURS: ReadonlyArray<{ days: string; time: string }> = [
-  { days: 'Mon – Fri', time: '7:30 – 18:00' },
-  { days: 'Saturday', time: '8:30 – 18:00' },
-  { days: 'Sunday', time: '9:00 – 16:00' },
+  { days: 'Mon – Fri', time: '8:00 – 18:00' },
+  { days: 'Sat – Sun', time: '9:00 – 18:00' },
 ];
 
 export function FindUs() {
