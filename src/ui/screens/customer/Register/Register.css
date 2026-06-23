@@ -2,8 +2,18 @@
 
 .register-head {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 4px;
+}
+
+.register-back {
+  align-self: flex-start;
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+  text-decoration: none;
+  width: auto;
 }
 
 /* The accented, tappable "privacy notice" link inside the consent text. It

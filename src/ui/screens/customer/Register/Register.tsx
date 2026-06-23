@@ -20,7 +20,7 @@ import { Field, Consent } from '../../../components/Field/Field';
 import { Button } from '../../../components/Button/Button';
 import { Sheet } from '../../../components/Sheet/Sheet';
 import { GestureLogo } from '../../../app/LogoGestures';
-import { cardPath } from '../../../app/routes';
+import { ROUTES, cardPath } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
 import { PrivacyNotice } from '../../../common/PrivacyNotice';
 import { isValidEmail, type FieldError } from '../../../../domain/validation';
@@ -83,6 +83,13 @@ export function Register() {
     <div className="screen bg-cream">
       <div className="screen-pad">
         <div className="register-head">
+          <Button
+            variant="ghost"
+            className="register-back"
+            onClick={() => navigate(ROUTES.welcome)}
+          >
+            ← Back
+          </Button>
           <GestureLogo>
             <LogoMark size="sm" />
           </GestureLogo>
