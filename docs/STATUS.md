@@ -16,8 +16,8 @@ SPEC §15 (Appendix A implemented) + Appendix B partially implemented (B1–B4, 
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
 - **179 unit tests** passing (`npm test`); strict typecheck + production build green.
-- CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`
-  and `VITE_TURN_*` secrets) → deploys on push to `main`.
+- CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`,
+  `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets) → deploys on push to `main`.
 - Four swappable seams: `DataStore`, `Transport`, `Mailer`, `IdentityStore`.
 - Prototype device-pairing layer in `src/adapters/sync/` (dropped in production).
 
@@ -40,7 +40,7 @@ SPEC §15 (Appendix A implemented) + Appendix B partially implemented (B1–B4, 
 | Deletion/opt-out (staff-confirmed), clears PII | ✅ | `ui/customer/DeleteData.tsx`, `IndexedDbStore.softDeleteCustomer` |
 | Admin: staff CRUD, config, stats, audit viewer | ✅ | `ui/admin/*` |
 | Staff/admin session never auto-displays customer card (base-URL routing) | ✅ | `ui/customer/CustomerHome.tsx` — unrecognized device lands directly on `SelfRegister`; recovery is a small link at the end of that form |
-| Add-to-wallet stubbed but visible; Apple = static stub, Google = REST stub | ✅ | `wallet/passStub.ts` |
+| Add-to-wallet visible; OS-detected (Apple / Google); links to walletwallet.dev pre-generated passes | ✅ replaced by B-row below | `wallet/passes.ts`, `ui/customer/WalletButton.tsx` |
 | Storage behind `DataStore`; Transport behind `Transport`; Email behind `Mailer`; Identity behind `IdentityStore` — swap = no UI/service change | ✅ | `ports/`, `adapters/`, `services/Services.ts` |
 | Two-device demo over PeerJS + TURN (real cross-device, not simulated) | ✅ impl; cellular verification = manual live-demo step | `adapters/transport/PeerTransport.ts`, `config/env.ts` |
 | Device pairing — one till hosts many customers; live DataStore sync across all devices | ✅ prototype-only (see divergences e, f) | `adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` — all devices host by default; scanning a till's QR (from Prototype menu) makes the scanning device a customer; first pair routes till → `/staff`, customer → `/`; unpair signals all peers and each resumes hosting |
@@ -156,7 +156,17 @@ call for). UI is verified manually against the acceptance criteria.
 - **Two-device TURN-relayed verification on cellular** is implemented but can only
   be confirmed via a manual live demo — it is not automatable in CI.
 - **Apple Wallet live updates** require an Apple developer account and backend
-  (PassKit + APNs). The current `.pkpass` is a static QR-holder only.
+  (PassKit + APNs). The walletwallet.dev passes are prototype-only; production
+  wallet passes need the backend.
+- **Wallet passes beyond the first three cards** (preset tokens exhausted): the
+  `WalletButton` renders and links, but the pass won't resolve to the card. Noted
+  in `wallet/passes.ts`.
+- **B6 remainder** (light/dark mode toggle, hide-login hardening, progressive card
+  animations, menu page) — intentionally deferred or dropped; no menu page by
+  design (dropped per requester).
+- **B5** (own-card photo) — explicitly out of scope per requester.
+- **`cafeContactEmail`** in `config/cafe.ts` is a placeholder; replace with the
+  real address before go-live.
 - **Recovery after Reset requires pairing.** Self-service recovery resolves
   the customer's card from the store currently active on the device. After a
   Reset, the customer device has a blank local store; recovery will only find

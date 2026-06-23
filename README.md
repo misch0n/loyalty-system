@@ -410,8 +410,8 @@ Prototype menu or the sign-in link on the landing page).
 ### Deployment
 Pushing to `main` runs [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml):
 it installs, **runs tests**, builds with the Pages base path (`/loyalty-system/`),
-injects `VITE_EMAILJS_*` and `VITE_TURN_*` secrets from GitHub repository secrets
-into the static bundle, and publishes to GitHub Pages. Routing uses `HashRouter`,
+injects `VITE_EMAILJS_*`, `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets from
+GitHub repository secrets into the static bundle, and publishes to GitHub Pages. Routing uses `HashRouter`,
 so no server rewrites are needed (a `public/404.html` fallback is shipped as a
 belt-and-braces). `VITE_TRANSPORT` defaults to `peer`, so the deployed build uses
 PeerJS on real devices.
