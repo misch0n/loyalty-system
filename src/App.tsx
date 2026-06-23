@@ -35,7 +35,8 @@ export function App() {
 
   return (
     <Shell
-      onLogoTap={isPrototype ? () => setProtoOpen(true) : undefined}
+      onLogoHome={() => navigate('/')}
+      onLogoTools={isPrototype ? () => setProtoOpen(true) : undefined}
       onLogoHold={() => navigate(ROUTES.login)}
     >
       <Routes>

@@ -6,20 +6,22 @@
  * contextual (the card is the hub).
  *
  * Logo gestures (global, on the brand mark):
- *   - tap            → onLogoTap   (prototype panel; caller no-ops in prod)
+ *   - tap LEFT half   → onLogoHome  (home: '/' → entry resolver → welcome/card/staff)
+ *   - tap RIGHT half  → onLogoTools (prototype tools panel; prototype build only)
  *   - long-press ≥600ms → onLogoHold (staff/admin login)
  *
- * Keyboard accessibility (UI-SPEC §2 / §6 quality floor): the long-press is
- * mouse/touch-only, so we provide TWO keyboard paths to onLogoHold:
- *   1. The logo button itself: Enter/Space = tap; the same key held until the
- *      600ms threshold (key auto-repeat while held) fires hold. Releasing before
- *      the threshold fires tap. This mirrors the pointer gesture for keyboards
- *      that auto-repeat.
- *   2. A small, always-reachable "Staff sign-in" control rendered after the
- *      brand. It is not visually loud but is fully focusable and directly
- *      triggers onLogoHold — a guaranteed, repeat-independent keyboard path so
- *      staff entry is never gated behind a press-and-hold gesture.
- * Both paths are no-ops when the corresponding handler prop is omitted.
+ * The left/right split is by the tap's horizontal position within the logo
+ * button (see `tapSide`). When `onLogoTools` is omitted (production build), a
+ * right-half tap falls back to home, so both halves go home.
+ *
+ * Keyboard accessibility (UI-SPEC §2 / §6 quality floor):
+ *   1. The logo button: Enter/Space tap → home (the safe default; a keyboard has
+ *      no left/right half). Held past the 600ms threshold (key auto-repeat) →
+ *      onLogoHold, mirroring the pointer long-press.
+ *   2. A small, always-reachable "Staff sign-in" control after the brand — a
+ *      guaranteed, repeat-independent keyboard path to onLogoHold.
+ * The prototype tools are a dev-only pointer gesture (no keyboard path by design;
+ * they are excluded from production entirely).
  */
 
 import {
@@ -27,21 +29,29 @@ import {
   useEffect,
   useRef,
   type KeyboardEvent,
+  type PointerEvent,
   type ReactNode,
 } from 'react';
 import './shell.css';
 
 const HOLD_MS = 600;
 
+/** Which half of the logo a tap landed in (left = home, right = tools). */
+export function tapSide(clientX: number, rect: { left: number; width: number }): 'left' | 'right' {
+  return clientX - rect.left >= rect.width / 2 ? 'right' : 'left';
+}
+
 export interface ShellProps {
   children: ReactNode;
-  /** Logo tap → prototype panel (prototype build only; no-op in production). */
-  onLogoTap?: () => void;
+  /** Left-half tap (and keyboard tap) → home. */
+  onLogoHome?: () => void;
+  /** Right-half tap → prototype tools panel (prototype build only). */
+  onLogoTools?: () => void;
   /** Logo long-press (≥600ms) → staff/admin login. */
   onLogoHold?: () => void;
 }
 
-export function Shell({ children, onLogoTap, onLogoHold }: ShellProps): JSX.Element {
+export function Shell({ children, onLogoHome, onLogoTools, onLogoHold }: ShellProps): JSX.Element {
   // Tracks an in-flight press so we can distinguish tap from hold and avoid a
   // tap firing after a hold has already triggered.
   const holdTimer = useRef<number | null>(null);
@@ -65,13 +75,27 @@ export function Shell({ children, onLogoTap, onLogoHold }: ShellProps): JSX.Elem
     }, HOLD_MS);
   }, [clearTimer, onLogoHold]);
 
-  const endPress = useCallback(() => {
-    if (!pressingRef.current) return;
-    pressingRef.current = false;
-    clearTimer();
-    // A completed hold already fired; a short press is a tap.
-    if (!heldRef.current) onLogoTap?.();
-  }, [clearTimer, onLogoTap]);
+  const endPress = useCallback(
+    (side: 'left' | 'right') => {
+      if (!pressingRef.current) return;
+      pressingRef.current = false;
+      clearTimer();
+      // A completed hold already fired; a short press is a tap.
+      if (heldRef.current) return;
+      // Right half opens the tools panel when available; everything else is home.
+      if (side === 'right' && onLogoTools) onLogoTools();
+      else onLogoHome?.();
+    },
+    [clearTimer, onLogoTools, onLogoHome],
+  );
+
+  const onPointerUp = useCallback(
+    (e: PointerEvent<HTMLButtonElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      endPress(tapSide(e.clientX, rect));
+    },
+    [endPress],
+  );
 
   const cancelPress = useCallback(() => {
     pressingRef.current = false;
@@ -95,7 +119,8 @@ export function Shell({ children, onLogoTap, onLogoHold }: ShellProps): JSX.Elem
     (e: KeyboardEvent<HTMLButtonElement>) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       e.preventDefault();
-      endPress();
+      // A keyboard has no left/right half — a tap goes home.
+      endPress('left');
     },
     [endPress],
   );
@@ -107,9 +132,9 @@ export function Shell({ children, onLogoTap, onLogoHold }: ShellProps): JSX.Elem
           <button
             type="button"
             className="shell__logo"
-            aria-label="Ckyka Rewards — tap for tools, hold for staff sign-in"
+            aria-label="Ckyka Rewards — tap left for home, right for tools, hold for staff sign-in"
             onPointerDown={beginPress}
-            onPointerUp={endPress}
+            onPointerUp={onPointerUp}
             onPointerCancel={cancelPress}
             onKeyDown={onKeyDown}
             onKeyUp={onKeyUp}

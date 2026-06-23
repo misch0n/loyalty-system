@@ -65,9 +65,13 @@
   session: "remember this device" flag, 5-minute inactivity lock, epoch-based
   revocation. PIN is never logged.
 - **Prototype panel** (`ui/screens/proto/ProtoPanel.tsx`) is opened by tapping the
-  shell logo (build-flag gated, non-production). Hosts demo scaffolding: Pair/Unpair,
-  Reset this device, sign-in shortcut, demo cards. Replaces the old header
-  `PrototypeMenu`. Prototype-only; no production analogue.
+  **right half** of the shell logo (the left half goes home; long-press → staff
+  sign-in). Gated on `isPrototype` (env.ts) — i.e. the local adapter selection,
+  NOT `import.meta.env.PROD`: the deployed GitHub Pages demo is itself a
+  production `vite build`, so gating on `PROD` previously hid the panel on the
+  very deployment that needs it. Hosts demo scaffolding: Pair/Unpair, Reset this
+  device, sign-in shortcut, demo cards. Replaces the old header `PrototypeMenu`.
+  Prototype-only; dropped from a real server-backed build.
 - **Reset device** (`Services.reset()` → `IndexedDbStore.close()`) closes and
   deletes the `cafe-loyalty` IndexedDB database, clears storage keys, and reloads.
   Lets a tester rerun a flow from a clean device. Prototype-only.
