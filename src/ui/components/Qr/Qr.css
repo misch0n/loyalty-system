@@ -1,0 +1,33 @@
+/* QR on a CREAM tile (not brown — keeps it scannable). Donor rules, verbatim. */
+.qrwrap {
+  margin-top: 18px;
+  background: var(--cream);
+  border-radius: 18px;
+  padding: 14px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  position: relative;
+}
+.qr {
+  width: 84px;
+  height: 84px;
+  flex: 0 0 auto;
+}
+.qrwrap .meta {
+  color: var(--ink);
+}
+.qrwrap .meta .t {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.qrwrap .meta .c {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-top: 3px;
+  letter-spacing: 0.04em;
+}
+.qr-trigger {
+  cursor: pointer;
+}

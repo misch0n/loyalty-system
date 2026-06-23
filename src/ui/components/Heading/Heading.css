@@ -1,0 +1,21 @@
+/* Headings — donor theme.css rules, verbatim. */
+.h-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--terra-600);
+}
+.h-title {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 27px;
+  line-height: 1.04;
+  letter-spacing: -0.01em;
+  margin: 8px 0 6px;
+}
+.h-sub {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 0 0 18px;
+}

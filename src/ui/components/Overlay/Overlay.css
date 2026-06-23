@@ -1,0 +1,10 @@
+/* Overlay — enlarged-QR full-white sheet. Donor classes copied verbatim from theme.css. */
+.qr-enlarge{position:fixed; inset:0; z-index:30; background:#fff; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:14px; padding:34px; cursor:pointer}
+.qr-enlarge .qr{width:min(74vw,260px); height:auto; aspect-ratio:1}
+.qr-enlarge .nm{font-family:var(--serif); font-weight:600; font-size:20px; color:var(--ink)}
+.qr-enlarge .cd{font-family:var(--mono); font-size:12px; letter-spacing:.06em; color:var(--ink-soft)}
+.qr-enlarge .wallet{max-width:300px; margin-top:6px}
+.qr-enlarge .close{position:absolute; top:18px; right:20px; font-family:var(--mono); font-size:10px;
+  letter-spacing:.14em; text-transform:uppercase; color:var(--ink-soft); background:transparent; border:0; cursor:pointer}
+.qr-enlarge .tap{position:absolute; bottom:24px; font-size:11px; color:var(--ink-soft)}

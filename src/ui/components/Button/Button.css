@@ -1,0 +1,65 @@
+/* Buttons + wallet pill — donor theme.css rules, verbatim. */
+.btn {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 15px;
+  border-radius: 16px;
+  padding: 15px 18px;
+  width: 100%;
+  text-align: center;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.btn:focus-visible {
+  outline: 3px solid var(--terra);
+  outline-offset: 3px;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn-sage {
+  background: var(--sage);
+  color: var(--forest-700);
+}
+.btn-forest {
+  background: var(--forest);
+  color: var(--cream);
+}
+.btn-ghost {
+  background: transparent;
+  color: inherit;
+  font-weight: 500;
+  padding: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.btn-line {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--line);
+  color: var(--ink);
+}
+.btn[disabled] {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.wallet {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #16201a;
+  color: var(--cream);
+  border-radius: 14px;
+  padding: 14px;
+  font-weight: 600;
+  font-size: 14px;
+  width: 100%;
+  border: 0;
+  cursor: pointer;
+}
+.wallet svg {
+  width: 18px;
+  height: 18px;
+}

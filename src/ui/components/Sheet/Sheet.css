@@ -1,0 +1,17 @@
+/* Sheet — bottom-sheet + menu rows. Donor classes copied verbatim from theme.css. */
+.sheet-back{position:fixed; inset:0; z-index:30; background:rgba(25,42,32,.45); display:flex; align-items:flex-end}
+.sheet{background:var(--paper); border-radius:24px 24px 0 0; width:100%; max-width:430px; margin:0 auto;
+  padding:10px 22px calc(26px + env(safe-area-inset-bottom)); box-shadow:0 -12px 40px rgba(25,42,32,.3)}
+.sheet .grab{width:42px; height:4px; border-radius:99px; background:var(--line); margin:6px auto 16px}
+.menu-row{display:flex; align-items:center; gap:14px; padding:15px 2px; border-top:1px solid var(--line); width:100%;
+  background:transparent; border-left:0; border-right:0; border-bottom:0; text-align:left; cursor:pointer; font:inherit; color:var(--ink)}
+.menu-row.first{border-top:0}
+.menu-row .mi{width:36px; height:36px; border-radius:11px; background:var(--sage-100); color:var(--forest);
+  display:grid; place-items:center; flex:0 0 auto}
+.menu-row .mi svg{width:18px; height:18px}
+.menu-row .mt{font-weight:600; font-size:14.5px}
+.menu-row .ms{font-size:12px; color:var(--ink-soft); margin-top:1px}
+.menu-row .go{margin-left:auto; color:var(--ink-soft); font-size:18px}
+.menu-row.danger .mi{background:var(--blush-200); color:var(--terra-600)}
+.menu-row.danger .mt{color:var(--terra-600)}
+.recovery-line{font-family:var(--mono); font-size:11px; color:var(--ink-soft); padding:14px 2px 2px; letter-spacing:.02em}

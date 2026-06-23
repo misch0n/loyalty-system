@@ -1,0 +1,125 @@
+/* The loyalty card — the centerpiece. Donor rules (reference theme.css) copied
+   verbatim. Stamps + QR come from their own components; this owns the card
+   surface, top row, progress note, reward banner, and the discreet "⋯". */
+
+.card {
+  position: relative;
+  border-radius: 24px;
+  background: linear-gradient(155deg, #34543f, #233a2c 75%);
+  color: var(--cream);
+  padding: 20px 20px 22px;
+  overflow: hidden;
+  box-shadow: 0 22px 40px -26px rgba(25, 42, 32, 0.9);
+}
+.card .glaze {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120px 80px at 88% 6%, rgba(196, 206, 143, 0.16), transparent 70%);
+}
+.card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+}
+.card-top .who {
+  font-family: var(--serif);
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1;
+}
+.card-top .tier {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  background: rgba(248, 243, 232, 0.14);
+  padding: 5px 9px;
+  border-radius: 999px;
+}
+.card .pname {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  opacity: 0.8;
+  margin: 2px 0 0;
+}
+
+.progress-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  position: relative;
+}
+.progress-note .left {
+  font-size: 13px;
+}
+.progress-note .left b {
+  font-weight: 600;
+}
+.progress-note .pts {
+  font-family: var(--mono);
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.ready-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--sage);
+  color: var(--forest-700);
+  border-radius: 16px;
+  padding: 13px 15px;
+  position: relative;
+  overflow: hidden;
+}
+.ready-banner .spark {
+  position: absolute;
+  inset: 0;
+  transform: translateX(-120%);
+  background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.5) 50%, transparent 65%);
+  animation: sweep 3.2s ease-in-out infinite;
+}
+.ready-banner svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+.ready-banner .b1 {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.05;
+}
+.ready-banner .b2 {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* discreet "..." control on the card (corner, NOT a big floating box) */
+.dots-btn {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 4;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  border: 0;
+  cursor: pointer;
+  background: rgba(248, 243, 232, 0.16);
+  color: var(--cream);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  line-height: 0;
+  letter-spacing: 1px;
+}
+.dots-btn:focus-visible {
+  outline: 3px solid var(--terra);
+  outline-offset: 2px;
+}

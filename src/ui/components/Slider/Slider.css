@@ -1,0 +1,15 @@
+/* Slider — staff points assigner. Donor classes copied verbatim from theme.css. */
+.assign{background:#fff; border-radius:16px; padding:14px 15px 16px; box-shadow:inset 0 0 0 1px var(--line)}
+.assign .ahead{display:flex; align-items:center; justify-content:space-between; margin-bottom:12px}
+.assign .al{font-size:12.5px; font-weight:600}
+.aval{font-family:var(--serif); font-weight:600; font-size:21px; color:var(--forest-700); line-height:1}
+.assign input[type=range]{-webkit-appearance:none; appearance:none; width:100%; height:8px; border-radius:99px;
+  background:linear-gradient(90deg, var(--sage-600) var(--p,0%), var(--sage-100) var(--p,0%)); outline:none; margin:0}
+.assign input[type=range]::-webkit-slider-runnable-track{height:8px; background:transparent}
+.assign input[type=range]::-moz-range-track{height:8px; background:transparent}
+.assign input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:22px; height:22px; margin-top:-7px;
+  border-radius:50%; background:var(--forest); border:3px solid #fff; box-shadow:0 2px 6px rgba(25,42,32,.35); cursor:pointer}
+.assign input[type=range]::-moz-range-thumb{width:22px; height:22px; border-radius:50%; background:var(--forest); border:3px solid #fff; cursor:pointer}
+.assign input[type=range]:focus-visible{box-shadow:0 0 0 3px rgba(199,110,68,.5)}
+.ticks{display:flex; justify-content:space-between; margin-top:9px; padding:0 3px; font-family:var(--mono); font-size:10px; color:var(--ink-soft)}
+.elig{font-size:11px; color:var(--ink-soft); text-align:center; margin:0}

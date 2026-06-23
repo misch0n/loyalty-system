@@ -1,0 +1,33 @@
+/* Ckyka logo lockup — donor theme.css rules, verbatim. */
+.lockup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+}
+.mark {
+  width: 74px;
+  height: 74px;
+  color: currentColor;
+}
+.mark.sm {
+  width: 30px;
+  height: 30px;
+}
+.word {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 26px;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  border-bottom: 2px solid currentColor;
+  padding-bottom: 3px;
+}
+.sub {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}

@@ -1,0 +1,29 @@
+/* Cup-stamp grid — the signature. Donor theme.css rules, verbatim.
+   .on = earned (sage fill); empty = outline. */
+.stamps {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 9px;
+  margin: 18px 0 4px;
+  position: relative;
+}
+.stamp {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 1.5px rgba(248, 243, 232, 0.4);
+}
+.stamp svg {
+  width: 62%;
+  height: 62%;
+  opacity: 0.45;
+}
+.stamp.on {
+  background: var(--sage);
+  box-shadow: none;
+}
+.stamp.on svg {
+  opacity: 1;
+  color: var(--forest-700);
+}

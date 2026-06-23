@@ -1,0 +1,8 @@
+/* ContextBanner — contextual prompt. Donor base copied verbatim from theme.css;
+   the `.sage` tone matches the inline override used by Lost-card (view 03). */
+.context-banner{background:linear-gradient(150deg,var(--blush-200),#fff); border:1px solid var(--blush);
+  border-radius:16px; padding:14px 15px; display:flex; align-items:center; gap:12px}
+.context-banner .ct{font-size:12.5px; color:var(--ink)}
+.context-banner .ct b{font-weight:600}
+.context-banner .tog{margin-left:auto}
+.context-banner.sage{background:linear-gradient(150deg,var(--sage-100),#fff); border-color:var(--sage-100)}
