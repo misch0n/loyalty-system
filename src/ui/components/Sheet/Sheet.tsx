@@ -36,6 +36,14 @@ export function Sheet({ open, onClose, children, label }: SheetProps) {
   const draggingRef = useRef(false);
   const startYRef = useRef(0);
 
+  // Keep the latest onClose without it being an effect dependency — otherwise the
+  // open/focus effect re-runs on every parent render (inline onClose changes
+  // identity) and steals focus back to the first field on each keystroke.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   useEffect(() => {
     if (!open) return;
     // Reset the drag offset whenever the sheet (re)opens.
@@ -52,7 +60,7 @@ export function Sheet({ open, onClose, children, label }: SheetProps) {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key === 'Tab' && panel) {
@@ -80,7 +88,9 @@ export function Sheet({ open, onClose, children, label }: SheetProps) {
       document.body.style.overflow = prevOverflow;
       previouslyFocused?.focus?.();
     };
-  }, [open, onClose]);
+    // Only re-run when open toggles — NOT on every onClose identity change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const onDragStart = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     startYRef.current = e.clientY;

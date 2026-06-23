@@ -10,7 +10,9 @@ import {
   cafeName,
   cafeAddress,
   cafeMapUrl,
+  cafeMapEmbedUrl,
   cafeContactEmail,
+  cafeInstagramUrl,
 } from '../../../config/cafe';
 import './FindUs.css';
 
@@ -35,10 +37,26 @@ export function FindUs() {
           </div>
         ))}
       </div>
+      <iframe
+        className="findus-map"
+        title={`Map showing ${cafeName}`}
+        src={cafeMapEmbedUrl}
+        loading="lazy"
+        referrerPolicy="no-referrer-when-downgrade"
+      />
+
+      <Button
+        as="a"
+        variant="line"
+        className="findus-directions"
+        href={cafeMapUrl}
+        target="_blank"
+        rel="noreferrer"
+      >
+        Get directions
+      </Button>
+
       <div className="actions">
-        <Button as="a" variant="line" href={cafeMapUrl} target="_blank" rel="noreferrer">
-          Get directions
-        </Button>
         <Button
           as="a"
           variant="ghost"
@@ -46,6 +64,16 @@ export function FindUs() {
           href={`mailto:${cafeContactEmail}`}
         >
           Contact us
+        </Button>
+        <Button
+          as="a"
+          variant="ghost"
+          className="findus-instagram"
+          href={cafeInstagramUrl}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Instagram
         </Button>
       </div>
     </div>

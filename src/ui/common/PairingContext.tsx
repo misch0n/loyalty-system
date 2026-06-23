@@ -42,8 +42,12 @@ interface PairingValue {
   dataVersion: number;
   /** Start hosting if idle (so a QR is available). No-op if already hosting/joined. */
   ensureHosting: () => void;
-  /** Scan a till's id to pair as its customer. */
-  joinAs: (remoteId: string) => Promise<void>;
+  /**
+   * Scan a till's id to pair as its customer. By default routes to the customer
+   * home on success; pass `{ redirect: false }` to stay put (the dev panel pairs
+   * in place and shows a "Paired" state instead of navigating away).
+   */
+  joinAs: (remoteId: string, opts?: { redirect?: boolean }) => Promise<void>;
   /** Host: drop all clients. Client: leave the till. Either way, signal the peers. */
   unpair: () => void;
 }
@@ -145,7 +149,7 @@ export function PairingProvider({ children }: { children: ReactNode }) {
   }, [services, bump, ensureHosting]);
 
   const joinAs = useCallback(
-    async (remoteId: string) => {
+    async (remoteId: string, opts?: { redirect?: boolean }) => {
       setError(null);
       setConnecting(true);
       try {
@@ -171,7 +175,9 @@ export function PairingProvider({ children }: { children: ReactNode }) {
           client.dispose();
         };
         bump();
-        navigate('/', { replace: true }); // customer → home
+        if (opts?.redirect !== false) {
+          navigate('/', { replace: true }); // customer → home
+        }
       } catch {
         services.sync.switchable.setTarget(services.sync.observable.store);
         setError(

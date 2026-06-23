@@ -353,7 +353,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
                   {!account.active && <em> · disabled</em>}
                 </span>
                 <span className="alm">
-                  {account.username} · {account.role}
+                  {account.username} · <span className="role">{account.role}</span>
                 </span>
               </span>
               <span className="alc" aria-hidden="true">

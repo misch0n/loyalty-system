@@ -24,6 +24,10 @@ const FOCUSABLE =
 
 export function Overlay({ open, onClose, children, label }: OverlayProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -37,7 +41,7 @@ export function Overlay({ open, onClose, children, label }: OverlayProps) {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key === 'Tab' && panel) {
@@ -65,7 +69,8 @@ export function Overlay({ open, onClose, children, label }: OverlayProps) {
       document.body.style.overflow = prevOverflow;
       previouslyFocused?.focus?.();
     };
-  }, [open, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   if (!open) return null;
 

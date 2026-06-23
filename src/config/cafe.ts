@@ -12,5 +12,15 @@ export const cafeAddress = 'ul. "Oborishte" 89, Oborishte, 1505 Sofia, Bulgaria'
 export const cafeMapUrl =
   'https://www.google.com/maps/search/?api=1&query=42.693861%2C23.349611&query_place_id=ChIJk_kwFsWFqkARDZkg8CtQ2mA';
 
+/**
+ * Embeddable map centred on the shop's coordinates. Uses the keyless classic
+ * embed (`output=embed`) so no Google Maps API key is needed in the prototype.
+ */
+export const cafeMapEmbedUrl =
+  'https://maps.google.com/maps?q=42.693861,23.349611&z=16&hl=en&output=embed';
+
 /** Placeholder — replace with the café's real contact address once available. */
 export const cafeContactEmail = 'hello@example-cafe.test';
+
+/** Placeholder — the café's real Instagram handle/link will be added later. */
+export const cafeInstagramUrl = 'https://www.instagram.com/';

@@ -32,6 +32,12 @@
   margin-top: 24px;
 }
 
+/* The card occupies one full screen; Find us sits below the fold (like Welcome).
+   The spacer + scroll hint pin the hint to the bottom of that first screen. */
+.card-main {
+  min-height: 100dvh;
+}
+
 /* Scroll-down hint above the below-the-fold Find us section. */
 .card-scroll-hint {
   text-align: center;

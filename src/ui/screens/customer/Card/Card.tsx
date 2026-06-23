@@ -140,7 +140,7 @@ export function Card() {
 
   return (
     <div className={`screen ${rewardAvailable ? 'bg-sage' : 'bg-blush'}`}>
-      <div className="screen-pad">
+      <div className="screen-pad card-main">
         <div className="card-topline">
           <Eyebrow className="center card-eyebrow">Your Ckyka card</Eyebrow>
           <GestureLogo className="card-gesture">

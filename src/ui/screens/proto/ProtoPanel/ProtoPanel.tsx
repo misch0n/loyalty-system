@@ -141,7 +141,7 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
           <QrScanner
             autoStart
             allowManual={false}
-            onResult={(text) => void joinAs(hostIdFrom(text))}
+            onResult={(text) => void joinAs(hostIdFrom(text), { redirect: false })}
           />
         )}
       </Sheet>

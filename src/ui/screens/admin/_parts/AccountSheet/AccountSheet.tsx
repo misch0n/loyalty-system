@@ -108,7 +108,7 @@ export function AccountSheet({ account, actor, onClose, onChanged }: AccountShee
           <div>
             <div className="acct-name">{account.name ?? account.username}</div>
             <div className="acct-meta">
-              {account.username} · {account.role}
+              {account.username} · <span className="acct-role">{account.role}</span>
               {!account.active && <span className="acct-disabled"> · disabled</span>}
             </div>
           </div>

@@ -15,6 +15,9 @@
   font-size: 12.5px;
   color: var(--ink-soft);
   margin-top: 2px;
+}
+/* Username verbatim; only the role label is title-cased. */
+.acct-role {
   text-transform: capitalize;
 }
 .acct-disabled {
