@@ -70,7 +70,13 @@ Points live in an **append-only ledger**. Balance and "reward available" are
 | **Prototype tools menu** | A "prototype" dropdown in the header (`src/ui/common/PrototypeMenu.tsx`) groups all demo scaffolding: Pair/Unpair this device, Reset this device (closes + deletes IndexedDB, clears storage, reloads), and a staff/admin sign-in shortcut. Replaces the old always-visible device-switcher tabs and header pair pill. |
 | **Reset device** | `Services.reset()` (backed by `IndexedDbStore.close()`) drops the `cafe-loyalty` database and clears `cafe-loyalty.customer` / `cafe-loyalty.actor` keys so a workflow can be rerun from a clean device state. Prototype-only. |
 | **Device pairing (prototype)** | Every device defaults to hosting: it shows its own pairing QR inside the Prototype menu. Scanning another device's QR makes this device a customer of that till. The till accepts **many customer devices simultaneously**; each gets its own `StoreServer` instance so change notifications fan out to all. The first customer to pair routes the till to `/staff` and the customer to `/`. Unpairing signals every connected device (`{ t: 'unpair' }`) and each side resumes hosting. The pairing QR lives in the **Prototype tools menu** — opening the menu shows this device's QR with a "Scan a code" button beneath. A till shows the paired-device count and "Unpair all"; a paired customer shows a "Paired to the till" label with Unpair + Reset. `/pair` is now scan-only: a `?host=` URL auto-joins (QR-only; `QrScanner` receives `allowManual={false}`). The customer device's `DataStore` is transparently served by the till over PeerJS — the no-backend stand-in for a production server. |
-| **Wallet (stub)** | Apple Wallet: static `.pkpass` QR-holder (no developer account; web page is the iOS status surface). Google Wallet: dynamic loyalty pass via REST. Both stubbed in `wallet/passStub.ts`; real passes need the backend. |
+| **Device persistence (B1)** | A device remembers exactly one card (via `IdentityStore`). Viewing a card never auto-saves it, so opening a shared card URL never overwrites the saved card silently. Registration has a "Remember this card on this device" toggle (default ON when no card saved, OFF with a replace-notice when another card is already saved). The own-card Status page shows `RememberControl`: "Remember this card on this device" when not saved; "Remove this card from this device" (forget — clears device persistence only, not the account) when saved. Token-only (no email/name) cards confirm before forgetting. "Delete my card" removes the account AND the card. |
+| **Card QR = card URL (B2)** | The card QR encodes the full card-page URL (`…/#/status/<token>`). Staff scan extracts the token via `tokenFromCardScan()`; bare tokens still accepted for backward compatibility. No PII in the URL. |
+| **Recovery tiers disclosed at signup (B3)** | `SelfRegister` shows which recovery tier applies: email → self-recovery link; name-only → staff best-effort; neither → not recoverable. Name remains optional. |
+| **Review prompt (B4)** | After a customer's FIRST redemption, a dismissible prompt deep-links to the café's Google write-review dialog. Shown once per device (`cafe-loyalty.reviewPrompted` in localStorage). Place ID via `VITE_GOOGLE_PLACE_ID` (default: Ckyka Specialty Coffee Shop, Sofia). No sentiment gating; shown to everyone (required by Google). |
+| **Wallet — predetermined passes** | "Add to Wallet" button (`WalletButton`) appears on the post-register `CardView` and the own-card Status view. Detects device OS (iOS → Apple Wallet, else Google Wallet) and links to a pre-generated walletwallet.dev pass. The first three cards on a store get fixed preset tokens (`PROTOcard0000000000001..3`) mapped to three real pass serials; later cards rotate stably for display. `CustomerService.nextCardToken()` assigns preset tokens via `countActiveCustomers()`. Old `wallet/passStub.ts` replaced by `wallet/passes.ts`. |
+| **Footer (B6, partial)** | Layout footer has a "Find Ckyka Specialty Coffee Shop" Google Maps link (place-pinned, coordinate-centred) and a placeholder "Contact" mailto. Café details live in `config/cafe.ts`. |
+| **Family / couples sharing (B7)** | Opening the card URL or QR on a second device shows that card without overwriting either device's saved card. Balance pools naturally (one ledger, one token). This is expected behaviour: the card is a shared credential. No feature code needed and future changes must not bind a card to exactly one device. |
 | **Base-URL landing** | `/` routes by context: authenticated staff/admin → staff home; recognized browser → `/status/:token`; otherwise → the self-registration form (`SelfRegister`) directly. A "Lost your card?" recovery link appears at the end of that form. Staff/admin session always takes precedence (never auto-shows a customer card). Staff sign-in shortcut lives in the Prototype menu. |
 
 ---
@@ -164,7 +170,7 @@ sequenceDiagram
     App->>App: checkDuplicates() → warn if match
     App->>App: createCard() → token + audit(card.provision)
     App->>IS: saveToken(token)
-    App-->>C: card (token QR + wallet stub)
+    App-->>C: card (card-URL QR + WalletButton)
 ```
 
 ### Staff-initiated registration (secondary path)
@@ -190,7 +196,7 @@ sequenceDiagram
     T-->>App: onCustomerSubmitted
     App->>App: checkDuplicates() → warn if match
     App->>App: finalizeRegistration() → record consent + audit
-    App-->>C: card (token QR + wallet stub)
+    App-->>C: card (card-URL QR + WalletButton)
 ```
 
 ### Accrual & redemption (append-only ledger)
@@ -267,8 +273,9 @@ erDiagram
 ```
 src/
 ├── config/
-│   ├── env.ts             # feature flags (VITE_TRANSPORT, VITE_EMAILJS_*, VITE_TURN_*), baseUrl, iceServers
-│   └── links.ts           # appUrl() — builds absolute HashRouter URLs for QR + emails
+│   ├── env.ts             # feature flags (VITE_TRANSPORT, VITE_EMAILJS_*, VITE_TURN_*, VITE_GOOGLE_PLACE_ID), baseUrl, iceServers
+│   ├── links.ts           # appUrl() — builds absolute HashRouter URLs for QR + emails
+│   └── cafe.ts            # café public details: name, address, Google Maps URL, contact email (B6)
 ├── domain/                # pure logic, fully unit-tested
 │   ├── models.ts          # entity types (incl. card.provision, customer.recover audit actions)
 │   ├── loyalty.ts         # balance, reward-availability, redemption rules
@@ -308,15 +315,22 @@ src/
 │   ├── RecoveryService.ts # self-service recovery (single-use expiring codes)
 │   └── Services.ts        # ← composition root; wires adapters/sync → SyncKit (services.sync)
 │                          #   exposes reset() — closes + drops IndexedDB (prototype-only)
-├── qr/                    # encode (payloads) + scan (camera wrapper)
-├── wallet/                # passStub.ts + production integration notes
+├── qr/                    # encode (cardPayload = card-page URL, tokenFromCardScan, registrationPayload) + scan
+├── wallet/
+│   └── passes.ts          # PRESET_CARD_TOKENS, PASS_SERIALS, passSerialForToken, walletPassUrl,
+│                          #   detectWalletKind — walletwallet.dev integration (prototype)
 └── ui/
     ├── auth/              # LoginScreen (shared staff/admin sign-in, one-tap fills)
     ├── staff/ · admin/
-    ├── customer/          # CustomerHome · SelfRegister · Recover · Status · …
-    └── common/            # QrDisplay, QrScanner (allowManual prop), Layout, PairingContext/usePairing,
-                           #   PairDevices (QR-only; role by initiation), PrototypeMenu, guards
-tests/                     # Vitest: domain, service, adapter, qr, wallet, config (177 passing)
+    ├── customer/          # CustomerHome · SelfRegister (recovery-tier disclosure) · Recover
+    │                      #   · Status · CardView · DeleteData
+    │                      #   · WalletButton (OS-detected, walletwallet.dev)
+    │                      #   · RememberControl (device persistence, B1)
+    │                      #   · ReviewPrompt (post-redemption, once per device, B4)
+    └── common/            # QrDisplay, QrScanner (allowManual prop), Layout (footer: Maps + Contact),
+                           #   PairingContext/usePairing, PairDevices (QR-only; role by initiation),
+                           #   PrototypeMenu, guards
+tests/                     # Vitest: domain, service, adapter, qr, wallet, config (179 passing)
 .env.example               # documents required build-time secrets
 .github/workflows/deploy.yml   # build + test + deploy (injects secrets at build time)
 ```
@@ -370,7 +384,7 @@ is dropped entirely.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 177 unit tests (Vitest)
+npm test           # 179 unit tests (Vitest)
 npm run build      # static output in dist/
 npm run typecheck  # strict TS, no emit
 ```
@@ -417,7 +431,7 @@ flowchart LR
     C[Swap PeerTransport → ServerTransport<br/>one line in Services.ts] --> D[Server-mediated registration over HTTP]
     E[Swap EmailJsMailer → server-side provider<br/>one line in Services.ts] --> F[Reliable transactional email]
     G[Swap LocalStorageIdentityStore → server-cookie adapter<br/>one line in Services.ts] --> H[Secure cross-device identity]
-    I[Implement wallet passes<br/>PassKit + APNs / Google REST] --> J[replace passStub.ts]
+    I[Implement wallet passes<br/>PassKit + APNs / Google REST] --> J[replace walletwallet.dev prototype in passes.ts]
     K[Real hashed-password auth] --> L[server-side sessions]
     M[Drop adapters/sync/ pairing layer<br/>server coordinates state centrally] --> N[No PeerJS in data path]
 ```

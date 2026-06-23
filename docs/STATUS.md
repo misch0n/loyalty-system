@@ -5,8 +5,8 @@
 > [`SPEC.md`](SPEC.md); working rules in [`../CLAUDE.md`](../CLAUDE.md).
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 
-**Last updated:** 2026-06-22 (multi-client pairing, QR-in-menu, broadcast unpair) · **Phase:** v1 prototype — feature-complete against
-SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
+**Last updated:** 2026-06-23 (Appendix B: wallet rework, card-URL QR, recovery tiers, device persistence, review prompt, footer, family sharing) · **Phase:** v1 prototype — feature-complete against
+SPEC §15 (Appendix A implemented) + Appendix B partially implemented (B1–B4, B6 partial, B7 documented; B5 dropped, B6 remainder deferred).
 
 ---
 
@@ -15,7 +15,7 @@ SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 - React + TypeScript + Vite SPA, IndexedDB storage, deployed to GitHub Pages.
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
-- **177 unit tests** passing (`npm test`); strict typecheck + production build green.
+- **179 unit tests** passing (`npm test`); strict typecheck + production build green.
 - CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`
   and `VITE_TURN_*` secrets) → deploys on push to `main`.
 - Four swappable seams: `DataStore`, `Transport`, `Mailer`, `IdentityStore`.
@@ -46,6 +46,14 @@ SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 | Device pairing — one till hosts many customers; live DataStore sync across all devices | ✅ prototype-only (see divergences e, f) | `adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` — all devices host by default; scanning a till's QR (from Prototype menu) makes the scanning device a customer; first pair routes till → `/staff`, customer → `/`; unpair signals all peers and each resumes hosting |
 | Domain unit-tested; file tree matches SPEC §12 | ✅ | `tests/`, layout matches |
 | Adapters/transports/services unit-tested (regression cover) | ✅ | `tests/adapters/*`, `tests/services/*`, `tests/qr/*` |
+| **B1** Device persistence — remember/forget exactly one card; no auto-save on view; registration toggle (default ON/OFF by saved state); own-card RememberControl; token-only confirm before forget | ✅ | `ui/customer/RememberControl.tsx`, `ui/customer/SelfRegister.tsx`, `ui/customer/Status.tsx`, `ui/customer/CardView.tsx`, `ui/customer/Recover.tsx`, `ui/customer/DeleteData.tsx` |
+| **B2** Card QR encodes card-page URL; `tokenFromCardScan()` extracts token; bare tokens still accepted | ✅ | `qr/encode.ts` (`cardPayload`, `tokenFromCardScan`), `ui/staff/ScanHome` |
+| **B3** Recovery-tier disclosure at signup (email → self-recovery; name-only → staff best-effort; neither → not recoverable); name optional | ✅ | `ui/customer/SelfRegister.tsx` |
+| **B4** Post-first-redemption review prompt; dismissible; once per device (`cafe-loyalty.reviewPrompted`); deep-links Google write-review; no sentiment gating; Place ID via `VITE_GOOGLE_PLACE_ID` | ✅ | `ui/customer/ReviewPrompt.tsx`, `config/env.ts` (`googlePlaceId`) |
+| **B5** Own-card photo | ❌ explicitly dropped (out of scope per requester) | — |
+| **B6** Footer Maps + Contact link | ✅ partial — Maps link (place-pinned) + placeholder mailto in Layout footer; café details in `config/cafe.ts`. NOT YET built: light/dark mode toggle, hide-login hardening, progressive card animations, menu page (intentionally not built) | `config/cafe.ts`, Layout footer |
+| **B7** Family/couples sharing | No feature code needed — expected behaviour. Sharing the card URL/QR shows the card on any device without overwriting the saved card. Balance pools (one ledger, one token). Future changes must not bind a card to exactly one device. | documented only |
+| Wallet — OS-detected button, walletwallet.dev pre-generated passes; first three cards get preset tokens (`PROTOcard0000000000001..3`); later cards rotate stably; `CustomerService.nextCardToken()` via `countActiveCustomers()` | ✅ prototype | `wallet/passes.ts`, `ui/customer/WalletButton.tsx`, `services/CustomerService.ts` |
 
 ## What is real vs. stubbed (prototype intentionally)
 
@@ -67,10 +75,14 @@ SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
   throws in the prototype (no backend). Shows the contract; one-line swap.
 - **`ServerTransport`** is a production placeholder — every method throws. The
   prototype uses `PeerTransport` (PeerJS + TURN).
-- **Wallet** (`passStub.ts`): Apple Wallet = static `.pkpass` QR-holder, no
-  developer account, no live updates; the web page is the iOS status surface.
-  Google Wallet = dynamic loyalty pass via REST, stubbed. Real passes need the
-  backend. Notes in `wallet/README.md`.
+- **Wallet** (`wallet/passes.ts`): `WalletButton` detects the device OS (iOS →
+  Apple, else Google) and links to a pre-generated walletwallet.dev pass via
+  `walletPassUrl()`. The first three cards on a store get fixed preset tokens
+  (`PROTOcard0000000000001..3`) aligned to three real pass serials; later cards
+  rotate stably for display only (the pass won't resolve to that card). The button
+  appears on the post-register `CardView` and the own-card Status view. Old
+  `passStub.ts` removed. Real pass provisioning (PassKit + APNs / Google REST)
+  requires the backend — `wallet/passes.ts` is the prototype stand-in.
 - **Reward-notification email** is sent via `EmailJsMailer` when a customer has
   an email address. Real delivery depends on the EmailJS template
   (`template_5ic2z7d`) defining the params the app sends: `to_email`, `mail_kind`,
@@ -95,12 +107,12 @@ SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 
 ## Test coverage
 
-`npm test` runs **177 Vitest unit tests** covering every non-UI module:
+`npm test` runs **179 Vitest unit tests** covering every non-UI module:
 
 - **domain/** — `loyalty`, `tokens`, `validation` (pure logic).
-- **services/** — `Customer` (incl. `selfRegister`, `provisionFromToken`),
-  `Loyalty` (incl. reward-notification path), `Recovery`, `Staff`, `Config`,
-  `Audit`, plus the `Services` composition-root wiring.
+- **services/** — `Customer` (incl. `selfRegister`, `provisionFromToken`,
+  `nextCardToken`), `Loyalty` (incl. reward-notification path), `Recovery`,
+  `Staff`, `Config`, `Audit`, plus the `Services` composition-root wiring.
 - **adapters/** — `IndexedDbStore` (schema v2, seed idempotency, lookups, atomic
   redeem, `createRecoveryCode`/`consumeRecoveryCode`, export/import round-trip,
   error paths), `ApiStore` (every method rejects as a stub), `PeerTransport`
@@ -108,8 +120,10 @@ SPEC §15 (Appendix A implemented) + prototype device-pairing sync layer.
 - **adapters/sync/** — sync round-trip via in-memory `FakeLink`
   (`tests/adapters/sync/sync.test.ts`); `ConnLink` / `joinHost` / `PeerJsHost`
   (`tests/adapters/sync/peerJsLink.test.ts`, PeerJS mocked).
-- **qr/** (`encode`, `scan` with html5-qrcode mocked), **wallet/** (`passStub`),
-  **config/** (`env` flag mapping, `links.ts` URL building).
+- **qr/** (`encode` — incl. `cardPayload` URL format and `tokenFromCardScan`,
+  `scan` with html5-qrcode mocked), **wallet/** (`passes.test.ts` — preset
+  tokens, serial lookup, URL construction, OS detection; replaces `passStub` test),
+  **config/** (`env` flag mapping incl. `googlePlaceId`, `links.ts` URL building).
 
 The **React `ui/` components are intentionally not unit-tested**: the SPEC's
 testing bar is the pure domain + core service logic, and adding a component test
@@ -128,7 +142,8 @@ call for). UI is verified manually against the acceptance criteria.
 - `src/config/links.ts` (`appUrl`) is the single place that builds absolute URLs
   for QR payloads and emailed links. Do not hard-code `window.location` elsewhere.
 - `src/config/env.ts` owns all env-var reads (`VITE_TRANSPORT`, `VITE_EMAILJS_*`,
-  `VITE_TURN_*`, `baseUrl`, `isEmailConfigured`). Read from there, not `import.meta.env` directly.
+  `VITE_TURN_*`, `VITE_GOOGLE_PLACE_ID`, `baseUrl`, `isEmailConfigured`, `googlePlaceId`). Read from there, not `import.meta.env` directly.
+- `src/config/cafe.ts` holds static café public details (name, address, Maps URL, contact email). Use it in UI rather than hard-coding strings.
 
 ## Known gaps / not built (by design or deferred)
 
