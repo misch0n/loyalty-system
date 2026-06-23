@@ -5,7 +5,6 @@
  * scroll down to the same hours/location continuity. Static café details come
  * from `config/cafe`; no data dependency.
  */
-import { Button } from '../Button/Button';
 import {
   cafeName,
   cafeAddress,
@@ -37,39 +36,38 @@ export function FindUs() {
           </div>
         ))}
       </div>
-      <iframe
-        className="findus-map"
-        title={`Map showing ${cafeName}`}
-        src={cafeMapEmbedUrl}
-        loading="lazy"
-        referrerPolicy="no-referrer-when-downgrade"
-      />
+      {/* Tapping the map opens it in Maps. The iframe is non-interactive
+          (pointer-events disabled in CSS) so the whole tile is one link. */}
+      <a
+        className="findus-map-link"
+        href={cafeMapUrl}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Open ${cafeName} in Maps`}
+      >
+        <iframe
+          className="findus-map"
+          title={`Map showing ${cafeName}`}
+          src={cafeMapEmbedUrl}
+          loading="lazy"
+          referrerPolicy="no-referrer-when-downgrade"
+          tabIndex={-1}
+        />
+      </a>
 
-      <div className="findus-actions">
-        <Button
-          as="a"
-          variant="line"
-          className="findus-directions"
-          href={cafeMapUrl}
+      <div className="ey findus-contact-title">Contact us</div>
+      <div className="findus-links">
+        <a className="findus-link" href={`mailto:${cafeContactEmail}`}>
+          Email
+        </a>
+        <a
+          className="findus-link"
+          href={cafeInstagramUrl}
           target="_blank"
           rel="noreferrer"
         >
-          Get directions
-        </Button>
-
-        <div className="findus-links">
-          <a className="findus-link" href={`mailto:${cafeContactEmail}`}>
-            Contact us
-          </a>
-          <a
-            className="findus-link"
-            href={cafeInstagramUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Instagram
-          </a>
-        </div>
+          Instagram
+        </a>
       </div>
     </div>
   );

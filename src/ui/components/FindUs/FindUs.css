@@ -44,33 +44,36 @@
   font-size: 12.5px;
   color: var(--ink-soft);
 }
-/* Embedded map centred on the café, with a thin border. The "Get directions"
-   button and the contact/Instagram links sit centred beneath it. */
+/* Embedded map centred on the café, with a thin border. Tapping it opens Maps:
+   the whole tile is a link and the iframe itself is non-interactive. */
+.findus-map-link {
+  display: block;
+  margin: 4px 0 22px;
+  border-radius: 16px;
+  overflow: hidden;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
 .findus-map {
   width: 100%;
   height: 200px;
   border: 1px solid var(--line);
   border-radius: 16px;
   display: block;
-  margin: 4px 0 16px;
   background: var(--sage-100);
+  pointer-events: none; /* taps fall through to the wrapping link → open in Maps */
 }
-.findus-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
+
+/* "Contact us" rendered as a section title, offset from the map. */
+.findus-contact-title {
+  margin-bottom: 10px;
 }
-/* Centred, auto-width directions button (not full bleed). */
-.findus-directions {
-  width: auto;
-  padding: 13px 26px;
-}
-/* Centred Contact us + Instagram, rendered as underlined text links. */
+
+/* Email + Instagram on one line, as underlined text links. */
 .findus-links {
   display: flex;
-  justify-content: center;
   gap: 26px;
+  align-items: center;
 }
 .findus-link {
   font-family: var(--sans);
