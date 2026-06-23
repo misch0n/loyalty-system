@@ -21,6 +21,7 @@ import { useAuth } from '../../app/AuthContext';
 import { ROUTES, cardPath } from '../../app/routes';
 import { appUrl } from '../../../config/links';
 import { PRESET_CARD_TOKENS } from '../../../wallet/passes';
+import './proto.css';
 
 export interface ProtoPanelProps {
   open: boolean;
