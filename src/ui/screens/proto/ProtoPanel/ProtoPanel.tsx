@@ -40,7 +40,7 @@ export interface ProtoPanelProps {
 export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | null {
   const services = useServices();
   const { peerId, clientCount, joined, connecting, ensureHosting, joinAs, unpair } = usePairing();
-  const [scanOpen, setScanOpen] = useState(false);
+  const [scanning, setScanning] = useState(false);
 
   // Start hosting (so a pairing QR exists) whenever the panel opens, unless we're
   // already a client of another till.
@@ -48,10 +48,15 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
     if (open && !joined) ensureHosting();
   }, [open, joined, ensureHosting]);
 
-  // Close the scan modal once we've actually paired.
+  // Leave the inline scanner once we've actually paired.
   useEffect(() => {
-    if (joined) setScanOpen(false);
+    if (joined) setScanning(false);
   }, [joined]);
+
+  // Reset to the controls view whenever the panel re-opens.
+  useEffect(() => {
+    if (!open) setScanning(false);
+  }, [open]);
 
   async function reset(): Promise<void> {
     const ok = window.confirm(
@@ -77,74 +82,83 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
           <span className="pt">developer tools · not shipped</span>
         </div>
 
-        {/* 1 · QR */}
-        <div className="grp">
-          {joined ? (
-            <p className="proto-status">● Paired to the till</p>
-          ) : peerId ? (
-            <div className="proto-qr">
-              <QrDisplay
-                payload={appUrl(`/pair?host=${encodeURIComponent(peerId)}`)}
-                label="Pairing QR"
-                caption={
-                  clientCount > 0
-                    ? `${clientCount} device${clientCount === 1 ? '' : 's'} paired · scan to add more`
-                    : 'Scan this on another device to pair'
-                }
-              />
+        {scanning ? (
+          // Inline camera — stays right here in the dev panel (no navigation, no
+          // modal), mirroring the staff scan workflow's in-view camera.
+          <>
+            <div className="grp">
+              <div className="lab">Scan a till to pair</div>
+              {connecting ? (
+                <p className="proto-status">Connecting to the till…</p>
+              ) : (
+                <QrScanner
+                  autoStart
+                  allowManual={false}
+                  onResult={(text) => void joinAs(hostIdFrom(text), { redirect: false })}
+                />
+              )}
             </div>
-          ) : (
-            <p className="proto-status">Preparing pairing code…</p>
-          )}
-        </div>
+            <div className="grp">
+              <button type="button" className="pbtn" onClick={() => setScanning(false)}>
+                Cancel
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* 1 · QR */}
+            <div className="grp">
+              {joined ? (
+                <p className="proto-status">● Paired to the till</p>
+              ) : peerId ? (
+                <div className="proto-qr">
+                  <QrDisplay
+                    payload={appUrl(`/pair?host=${encodeURIComponent(peerId)}`)}
+                    label="Pairing QR"
+                    caption={
+                      clientCount > 0
+                        ? `${clientCount} device${clientCount === 1 ? '' : 's'} paired · scan to add more`
+                        : 'Scan this on another device to pair'
+                    }
+                  />
+                </div>
+              ) : (
+                <p className="proto-status">Preparing pairing code…</p>
+              )}
+            </div>
 
-        {/* 2 · Scan to pair (or unpair when already paired) */}
-        <div className="grp">
-          {joined || clientCount > 0 ? (
-            <button
-              type="button"
-              className="pbtn"
-              onClick={() => {
-                onClose();
-                unpair();
-              }}
-            >
-              Unpair{clientCount > 0 ? ` all (${clientCount})` : ''}
-            </button>
-          ) : (
-            <button type="button" className="pbtn" onClick={() => setScanOpen(true)}>
-              Scan to pair
-            </button>
-          )}
-        </div>
+            {/* 2 · Scan to pair (or unpair when already paired) */}
+            <div className="grp">
+              {joined || clientCount > 0 ? (
+                <button
+                  type="button"
+                  className="pbtn"
+                  onClick={() => {
+                    onClose();
+                    unpair();
+                  }}
+                >
+                  Unpair{clientCount > 0 ? ` all (${clientCount})` : ''}
+                </button>
+              ) : (
+                <button type="button" className="pbtn" onClick={() => setScanning(true)}>
+                  Scan to pair
+                </button>
+              )}
+            </div>
 
-        {/* 3 · Reset */}
-        <div className="grp">
-          <button type="button" className="pbtn" onClick={reset}>
-            Reset
-          </button>
-        </div>
+            {/* 3 · Reset */}
+            <div className="grp">
+              <button type="button" className="pbtn" onClick={reset}>
+                Reset
+              </button>
+            </div>
+          </>
+        )}
       </div>
       <p className="card-hint" style={{ marginTop: 16, textAlign: 'center' }}>
         Build-flag gated · stripped from production builds.
       </p>
-
-      {/* In-window camera modal — shows the live camera feed and pairs on scan. */}
-      <Sheet open={scanOpen} onClose={() => setScanOpen(false)} label="Scan a till to pair">
-        <h2 className="proto-scan-title">Scan a till to pair</h2>
-        <p className="proto-scan-sub">
-          Point the camera at another device&apos;s pairing QR.
-        </p>
-        {connecting ? (
-          <p className="proto-status">Connecting to the till…</p>
-        ) : (
-          <QrScanner
-            autoStart
-            allowManual={false}
-            onResult={(text) => void joinAs(hostIdFrom(text), { redirect: false })}
-          />
-        )}
-      </Sheet>
     </Sheet>
   );
 }
