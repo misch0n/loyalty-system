@@ -1,0 +1,18 @@
+/* Scan-workflow state divider (donor theme.css .state-label). */
+.state-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--terra-600);
+  margin: 22px 2px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.state-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}

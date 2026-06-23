@@ -1,0 +1,52 @@
+/* Staff sign-in layout (Ckyka view 08). Donor component classes (.lockup, .mark,
+   .h-eyebrow, .pin-dots, .keypad, .remember-row, .toggle-box) live in their
+   components; only the screen-specific spacing lives here, matching the inline
+   styles of the reference. */
+.staff-login__pad {
+  padding-top: 48px;
+}
+.staff-login__logo {
+  color: var(--forest);
+  margin-bottom: 26px;
+  display: inline-flex;
+}
+.staff-login__logo .mark.sm {
+  width: 34px;
+  height: 34px;
+}
+.staff-login__eyebrow {
+  color: var(--ink-soft);
+  letter-spacing: 0.3em;
+}
+.staff-login__title {
+  font-size: 30px;
+  margin-top: 14px;
+}
+.staff-login__sub {
+  font-size: 15px;
+}
+.staff-login__gap {
+  height: 18px;
+}
+.staff-login__error {
+  font-size: 12.5px;
+  color: var(--terra-600);
+  margin: 14px 0 0;
+}
+.staff-login__retry {
+  margin-top: 14px;
+}
+.staff-login__caution {
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin: 10px 0 0;
+}
+.staff-login__note {
+  margin: 0;
+  font-size: 13px;
+}
+
+/* The PinPad's remember-row centres the toggle, matching the reference. */
+.staff-login .remember-row {
+  justify-content: center;
+}

@@ -1,0 +1,44 @@
+/* Customer confirmation chip (donor theme.css .cust/.av/.cn/.cs/.ready). */
+.cust {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 13px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.cust .av {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--blush);
+  color: var(--forest-700);
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 18px;
+  flex: 0 0 auto;
+}
+.cust .cn {
+  font-weight: 600;
+  font-size: 15px;
+}
+.cust .cs {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+.cust .ready {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--terra-600);
+  background: var(--blush-200);
+  padding: 5px 9px;
+  border-radius: 99px;
+}

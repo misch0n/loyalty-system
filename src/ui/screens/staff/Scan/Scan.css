@@ -1,0 +1,69 @@
+/* Staff scan workflow layout (Ckyka view 10). Donor component classes
+   (.scanview, .cust, .assign, .state-label, .elig, .ghost btn) live in their
+   parts/components; only screen layout + the manual-entry fallback live here.
+   The .elig copy class is donor and shared with nothing else, so it sits here. */
+.staff-scan__body {
+  padding-top: 16px;
+}
+.staff-scan__region {
+  width: 100%;
+  height: 100%;
+}
+.staff-scan__gap {
+  height: 11px;
+}
+.staff-scan__actions {
+  margin-top: 11px;
+}
+.staff-scan__ghost {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.staff-scan__hint {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin: 12px 0 0;
+}
+.staff-scan__error {
+  font-size: 12.5px;
+  color: var(--terra-600);
+  margin: 10px 0 0;
+}
+
+.elig {
+  font-size: 11px;
+  color: var(--ink-soft);
+  text-align: center;
+  margin: 0;
+}
+
+/* Manual-entry fallback (camera-less demos). Keeps the donor field look. */
+.staff-scan__manual {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.staff-scan__manual label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.staff-scan__manual input {
+  height: 46px;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1.5px var(--line);
+  padding: 0 14px;
+  font-size: 14px;
+  color: var(--ink);
+  border: 0;
+  font-family: var(--sans);
+}
+.staff-scan__manual input:focus-visible {
+  outline: 3px solid var(--terra);
+  outline-offset: 2px;
+}

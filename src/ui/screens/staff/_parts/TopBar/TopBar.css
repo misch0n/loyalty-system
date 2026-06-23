@@ -1,0 +1,58 @@
+/* Staff top bar (donor theme.css .topbar/.tl/.tt/.role/.onshift) — verbatim. */
+.topbar {
+  background: var(--forest);
+  color: var(--cream);
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+}
+.topbar .tl {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.topbar .tl .mark {
+  width: 24px;
+  height: 24px;
+}
+.topbar .tl .tt {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 15px;
+}
+.topbar .role {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  background: rgba(248, 243, 232, 0.16);
+  padding: 4px 8px;
+  border-radius: 99px;
+}
+.onshift {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  margin: 14px 2px 10px;
+  text-transform: uppercase;
+}
+
+/* The Ckyka mark in the bar is wrapped by <GestureLogo> (a button inside a
+   span.logo-gesture-wrap). Keep the donor look: the wrap is the flex .tl row
+   and the gesture button is a transparent inline trigger. */
+.topbar .tl.logo-gesture-wrap {
+  display: flex;
+}
+.topbar .tl .logo-gesture {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+}
