@@ -83,10 +83,15 @@ export function QrScanner({
 
   return (
     <div className="scanner">
-      <div
-        id={ELEMENT_ID}
-        className={scanning ? 'scanner-region scanning' : 'scanner-region'}
-      >
+      {/* The camera region must have NO React-managed children: html5-qrcode
+          injects its own <video> here, and if React also owns a child inside it
+          a later reconcile can `removeChild` a node the library already moved,
+          crashing the app (white screen). The hint is an overlay SIBLING. */}
+      <div className="scanner-region-wrap">
+        <div
+          id={ELEMENT_ID}
+          className={scanning ? 'scanner-region scanning' : 'scanner-region'}
+        />
         {!scanning && <span className="scanner-hint">Camera preview</span>}
       </div>
       <div className="scanner-actions">

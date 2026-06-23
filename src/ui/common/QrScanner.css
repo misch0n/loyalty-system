@@ -6,16 +6,18 @@
   align-items: center;
   gap: 12px;
 }
-.scanner-region {
+.scanner-region-wrap {
+  position: relative;
   width: 100%;
   max-width: 280px;
   aspect-ratio: 1;
+}
+.scanner-region {
+  width: 100%;
+  height: 100%;
   border-radius: 16px;
   background: #11150f;
   overflow: hidden;
-  display: grid;
-  place-items: center;
-  position: relative;
 }
 .scanner-region.scanning {
   background: #000;
@@ -27,7 +29,13 @@
   object-fit: cover;
   display: block;
 }
+/* Overlay hint — a SIBLING of the camera region, never a child of it. */
 .scanner-hint {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 0.12em;
