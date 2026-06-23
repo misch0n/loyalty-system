@@ -9,6 +9,7 @@ import { useServices } from '../common/ServicesContext';
 import { usePairing } from '../common/PairingContext';
 import { ProgressBar } from '../common/Progress';
 import { QrDisplay } from '../common/QrDisplay';
+import { WalletButton } from './WalletButton';
 import { cardPayload } from '../../qr/encode';
 import type { CustomerState } from '../../services/LoyaltyService';
 
@@ -101,6 +102,9 @@ export function Status() {
             label="Your card QR"
             caption="Show this at the till"
           />
+          <div className="wallet-stubs">
+            <WalletButton token={cardToken} />
+          </div>
 
           {state ? (
             <>

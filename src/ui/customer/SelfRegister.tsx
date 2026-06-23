@@ -13,7 +13,7 @@ import { Link } from 'react-router-dom';
 import { useServices } from '../common/ServicesContext';
 import { PrivacyNotice } from '../common/PrivacyNotice';
 import { CardView } from './CardView';
-import { validateRegistration, isTokenOnly, type FieldError } from '../../domain/validation';
+import { validateRegistration, type FieldError } from '../../domain/validation';
 import type { Customer } from '../../domain/models';
 
 export function SelfRegister() {
@@ -61,7 +61,12 @@ export function SelfRegister() {
     );
   }
 
-  const tokenOnly = isTokenOnly({ displayName, email, phone, consent });
+  // B3 recovery tiers — tell the customer how recoverable this card will be.
+  const recoveryNote = email.trim()
+    ? '✓ Recoverable: if you lose this device, we can email a link to restore this card.'
+    : displayName.trim()
+      ? 'Name only: staff can help recover your card (best effort). Add an email for instant self-recovery.'
+      : 'Anonymous: this card lives only on this device and can’t be recovered if you lose it.';
 
   return (
     <div className="card">
@@ -84,12 +89,7 @@ export function SelfRegister() {
           {errorFor('phone') && <span className="error">{errorFor('phone')}</span>}
         </label>
 
-        {tokenOnly && (
-          <p className="warn">
-            No details given. Your card can't be recovered if you lose this device,
-            and you won't get reward emails. That's fine — just so you know.
-          </p>
-        )}
+        <p className={email.trim() ? 'muted small' : 'warn'}>{recoveryNote}</p>
 
         <PrivacyNotice />
 

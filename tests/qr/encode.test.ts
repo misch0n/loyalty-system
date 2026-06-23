@@ -1,9 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { cardPayload, registrationPayload, toDataUrl } from '../../src/qr/encode';
+import {
+  cardPayload,
+  tokenFromCardScan,
+  registrationPayload,
+  toDataUrl,
+} from '../../src/qr/encode';
 
 describe('payloads', () => {
-  it('card payload carries the bare token (no PII, no wrapping)', () => {
-    expect(cardPayload('abc123')).toBe('abc123');
+  it('card payload encodes the card-page URL carrying the token (no PII)', () => {
+    const url = cardPayload('abc123');
+    expect(url).toContain('#/status/abc123');
+    expect(url.startsWith('http')).toBe(true);
+  });
+
+  it('tokenFromCardScan extracts the token from a scanned card URL or a bare token', () => {
+    expect(tokenFromCardScan(cardPayload('abc123'))).toBe('abc123');
+    expect(tokenFromCardScan('  abc123  ')).toBe('abc123');
   });
 
   it('registration payload wraps the peer id into the full register URL', () => {

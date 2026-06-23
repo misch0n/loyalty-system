@@ -9,6 +9,7 @@ import type { Customer } from '../domain/models';
 import type { CustomerPatch, DataStore } from '../ports/DataStore';
 import type { RegistrationDetails } from '../ports/Transport';
 import { generateToken, isValidToken } from '../domain/tokens';
+import { PRESET_CARD_TOKENS } from '../wallet/passes';
 import {
   findDuplicates,
   isRecoverable,
@@ -36,9 +37,19 @@ export class CustomerService {
    * consent are filled in later via `finalizeRegistration`.
    */
   async issueCard(actor: Actor): Promise<Customer> {
-    const customer = await this.store.createCustomer({ token: generateToken() });
+    const customer = await this.store.createCustomer({ token: await this.nextCardToken() });
     await this.audit.log(actor, 'card.issue', customer.id);
     return customer;
+  }
+
+  /**
+   * Prototype-only: the first three cards in a store get fixed preset tokens so
+   * the pre-generated wallet passes resolve to them (see wallet/passes.ts);
+   * everything after is a normal random token.
+   */
+  private async nextCardToken(): Promise<string> {
+    const count = await this.store.countActiveCustomers();
+    return count < PRESET_CARD_TOKENS.length ? PRESET_CARD_TOKENS[count] : generateToken();
   }
 
   /**
@@ -53,7 +64,7 @@ export class CustomerService {
     if (errors.length > 0) return { ok: false, errors };
 
     const customer = await this.store.createCustomer({
-      token: generateToken(),
+      token: await this.nextCardToken(),
       displayName: details.displayName?.trim() || undefined,
       email: details.email?.trim() || undefined,
       phone: details.phone?.trim() || undefined,

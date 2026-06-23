@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useServices } from '../common/ServicesContext';
 import { useSession } from '../common/SessionContext';
 import { QrScanner } from '../common/QrScanner';
+import { tokenFromCardScan } from '../../qr/encode';
 import { CustomerStatePanel } from './CustomerStatePanel';
 
 export function ScanHome() {
@@ -16,10 +17,11 @@ export function ScanHome() {
   const [error, setError] = useState<string | null>(null);
   const [provisioned, setProvisioned] = useState(false);
 
-  async function resolve(rawToken: string) {
+  async function resolve(rawScan: string) {
     setError(null);
     setProvisioned(false);
-    const token = rawToken.trim();
+    // The card QR encodes the card-page URL (B2); accept a bare token too.
+    const token = tokenFromCardScan(rawScan);
 
     const state = await loyalty.getStateByToken(token);
     if (state && state.customer.status !== 'deleted') {

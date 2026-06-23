@@ -3,21 +3,13 @@
  * Shown to the customer after registration finalizes, and on reissue.
  */
 
-import { useState } from 'react';
 import { QrDisplay } from '../common/QrDisplay';
 import { cardPayload } from '../../qr/encode';
 import { appUrl } from '../../config/links';
-import { addToWallet, type WalletKind } from '../../wallet/passStub';
+import { WalletButton } from './WalletButton';
 import type { Customer } from '../../domain/models';
 
 export function CardView({ customer }: { customer: Customer }) {
-  const [walletNote, setWalletNote] = useState<string | null>(null);
-
-  async function onAddToWallet(kind: WalletKind) {
-    const result = await addToWallet(kind, customer.token);
-    setWalletNote(result.message);
-  }
-
   const statusUrl = appUrl(`/status/${customer.token}`);
 
   return (
@@ -26,14 +18,8 @@ export function CardView({ customer }: { customer: Customer }) {
       <QrDisplay payload={cardPayload(customer.token)} label="Loyalty card QR" caption="Show this at the till" />
 
       <div className="wallet-stubs">
-        <button type="button" onClick={() => onAddToWallet('apple')}>
-           Add to Apple Wallet
-        </button>
-        <button type="button" onClick={() => onAddToWallet('google')}>
-          Add to Google Wallet
-        </button>
+        <WalletButton token={customer.token} />
       </div>
-      {walletNote && <p className="hint">{walletNote}</p>}
 
       <p className="hint">
         Check your points any time:&nbsp;

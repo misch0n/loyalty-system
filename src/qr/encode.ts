@@ -10,9 +10,22 @@
 import QRCode from 'qrcode';
 import { appUrl } from '../config/links';
 
-/** The card QR encodes the bare token. Resolved by staff scan → getCustomerByToken. */
+/**
+ * The card QR encodes the URL to the customer's card page (B2), e.g.
+ * `…/#/status/<token>`. Staff scanning extracts the token from it. The token is
+ * an opaque random string (never PII), so it's safe to carry in the URL.
+ */
 export function cardPayload(token: string): string {
-  return token;
+  return appUrl(`/status/${token}`);
+}
+
+/**
+ * Pull the card token out of a scanned card QR. Accepts the card-page URL
+ * (`…/status/<token>`) or a bare token (older cards / pasted codes).
+ */
+export function tokenFromCardScan(text: string): string {
+  const match = text.match(/\/status\/([^/?#]+)/);
+  return (match ? decodeURIComponent(match[1]) : text).trim();
 }
 
 /**
