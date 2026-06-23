@@ -1,0 +1,27 @@
+/* Admin alert card — donor classes verbatim (ckyka theme.css ".alert"). */
+.alert {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  background: #fff;
+  border: 1px solid #eccfb6;
+  border-left: 3px solid var(--terra);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 9px;
+}
+.alert .at {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.alert .as {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+.alert .ag {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-soft);
+}

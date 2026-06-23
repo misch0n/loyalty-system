@@ -1,0 +1,61 @@
+/* Admin feed rows — donor classes verbatim (ckyka theme.css ".section-h"/".feed"/".row"). */
+.section-h {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 22px 0 10px;
+}
+.feed {
+  margin-top: 2px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+.row .ri {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.row .ri svg {
+  width: 15px;
+  height: 15px;
+}
+.row.add .ri {
+  background: var(--sage-100);
+  color: var(--sage-600);
+}
+.row.red .ri {
+  background: var(--blush-200);
+  color: var(--terra-600);
+}
+.row.new .ri {
+  background: #e9eee0;
+  color: var(--forest);
+}
+.row.warn .ri {
+  background: #f6e2cf;
+  color: var(--terra-600);
+}
+.row .rt {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.row .rt span {
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+.row .rtime {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-soft);
+}

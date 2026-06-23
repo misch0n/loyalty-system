@@ -1,0 +1,24 @@
+/* Step-up sheet text — sits inside the shared .sheet. */
+.stepup-title {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--forest-700);
+  margin: 2px 0 4px;
+}
+.stepup-msg {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin: 0 0 14px;
+}
+.stepup-error {
+  font-size: 12px;
+  color: var(--terra-600);
+  text-align: center;
+  margin: 10px 0 0;
+}
+.stepup-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 14px;
+}
