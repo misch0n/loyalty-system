@@ -12,22 +12,10 @@
 import { useNavigate } from 'react-router-dom';
 import { Lockup } from '../../../components/Logo/Logo';
 import { Button } from '../../../components/Button/Button';
+import { FindUs } from '../../../components/FindUs/FindUs';
 import { GestureLogo } from '../../../app/LogoGestures';
 import { ROUTES } from '../../../app/routes';
-import {
-  cafeName,
-  cafeAddress,
-  cafeMapUrl,
-  cafeContactEmail,
-} from '../../../../config/cafe';
 import './Welcome.css';
-
-/** Static opening-hours copy (no data source; café profile is static config). */
-const HOURS: ReadonlyArray<{ days: string; time: string }> = [
-  { days: 'Mon – Fri', time: '7:30 – 18:00' },
-  { days: 'Saturday', time: '8:30 – 18:00' },
-  { days: 'Sunday', time: '9:00 – 16:00' },
-];
 
 export function Welcome() {
   const navigate = useNavigate();
@@ -65,32 +53,7 @@ export function Welcome() {
         <div className="welcome-scroll-hint">scroll for hours &amp; location ↓</div>
       </div>
 
-      <div className="findus">
-        <div className="ey">Find us</div>
-        <h2>{cafeName}</h2>
-        <p className="addr">{cafeAddress}</p>
-        <div className="hours">
-          {HOURS.map((h) => (
-            <div className="hr" key={h.days}>
-              <span className="d">{h.days}</span>
-              <span className="t">{h.time}</span>
-            </div>
-          ))}
-        </div>
-        <div className="actions">
-          <Button as="a" variant="line" href={cafeMapUrl} target="_blank" rel="noreferrer">
-            Get directions
-          </Button>
-          <Button
-            as="a"
-            variant="ghost"
-            className="findus-contact"
-            href={`mailto:${cafeContactEmail}`}
-          >
-            Contact us
-          </Button>
-        </div>
-      </div>
+      <FindUs />
     </div>
   );
 }

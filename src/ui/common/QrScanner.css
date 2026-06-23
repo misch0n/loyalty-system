@@ -1,0 +1,75 @@
+/* QrScanner — the camera preview region must have real dimensions so the
+   injected <video> is actually visible (html5-qrcode sizes to the container). */
+.scanner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.scanner-region {
+  width: 100%;
+  max-width: 280px;
+  aspect-ratio: 1;
+  border-radius: 16px;
+  background: #11150f;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.scanner-region.scanning {
+  background: #000;
+}
+.scanner-region video,
+.scanner-region canvas {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+  display: block;
+}
+.scanner-hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(248, 243, 232, 0.5);
+}
+.scanner-actions button,
+.manual-entry button {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 11px 18px;
+  border-radius: 12px;
+  border: 0;
+  background: var(--forest);
+  color: var(--cream);
+  cursor: pointer;
+}
+.manual-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 280px;
+}
+.manual-entry label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.manual-entry input {
+  height: 44px;
+  border-radius: 12px;
+  border: 0;
+  box-shadow: inset 0 0 0 1.5px var(--line);
+  padding: 0 14px;
+  font-size: 16px;
+}
+.scanner .error {
+  color: var(--terra-600);
+  font-size: 12.5px;
+  text-align: center;
+}

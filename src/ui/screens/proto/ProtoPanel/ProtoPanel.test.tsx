@@ -17,14 +17,22 @@ vi.mock('react-router-dom', async () => {
 });
 
 // Pairing is external wiring (PeerJS / sessionStorage) — stub it.
+const joinAsMock = vi.fn();
 vi.mock('../../../common/PairingContext', () => ({
   usePairing: () => ({
     peerId: null,
     clientCount: 0,
     joined: false,
+    connecting: false,
     ensureHosting: vi.fn(),
+    joinAs: joinAsMock,
     unpair: vi.fn(),
   }),
+}));
+
+// The QR scanner touches the camera — stub it to a trivial trigger.
+vi.mock('../../../common/QrScanner', () => ({
+  QrScanner: () => <div className="qr-scanner-stub" />,
 }));
 
 const resetMock = vi.fn(async () => {});
@@ -105,11 +113,13 @@ describe('ProtoPanel', () => {
     });
   });
 
-  it('"Scan to pair" navigates to the pair route', async () => {
+  it('"Scan to pair" opens the in-window camera modal (no navigation)', async () => {
     await mount();
     await act(async () => {
       findButton('Scan to pair')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
-    expect(navigateMock).toHaveBeenCalledWith('/pair');
+    // A scan modal with the (stubbed) camera scanner appears; we don't navigate.
+    expect(document.querySelector('.qr-scanner-stub')).not.toBeNull();
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });

@@ -32,6 +32,17 @@
   margin-top: 24px;
 }
 
+/* Scroll-down hint above the below-the-fold Find us section. */
+.card-scroll-hint {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding-bottom: 6px;
+}
+
 /* Loading skeleton sized like the card. */
 .card-skeleton {
   margin-top: 28px;

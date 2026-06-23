@@ -19,6 +19,7 @@ import { Eyebrow, Title, Sub } from '../../../components/Heading/Heading';
 import { Button } from '../../../components/Button/Button';
 import { LoyaltyCard } from '../../../components/LoyaltyCard/LoyaltyCard';
 import { ContextBanner } from '../../../components/ContextBanner/ContextBanner';
+import { FindUs } from '../../../components/FindUs/FindUs';
 import { LogoMark } from '../../../components/Logo/Logo';
 import { GestureLogo } from '../../../app/LogoGestures';
 import { ROUTES, cardPath } from '../../../app/routes';
@@ -184,7 +185,10 @@ export function Card() {
             : 'Tap your code to enlarge it or add it to your wallet.'}
         </p>
         <div className="spacer" />
+        <div className="card-scroll-hint">scroll for hours &amp; location ↓</div>
       </div>
+
+      <FindUs />
 
       <EnlargedQr
         open={enlarged}

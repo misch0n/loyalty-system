@@ -10,7 +10,7 @@ beforeEach(() => {
 describe('ConfigService', () => {
   it('seeds a sensible default config', async () => {
     const config = await services.config.get();
-    expect(config.pointsPerReward).toBe(10);
+    expect(config.pointsPerReward).toBe(8);
     expect(config.maxPointsPerTransaction).toBe(3);
   });
 

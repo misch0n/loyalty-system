@@ -41,6 +41,9 @@ export function Sheet({ open, onClose, children, label }: SheetProps) {
     // Reset the drag offset whenever the sheet (re)opens.
     setDragY(0);
     setDragging(false);
+    // Lock the background so only the sheet scrolls while it's open.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const panel = panelRef.current;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const first = panel?.querySelector<HTMLElement>(FOCUSABLE);
@@ -74,6 +77,7 @@ export function Sheet({ open, onClose, children, label }: SheetProps) {
     document.addEventListener('keydown', onKey, true);
     return () => {
       document.removeEventListener('keydown', onKey, true);
+      document.body.style.overflow = prevOverflow;
       previouslyFocused?.focus?.();
     };
   }, [open, onClose]);
@@ -160,7 +164,7 @@ export function MenuRow({ icon, title, subtitle, danger, first, onClick }: MenuR
   return (
     <button type="button" className={cls} onClick={onClick}>
       <span className="mi">{icon}</span>
-      <span>
+      <span className="mrt">
         <span className="mt">{title}</span>
         {subtitle != null && <span className="ms">{subtitle}</span>}
       </span>

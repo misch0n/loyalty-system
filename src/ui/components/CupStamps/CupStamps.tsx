@@ -32,20 +32,63 @@ function CupGlyph() {
   );
 }
 
+/** A small star "sticker" overlaid on the welcome and reward cups. */
+function StickerSeal() {
+  return (
+    <svg className="sticker-seal" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 2l2.4 6.3L21 9l-5 4.2L17.6 20 12 16.4 6.4 20 8 13.2 3 9l6.6-.7z" />
+    </svg>
+  );
+}
+
 export interface CupStampsProps {
   /** How many stamps are earned. Clamped to 0..total. */
   filled: number;
   /** Total stamps in the grid (the reward threshold). */
   total: number;
+  /**
+   * Card "showcase" layout: render `total + 2` cups — a pre-applied WELCOME
+   * sticker (first), `total` earnable cups in the middle, and the FREE reward
+   * cup (last, lit once `filled >= total`). Keeps the displayed grid at 10 even
+   * though only `total` (e.g. 8) coffees are actually needed.
+   */
+  showcase?: boolean;
 }
 
 /**
- * The cup-stamp grid (`.stamps`). Renders `total` `.stamp` cells; the first
- * `filled` get `.on`. Mirrors the donor data-total/data-filled attributes.
+ * The cup-stamp grid (`.stamps`). Default: renders `total` `.stamp` cells; the
+ * first `filled` get `.on`. In `showcase` mode it renders the loyalty-card
+ * layout (welcome sticker + earnable cups + free reward cup).
  */
-export function CupStamps({ filled, total }: CupStampsProps) {
+export function CupStamps({ filled, total, showcase = false }: CupStampsProps) {
   const safeTotal = Math.max(0, Math.floor(total));
   const safeFilled = Math.min(safeTotal, Math.max(0, Math.floor(filled)));
+
+  if (showcase) {
+    const rewardReady = safeFilled >= safeTotal && safeTotal > 0;
+    const displayTotal = safeTotal + 2;
+    return (
+      <div className="stamps" data-total={displayTotal} data-filled={safeFilled + 1}>
+        {/* Welcome sticker — on the house, always stamped. */}
+        <span className="stamp on welcome">
+          <CupGlyph />
+          <StickerSeal />
+        </span>
+        {Array.from({ length: safeTotal }, (_, i) => (
+          <span key={i} className={i < safeFilled ? 'stamp on' : 'stamp'}>
+            <CupGlyph />
+          </span>
+        ))}
+        {/* Free reward cup — stamped + a FREE label, lit once the reward lands. */}
+        <span className={rewardReady ? 'stamp on free' : 'stamp free'}>
+          <CupGlyph />
+          <StickerSeal />
+          <span className="free-label">FREE</span>
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className="stamps" data-total={safeTotal} data-filled={safeFilled}>
       {Array.from({ length: safeTotal }, (_, i) => (

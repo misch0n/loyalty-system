@@ -27,3 +27,52 @@
   opacity: 1;
   color: var(--forest-700);
 }
+
+/* Showcase card layout: each cup can carry a sticker seal / FREE label. */
+.stamp {
+  position: relative;
+  overflow: visible;
+}
+/* The welcome + reward cups always wear a small sticker seal. */
+.stamp .sticker-seal {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 14px;
+  height: 14px;
+  opacity: 1;
+  color: var(--terra);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+/* The welcome cup reads as a gentle "on the house" gift, even at zero progress. */
+.stamp.welcome {
+  background: rgba(214, 224, 196, 0.55);
+  box-shadow: none;
+}
+.stamp.welcome svg:not(.sticker-seal) {
+  opacity: 0.9;
+  color: var(--forest-700);
+}
+/* The free reward cup: dashed ring until earned, then it lights like the rest. */
+.stamp.free {
+  box-shadow: inset 0 0 0 1.5px var(--terra);
+}
+.stamp.free .free-label {
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 7.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  background: var(--terra);
+  color: var(--cream);
+  padding: 1px 4px;
+  border-radius: 5px;
+  line-height: 1.2;
+}
+.stamp.free.on {
+  background: var(--sage);
+  box-shadow: none;
+}

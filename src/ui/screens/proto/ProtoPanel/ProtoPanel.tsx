@@ -17,15 +17,20 @@
  * for pairing/reset is reused from `PairingContext` + `services.reset()`.
  */
 
-import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { Sheet } from '../../../components/Sheet/Sheet';
 import { QrDisplay } from '../../../common/QrDisplay';
+import { QrScanner } from '../../../common/QrScanner';
 import { useServices } from '../../../common/ServicesContext';
 import { usePairing } from '../../../common/PairingContext';
-import { ROUTES } from '../../../app/routes';
 import { appUrl } from '../../../../config/links';
 import './ProtoPanel.css';
+
+/** Accept either a bare peer id or a full pairing URL carrying `?host=`. */
+function hostIdFrom(text: string): string {
+  const match = text.match(/[?&]host=([^&]+)/);
+  return match ? decodeURIComponent(match[1]) : text.trim();
+}
 
 export interface ProtoPanelProps {
   open: boolean;
@@ -34,8 +39,8 @@ export interface ProtoPanelProps {
 
 export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | null {
   const services = useServices();
-  const navigate = useNavigate();
-  const { peerId, clientCount, joined, ensureHosting, unpair } = usePairing();
+  const { peerId, clientCount, joined, connecting, ensureHosting, joinAs, unpair } = usePairing();
+  const [scanOpen, setScanOpen] = useState(false);
 
   // Start hosting (so a pairing QR exists) whenever the panel opens, unless we're
   // already a client of another till.
@@ -43,10 +48,10 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
     if (open && !joined) ensureHosting();
   }, [open, joined, ensureHosting]);
 
-  function go(path: string): void {
-    onClose();
-    navigate(path);
-  }
+  // Close the scan modal once we've actually paired.
+  useEffect(() => {
+    if (joined) setScanOpen(false);
+  }, [joined]);
 
   async function reset(): Promise<void> {
     const ok = window.confirm(
@@ -107,7 +112,7 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
               Unpair{clientCount > 0 ? ` all (${clientCount})` : ''}
             </button>
           ) : (
-            <button type="button" className="pbtn" onClick={() => go(ROUTES.pair)}>
+            <button type="button" className="pbtn" onClick={() => setScanOpen(true)}>
               Scan to pair
             </button>
           )}
@@ -123,6 +128,23 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
       <p className="card-hint" style={{ marginTop: 16, textAlign: 'center' }}>
         Build-flag gated · stripped from production builds.
       </p>
+
+      {/* In-window camera modal — shows the live camera feed and pairs on scan. */}
+      <Sheet open={scanOpen} onClose={() => setScanOpen(false)} label="Scan a till to pair">
+        <h2 className="proto-scan-title">Scan a till to pair</h2>
+        <p className="proto-scan-sub">
+          Point the camera at another device&apos;s pairing QR.
+        </p>
+        {connecting ? (
+          <p className="proto-status">Connecting to the till…</p>
+        ) : (
+          <QrScanner
+            autoStart
+            allowManual={false}
+            onResult={(text) => void joinAs(hostIdFrom(text))}
+          />
+        )}
+      </Sheet>
     </Sheet>
   );
 }

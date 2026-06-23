@@ -147,7 +147,7 @@ describe('Admin screen', () => {
     expect(container.textContent).toContain('Flagged actions');
     // Section headers
     const headers = Array.from(container.querySelectorAll('.section-h')).map((h) => h.textContent);
-    expect(headers).toEqual(expect.arrayContaining(['Needs a look', 'Staff', 'Activity']));
+    expect(headers).toEqual(expect.arrayContaining(['Needs a look', 'Accounts', 'Activity']));
     // Alert from getAlerts
     expect(container.querySelector('.alert')).not.toBeNull();
   });

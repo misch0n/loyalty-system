@@ -5,7 +5,7 @@
 > [`SPEC.md`](SPEC.md); working rules in [`../CLAUDE.md`](../CLAUDE.md).
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 
-**Last updated:** 2026-06-23 (Auth + dev-panel UX revision: staff/admin sign-in is now **username/password first** with the PIN reserved for quick re-auth on a remembered idle device; staff accounts gained a **display name** (name/username/password/PIN) and admins create accounts from the panel; logo **tap → home** is role-aware (admin→/admin) and long-press → sign-in; the Prototype/developer panel moved to a **hidden top-left `DevTrigger`** and was stripped to **QR / Scan to pair / Reset**; register privacy notice is a tappable accented link opening a sheet; centred Welcome logo; "Add to wallet" pop-up-blocker fix. **Follow-ups:** signed-in logo gestures (tap **and** long-press) go to the role home, not the sign-in page — an *active* (even non-remembered) session routes to its panel via `EntryResolver`; bottom **`Sheet`s are drag-to-dismiss** (pull the grab handle down) and scroll tall content; the dev-panel QR sizing fixed (the shared `.qr` class was clamping it to 84px); viewport set to `maximum-scale=1, user-scalable=no` + 16px form inputs so pages never zoom on focus/navigation) · **Phase:** v1 prototype — feature-complete against SPEC §15 (Appendix A implemented) + Appendix B partially implemented (B1–B3, B6 partial via Welcome, B7 documented; B4 and B5 dropped, B6 remainder deferred).
+**Last updated:** 2026-06-23 (Admin/loyalty/popover batch: reward threshold default **8** (card still shows a **10-cup showcase** — welcome sticker + 8 earnable + FREE reward cup; "Gold" badge removed); admin is now a **superset of staff** (counter/scan access + admin view, both with **Sign out**); admin **account management** popover per profile — enable/disable, reset password, reset PIN, **delete** (`StaffService.remove`/`DataStore.deleteStaff`), + that profile's activity history, un-gated; **Add profile** makes staff or admin; popovers lock background scroll, are **drag-to-dismiss** + self-scrolling; dev-panel **Scan to pair** opens an in-window camera modal; card-menu rows are two-line; the recognized-customer card page now has the shared **Find us** below-the-fold section; `Toggle` restyled to a themed pill; login username placeholder "staff". Prior: Auth + dev-panel UX revision: staff/admin sign-in is now **username/password first** with the PIN reserved for quick re-auth on a remembered idle device; staff accounts gained a **display name** (name/username/password/PIN) and admins create accounts from the panel; logo **tap → home** is role-aware (admin→/admin) and long-press → sign-in; the Prototype/developer panel moved to a **hidden top-left `DevTrigger`** and was stripped to **QR / Scan to pair / Reset**; register privacy notice is a tappable accented link opening a sheet; centred Welcome logo; "Add to wallet" pop-up-blocker fix. **Follow-ups:** signed-in logo gestures (tap **and** long-press) go to the role home, not the sign-in page — an *active* (even non-remembered) session routes to its panel via `EntryResolver`; bottom **`Sheet`s are drag-to-dismiss** (pull the grab handle down) and scroll tall content; the dev-panel QR sizing fixed (the shared `.qr` class was clamping it to 84px); viewport set to `maximum-scale=1, user-scalable=no` + 16px form inputs so pages never zoom on focus/navigation) · **Phase:** v1 prototype — feature-complete against SPEC §15 (Appendix A implemented) + Appendix B partially implemented (B1–B3, B6 partial via Welcome, B7 documented; B4 and B5 dropped, B6 remainder deferred).
 
 ---
 
@@ -14,7 +14,7 @@
 - React + TypeScript + Vite SPA, IndexedDB storage, deployed to GitHub Pages.
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
-- **341 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
+- **342 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
 - **Puppeteer e2e suite** (`e2e/`, run with `npm run e2e`) drives the built app in headless Chrome: welcome, register→card, staff PIN, prototype panel, and the reference bug-list regressions (13 checks).
 - CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`,
   `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets) → deploys on push to `main`.
@@ -39,7 +39,7 @@
 | Staff recovery / reissue; token-only unrecoverable | ✅ | `ui/screens/staff/Panel/Panel.tsx`, `CustomerService.reissue` |
 | Correction/reversal, logged | ✅ | `LoyaltyService.reverse` |
 | Deletion/opt-out — customer self-delete from card menu; staff-confirmed also available | ✅ | `CustomerService.selfDelete(token)` ← `ui/screens/customer/CardMenu/CardMenu.tsx`; `IndexedDbStore.softDeleteCustomer` |
-| Admin: staff CRUD (**create with name/username/password/PIN/role** via sheet form + reset PIN + "Sign out all devices"), config (step-up PIN re-auth on save), stats, audit viewer, alerts | ✅ | `ui/screens/admin/Admin/Admin.tsx` and `ui/screens/admin/_parts/`; staff `name` displayed in panel + activity (`StaffAccount.name`, `Actor.name`) |
+| Admin: account CRUD (**Add profile** staff/admin with name/username/password/PIN; per-profile popover = enable/disable, reset password, reset PIN, **delete**, + filtered activity — un-gated) + "Sign out all devices"; config (step-up PIN re-auth on save), stats, audit viewer, alerts; admin is a **superset of staff** (counter/scan access, both views have Sign out) | ✅ | `ui/screens/admin/Admin/Admin.tsx`, `ui/screens/admin/_parts/AccountSheet/`; `StaffService.remove` → `DataStore.deleteStaff`; staff `name` shown in panel + activity |
 | Staff/admin session never auto-displays customer card (entry routing) | ✅ | `ui/app/EntryResolver.tsx` — any active staff/admin (trusted or ephemeral)→role panel (admin→`/admin`, staff→`/staff`); trusted+locked→`/staff/unlock`; remembered card→`/card/:token`; else→`/welcome` |
 | Inactivity lock (5 min) → PIN re-auth at `/staff/unlock` | ✅ | `ui/app/AuthContext.tsx`, `ui/screens/staff/Unlock/Unlock.tsx`, `StaffService.loginWithPin` |
 | Epoch-based "Sign out all devices" revocation | ✅ | `StaffService.revokeAllSessions`, `ProgramConfig.sessionEpoch` |
@@ -121,7 +121,7 @@
 
 ## Test coverage
 
-`npm test` runs **341 Vitest unit/component tests** (includes co-located
+`npm test` runs **342 Vitest unit/component tests** (includes co-located
 `src/ui/**/*.test.tsx` via the extended `test.include` in `vite.config.ts`):
 
 - **domain/** — `loyalty`, `tokens`, `validation` (pure logic), `alerts`
@@ -206,8 +206,10 @@ unit tests cannot.
   ≥600ms → staff sign-in. The Prototype/developer panel is opened by a separate
   hidden top-left `DevTrigger` (gated on `isPrototype`, not `import.meta.env.PROD`),
   not a logo tap. There is no global "Staff sign-in" subtitle in the shell.
-- **Reward threshold is 10** (`pointsPerReward: 10` in `adapters/storage/schema.ts`
-  seed). "The tenth coffee" earns the reward.
+- **Reward threshold is 8** (`pointsPerReward: 8` in `adapters/storage/schema.ts`
+  seed) — eight coffees earn the reward. The card still renders a **10-cup
+  showcase** (`CupStamps showcase`): a welcome sticker cup, the 8 earnable cups,
+  and a FREE reward cup. No "Gold" tier badge.
 
 ## Known gaps / not built (by design or deferred)
 

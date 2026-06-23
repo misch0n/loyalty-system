@@ -337,6 +337,11 @@ export class IndexedDbStore implements DataStore {
     await tx.done;
   }
 
+  async deleteStaff(id: string): Promise<void> {
+    const db = await this.dbPromise;
+    await db.delete('staff', id);
+  }
+
   async listStaff(): Promise<StaffAccount[]> {
     const db = await this.dbPromise;
     const all = await db.getAll('staff');

@@ -16,7 +16,7 @@
  * not points added (a multi-add of 2 counts once). Honest label in the delta.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { Eyebrow, Title } from '../../../components/Heading/Heading';
 import { Button } from '../../../components/Button/Button';
 import { LogoMark } from '../../../components/Logo/Logo';
@@ -34,6 +34,7 @@ import { Stat, StatWide } from '../_parts/Stat/Stat';
 import { Feed, FeedRow, SectionH } from '../_parts/FeedRow/FeedRow';
 import { Alert } from '../_parts/Alert/Alert';
 import { StepUp } from '../_parts/StepUp/StepUp';
+import { AccountSheet } from '../_parts/AccountSheet/AccountSheet';
 import { auditTone, auditVerb, isSameDay, relativeTime } from './format';
 import './Admin.css';
 
@@ -84,8 +85,7 @@ function feedIcon(tone: ReturnType<typeof auditTone>) {
 type EditTarget =
   | { kind: 'pointsPerReward' }
   | { kind: 'maxPointsPerTransaction' }
-  | { kind: 'revokeAll' }
-  | { kind: 'resetPin'; account: StaffAccount };
+  | { kind: 'revokeAll' };
 
 export function Admin() {
   const { actor, status, ready } = useAuth();
@@ -131,6 +131,8 @@ export function Admin() {
 function AdminScreen({ actor }: { actor: Actor }) {
   const services = useServices();
   const toast = useToast();
+  const navigate = useNavigate();
+  const { logout } = useAuth();
 
   const [stats, setStats] = useState<Stats | null>(null);
   const [coffeesToday, setCoffeesToday] = useState<number | null>(null);
@@ -141,6 +143,10 @@ function AdminScreen({ actor }: { actor: Actor }) {
   const [names, setNames] = useState<Record<string, string>>({});
 
   const [edit, setEdit] = useState<EditTarget | null>(null);
+  // The id of the profile whose management popover is open (null = closed). We
+  // derive the live account from `staff` so edits (disable, delete…) reflect
+  // immediately and a deleted account closes the sheet.
+  const [manageId, setManageId] = useState<string | null>(null);
 
   // Create-account form (admin defines name, username, password, PIN, role).
   const [createOpen, setCreateOpen] = useState(false);
@@ -181,6 +187,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
   useEffect(() => load(), [load]);
 
   const flaggedCount = alerts?.length ?? 0;
+  const manageAccount = staff?.find((a) => a.id === manageId) ?? null;
 
   const confirmEdit = async () => {
     if (!edit) return;
@@ -205,16 +212,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
       } else if (edit.kind === 'revokeAll') {
         const count = await services.staff.revokeAllSessions(actor);
         toast.show(`Signed out all devices (epoch ${count}).`);
-      } else if (edit.kind === 'resetPin') {
-        const next = window.prompt(`New sign-in PIN for ${edit.account.username} (4–8 digits)`);
-        const pin = (next ?? '').replace(/\D/g, '');
-        if (pin.length < 4) {
-          setEdit(null);
-          toast.show('A PIN needs 4–8 digits. No change made.');
-          return;
-        }
-        await services.staff.setPin(actor, edit.account.id, pin);
-        toast.show('PIN set.');
       }
     } catch {
       toast.show('Couldn’t make that change. Try again.');
@@ -277,11 +274,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
           title: 'Sign out all devices',
           message: 'Re-enter your PIN to revoke every trusted session.',
         };
-      case 'resetPin':
-        return {
-          title: 'Reset a sign-in PIN',
-          message: 'Re-enter your PIN to set a new PIN for this staffer.',
-        };
       default:
         return { title: 'Confirm it’s you', message: 'Re-enter your PIN to make this change.' };
     }
@@ -343,33 +335,34 @@ function AdminScreen({ actor }: { actor: Actor }) {
           <p className="admin-empty">Nothing to review — no patterns have tripped a flag.</p>
         )}
 
-        <SectionH>Staff</SectionH>
-        <Feed>
+        <SectionH>Accounts</SectionH>
+        <div className="acct-list">
           {staff?.map((account) => (
-            <FeedRow
+            <button
               key={account.id}
-              tone="new"
-              icon={<PersonIcon />}
-              text={
-                <>
-                  {account.name ?? account.username} <span>· {account.role}</span>
-                </>
-              }
-              time={
-                <button
-                  type="button"
-                  className="admin-rowaction"
-                  onClick={() => setEdit({ kind: 'resetPin', account })}
-                >
-                  reset PIN
-                </button>
-              }
-            />
+              type="button"
+              className="acct-list-row"
+              onClick={() => setManageId(account.id)}
+            >
+              <span className="ali">
+                <PersonIcon />
+              </span>
+              <span className="alt">
+                <span className="aln">
+                  {account.name ?? account.username}
+                  {!account.active && <em> · disabled</em>}
+                </span>
+                <span className="alm">
+                  {account.username} · {account.role}
+                </span>
+              </span>
+              <span className="alc" aria-hidden="true">
+                ›
+              </span>
+            </button>
           ))}
-          {staff && staff.length === 0 && (
-            <p className="admin-empty">No staff accounts yet.</p>
-          )}
-        </Feed>
+          {staff && staff.length === 0 && <p className="admin-empty">No accounts yet.</p>}
+        </div>
         <Button
           variant="forest"
           style={{ marginTop: 12 }}
@@ -378,7 +371,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
             setCreateOpen(true);
           }}
         >
-          Add staff account
+          Add profile
         </Button>
         <Button
           variant="line"
@@ -410,7 +403,30 @@ function AdminScreen({ actor }: { actor: Actor }) {
             <p className="admin-empty">Nothing yet — actions will appear here as staff work.</p>
           )}
         </Feed>
+
+        <div className="admin-footer">
+          <Button variant="forest" onClick={() => navigate(ROUTES.staff)}>
+            Go to counter (scan)
+          </Button>
+          <Button
+            variant="ghost"
+            className="admin-signout"
+            onClick={() => {
+              logout();
+              navigate(ROUTES.login, { replace: true });
+            }}
+          >
+            Sign out
+          </Button>
+        </div>
       </div>
+
+      <AccountSheet
+        account={manageAccount}
+        actor={actor}
+        onClose={() => setManageId(null)}
+        onChanged={load}
+      />
 
       <StepUp
         open={edit !== null}
@@ -420,13 +436,9 @@ function AdminScreen({ actor }: { actor: Actor }) {
         message={stepUpCopy.message}
       />
 
-      <Sheet
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        label="Add a staff account"
-      >
+      <Sheet open={createOpen} onClose={() => setCreateOpen(false)} label="Add a profile">
         <div className="admin-create">
-          <Title className="admin-create__title">Add staff account</Title>
+          <Title className="admin-create__title">Add profile</Title>
           <p className="admin-empty">
             The name shows on the staff panel and in the activity log. The username and
             password are for signing in; the PIN is the quick re-auth on a remembered device.

@@ -81,7 +81,7 @@ export function Login(): JSX.Element {
             label="Username"
             type="text"
             autoComplete="username"
-            placeholder="maria"
+            placeholder="staff"
             value={username}
             onChange={(next) => {
               setError(null);

@@ -62,7 +62,7 @@ export interface LoyaltyDB extends DBSchema {
 }
 
 export const DEFAULT_CONFIG: ProgramConfig = {
-  pointsPerReward: 10,
+  pointsPerReward: 8,
   rewardDescription: 'Free regular coffee',
   pointsPerPurchase: 1,
   maxPointsPerTransaction: 3,

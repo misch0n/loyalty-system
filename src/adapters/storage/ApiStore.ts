@@ -128,6 +128,9 @@ export class ApiStore implements DataStore {
     // Production hashes/verifies the PIN server-side; the shape is illustrative.
     return this.request('PATCH', `/staff/${id}/pin`, { pin });
   }
+  deleteStaff(id: string): Promise<void> {
+    return this.request('DELETE', `/staff/${id}`);
+  }
   listStaff(): Promise<StaffAccount[]> {
     return this.request('GET', '/staff');
   }

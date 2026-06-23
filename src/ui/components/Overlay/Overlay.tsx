@@ -27,6 +27,8 @@ export function Overlay({ open, onClose, children, label }: OverlayProps) {
 
   useEffect(() => {
     if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const panel = panelRef.current;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const first = panel?.querySelector<HTMLElement>(FOCUSABLE);
@@ -60,6 +62,7 @@ export function Overlay({ open, onClose, children, label }: OverlayProps) {
     document.addEventListener('keydown', onKey, true);
     return () => {
       document.removeEventListener('keydown', onKey, true);
+      document.body.style.overflow = prevOverflow;
       previouslyFocused?.focus?.();
     };
   }, [open, onClose]);

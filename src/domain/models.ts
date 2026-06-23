@@ -95,6 +95,7 @@ export type AuditAction =
   | 'staff.create'
   | 'staff.disable'
   | 'staff.enable'
+  | 'staff.delete'
   | 'staff.resetPassword'
   | 'card.issue'
   | 'card.reissue'

@@ -48,6 +48,8 @@ export function auditVerb(action: AuditAction): string {
       return 'disabled a staff account';
     case 'staff.enable':
       return 'enabled a staff account';
+    case 'staff.delete':
+      return 'deleted a staff account';
     case 'staff.resetPassword':
       return 'reset a staff password';
     case 'card.issue':
@@ -87,6 +89,7 @@ export function auditTone(action: AuditAction): FeedTone {
     case 'loyalty.redeem':
     case 'customer.delete':
     case 'staff.disable':
+    case 'staff.delete':
     case 'staff.login.failed':
       return 'red';
     case 'loyalty.reverse':

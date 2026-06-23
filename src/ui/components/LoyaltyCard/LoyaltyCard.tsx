@@ -60,11 +60,9 @@ export function LoyaltyCard({
           <div className="who">{name}</div>
           <p className="pname">member · ckyka rewards</p>
         </div>
-        {/* Decorative only — v1 has no tiers (reference note). */}
-        <span className="tier">Gold</span>
       </div>
 
-      <CupStamps filled={filled} total={total} />
+      <CupStamps filled={filled} total={total} showcase />
 
       {rewardReady ? (
         <>
@@ -85,8 +83,10 @@ export function LoyaltyCard({
           <div className="left">
             <b>{remaining} more</b> for a free coffee
           </div>
+          {/* The card shows a 10-cup grid (welcome + earnable + free), so the
+              counter reflects the displayed cups, not the raw threshold. */}
           <div className="pts">
-            {filled} / {total}
+            {filled + 1} / {total + 2}
           </div>
         </div>
       )}

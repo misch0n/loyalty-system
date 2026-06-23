@@ -114,6 +114,8 @@ export interface DataStore {
   setStaffPassword(id: string, passwordHash: string): Promise<void>;
   /** Set/replace an account's sign-in PIN. PINs are unique among active accounts. */
   setStaffPin(id: string, pin: string): Promise<void>;
+  /** Permanently remove a staff/admin account. Audit history keeps the actor id. */
+  deleteStaff(id: string): Promise<void>;
   listStaff(): Promise<StaffAccount[]>;
   getConfig(): Promise<ProgramConfig>;
   updateConfig(patch: Partial<ProgramConfig>): Promise<ProgramConfig>;

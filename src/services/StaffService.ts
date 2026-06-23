@@ -132,6 +132,25 @@ export class StaffService {
     await this.audit.log(actor, active ? 'staff.enable' : 'staff.disable', id);
   }
 
+  /**
+   * Permanently remove an account. Guards against removing the last admin and
+   * against an admin deleting their own account (which would lock them out).
+   */
+  async remove(actor: Actor, id: string): Promise<void> {
+    if (actor.id === id) throw new Error('You can’t delete the account you’re signed in with.');
+    const all = await this.store.listStaff();
+    const target = all.find((a) => a.id === id);
+    if (!target) throw new Error('Account not found.');
+    if (target.role === 'admin') {
+      const otherAdmins = all.filter((a) => a.role === 'admin' && a.id !== id && a.active);
+      if (otherAdmins.length === 0) {
+        throw new Error('Can’t delete the last admin account.');
+      }
+    }
+    await this.store.deleteStaff(id);
+    await this.audit.log(actor, 'staff.delete', id);
+  }
+
   async resetPassword(actor: Actor, id: string, newPassword: string): Promise<void> {
     if (!newPassword) throw new Error('New password is required.');
     await this.store.setStaffPassword(id, newPassword);

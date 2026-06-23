@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { freshServices, STAFF } from '../helpers/freshStore';
 import { SpyMailer } from '../helpers/spyMailer';
 import type { LoyaltyService } from '../../src/services/LoyaltyService';
@@ -36,8 +36,7 @@ describe('redemption', () => {
   async function fillToThreshold() {
     await loyalty.accrue(STAFF, customerId, 3);
     await loyalty.accrue(STAFF, customerId, 3);
-    await loyalty.accrue(STAFF, customerId, 3);
-    await loyalty.accrue(STAFF, customerId, 1); // balance 10 == default threshold
+    await loyalty.accrue(STAFF, customerId, 2); // balance 8 == default threshold
   }
 
   it('redeems when eligible and subtracts the threshold', async () => {
@@ -77,17 +76,16 @@ describe('reward-available notification', () => {
       consent: true,
     });
 
-    // Default threshold 10, cap 3 per accrual.
+    // Default threshold 8, cap 3 per accrual.
     await services.loyalty.accrue(STAFF, shell.id, 3); // 3
-    await services.loyalty.accrue(STAFF, shell.id, 3); // 6
-    await services.loyalty.accrue(STAFF, shell.id, 3); // 9 — not yet at threshold
+    await services.loyalty.accrue(STAFF, shell.id, 3); // 6 — not yet at threshold
     expect(mailer.sent).toHaveLength(0);
-    await services.loyalty.accrue(STAFF, shell.id, 3); // 12 — crosses
+    await services.loyalty.accrue(STAFF, shell.id, 3); // 9 — crosses 8
     expect(mailer.sent).toHaveLength(1);
     expect(mailer.sent[0].kind).toBe('reward-available');
     expect(mailer.sent[0].to).toBe('reward@cafe.test');
 
-    await services.loyalty.accrue(STAFF, shell.id, 3); // 15 — already available, no repeat
+    await services.loyalty.accrue(STAFF, shell.id, 3); // 12 — already available, no repeat
     expect(mailer.sent).toHaveLength(1);
   });
 
@@ -101,6 +99,17 @@ describe('reward-available notification', () => {
 });
 
 describe('getAlerts', () => {
+  // The off-hours alert flags credits outside opening hours, which would make
+  // these tests flaky depending on wall-clock time. Freeze the clock (Date only,
+  // so async timers still run) to a mid-morning, in-hours moment.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-06-23T10:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('derives no alerts for an ordinary accrual', async () => {
     await loyalty.accrue(STAFF, customerId, 1);
     expect(await loyalty.getAlerts()).toEqual([]);

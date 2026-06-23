@@ -151,6 +151,15 @@ export function Panel(): JSX.Element {
         )}
 
         <div className="spacer" />
+        {actor.role === 'admin' && (
+          <Button
+            variant="line"
+            className="staff-panel__admin"
+            onClick={() => navigate(ROUTES.admin)}
+          >
+            Back to admin panel
+          </Button>
+        )}
         <Button variant="ghost" className="staff-panel__signout" onClick={onSignOut}>
           End shift / switch staff
         </Button>

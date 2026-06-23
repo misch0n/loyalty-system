@@ -121,3 +121,23 @@
   margin: 0 0 6px;
   text-align: center;
 }
+
+/* Scan-to-pair modal (rendered in the light shared Sheet, so dark ink). */
+.proto-scan-title {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 20px;
+  margin: 0 0 4px;
+  text-align: center;
+  color: var(--ink);
+}
+.proto-scan-sub {
+  font-size: 13px;
+  color: var(--ink-soft);
+  text-align: center;
+  margin: 0 0 16px;
+}
+.proto-scan-title + .proto-status,
+.proto-scan-sub + .proto-status {
+  color: var(--ink-soft);
+}
