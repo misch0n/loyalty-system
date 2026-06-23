@@ -1,0 +1,90 @@
+/**
+ * ProtoPanel styles — the demo-only "Prototype" tools panel (reference view 12).
+ *
+ * Deliberately utilitarian and dark (#191f1b, mono) so it can NEVER be mistaken
+ * for production UI. Donor `.proto` slice, co-located with the screen it styles.
+ * Build-flag gated at the call site; stripped from production builds.
+ */
+
+.proto {
+  background: #191f1b;
+  color: #cfe0c4;
+  border-radius: 18px;
+  padding: 16px 16px 18px;
+  font-family: var(--mono);
+  box-shadow: 0 20px 50px -20px rgba(0, 0, 0, 0.5);
+}
+
+.proto .ph {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.proto .badge {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  background: var(--terra);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.proto .pt {
+  font-size: 12px;
+  color: #9fb796;
+}
+
+.proto .grp {
+  margin-top: 12px;
+}
+
+.proto .lab {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8aa080;
+  margin-bottom: 6px;
+}
+
+.proto select,
+.proto .pbtn {
+  width: 100%;
+  background: #222a25;
+  color: #e6efe0;
+  border: 1px solid #38463c;
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.proto .prow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.proto .pbtn.on {
+  background: var(--forest);
+  border-color: var(--forest);
+  color: var(--cream);
+}
+
+/* The pairing QR sits on a light tile so it scans cleanly against the dark panel. */
+.proto .proto-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.proto .proto-status {
+  font-size: 12px;
+  color: #9fb796;
+  margin: 0 0 6px;
+}
