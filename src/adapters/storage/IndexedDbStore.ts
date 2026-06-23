@@ -39,6 +39,7 @@ import {
   DB_NAME,
   DB_VERSION,
   DEFAULT_CONFIG,
+  LEGACY_POINTS_PER_REWARD,
   SEED_STAFF,
   type LoyaltyDB,
   type RecoveryCodeRecord,
@@ -59,7 +60,7 @@ export class IndexedDbStore implements DataStore {
 
   private async open(): Promise<IDBPDatabase<LoyaltyDB>> {
     const db = await openDB<LoyaltyDB>(DB_NAME, DB_VERSION, {
-      upgrade(database, oldVersion) {
+      async upgrade(database, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
           database.createObjectStore('config', { keyPath: 'id' });
 
@@ -80,6 +81,17 @@ export class IndexedDbStore implements DataStore {
         if (oldVersion < 2) {
           // Recovery codes keyed by the opaque code itself (no PII stored).
           database.createObjectStore('recoveryCodes', { keyPath: 'code' });
+        }
+        if (oldVersion < 3 && oldVersion >= 1) {
+          // The program default changed from 10 → 8 coffees (the card shows a
+          // fixed 10-stamp layout: welcome + 8 purchases + free). Nudge devices
+          // still on the old default so they pick up the new program; a custom
+          // (non-legacy) threshold an admin set is left untouched.
+          const store = transaction.objectStore('config');
+          const cfg = await store.get(CONFIG_KEY);
+          if (cfg && cfg.pointsPerReward === LEGACY_POINTS_PER_REWARD) {
+            await store.put({ ...cfg, pointsPerReward: DEFAULT_CONFIG.pointsPerReward });
+          }
         }
       },
     });

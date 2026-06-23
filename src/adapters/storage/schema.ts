@@ -15,7 +15,10 @@ import type {
 } from '../../domain/models';
 
 export const DB_NAME = 'cafe-loyalty';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
+
+/** The legacy reward threshold, superseded by the 8-coffee default (see seed). */
+export const LEGACY_POINTS_PER_REWARD = 10;
 
 export const CONFIG_KEY = 'singleton';
 

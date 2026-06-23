@@ -32,13 +32,13 @@ describe('LoyaltyCard', () => {
     );
     expect(container.querySelector('.who')?.textContent).toBe('Maria');
     expect(container.querySelectorAll('.stamp').length).toBe(10);
-    // welcome (1) + 7 earned = 8 on; the free cup isn't lit yet.
-    expect(container.querySelectorAll('.stamp.on').length).toBe(8);
+    // welcome (1) + 7 earned + free (always pre-stamped) = 9 on.
+    expect(container.querySelectorAll('.stamp.on').length).toBe(9);
     expect(container.querySelector('.stamp.welcome')).not.toBeNull();
-    expect(container.querySelector('.stamp.free')).not.toBeNull();
+    expect(container.querySelector('.stamp.free.on')).not.toBeNull();
     expect(container.querySelector('.progress-note .left')?.textContent).toContain('1 more');
     expect(container.querySelector('.progress-note .pts')?.textContent?.replace(/\s/g, '')).toBe(
-      '8/10',
+      '9/10',
     );
     expect(container.querySelector('.ready-banner')).toBeNull();
   });

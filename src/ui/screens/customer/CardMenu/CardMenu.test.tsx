@@ -22,9 +22,10 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
-const customer: Customer = {
+const withRecovery: Customer = {
   id: 'c1',
   token: 'tok-abc',
   displayName: 'Maria',
@@ -33,7 +34,14 @@ const customer: Customer = {
   createdAt: new Date().toISOString(),
 };
 
-function fakeServices(selfDelete: ReturnType<typeof vi.fn>): Services {
+const tokenOnly: Customer = {
+  id: 'c2',
+  token: 'tok-xyz',
+  status: 'active',
+  createdAt: new Date().toISOString(),
+};
+
+function fakeServices(selfDelete = vi.fn().mockResolvedValue(undefined)): Services {
   return {
     customers: { selfDelete },
     identity: {
@@ -44,7 +52,7 @@ function fakeServices(selfDelete: ReturnType<typeof vi.fn>): Services {
   } as unknown as Services;
 }
 
-async function mount(services: Services) {
+async function mount(services: Services, customer: Customer, saved = true) {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -55,7 +63,7 @@ async function mount(services: Services) {
           open
           onClose={() => {}}
           customer={customer}
-          saved
+          saved={saved}
           onSavedChange={() => {}}
           token={customer.token}
         />
@@ -64,30 +72,75 @@ async function mount(services: Services) {
   });
 }
 
-function deleteRow() {
-  return Array.from(container.querySelectorAll('button.menu-row')).find((b) =>
+const deleteRow = () =>
+  Array.from(container.querySelectorAll('button.menu-row')).find((b) =>
     b.classList.contains('danger'),
   ) as HTMLButtonElement;
-}
+const deviceRow = () =>
+  Array.from(container.querySelectorAll('button.menu-row')).find(
+    (b) => !b.classList.contains('danger'),
+  ) as HTMLButtonElement;
+const holdBtn = () => container.querySelector('.hold-btn') as HTMLButtonElement;
+const tap = (el: Element) =>
+  act(async () => {
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
 
 describe('CardMenu', () => {
-  it('deletes the card after a confirm tap and clears identity + routes home', async () => {
-    const selfDelete = vi.fn().mockResolvedValue(undefined);
-    const services = fakeServices(selfDelete);
-    await mount(services);
+  it('delete: redraws a hold-to-confirm; the 3s hold erases + clears + routes home', async () => {
+    vi.useFakeTimers();
+    const services = fakeServices();
+    await mount(services, withRecovery);
 
-    // First tap arms the confirm.
-    await act(async () => {
-      deleteRow().dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
-    expect(selfDelete).not.toHaveBeenCalled();
+    await tap(deleteRow());
+    // Confirmation copy + a hold button appear; nothing deleted on the tap.
+    expect(container.textContent).toContain('PERMANENTLY delete');
+    expect(holdBtn()).not.toBeNull();
+    expect(services.customers.selfDelete).not.toHaveBeenCalled();
 
-    // Second tap commits.
+    // A short hold released early does NOT delete.
     await act(async () => {
-      deleteRow().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      holdBtn().dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
     });
-    expect(selfDelete).toHaveBeenCalledWith(customer.token);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+      holdBtn().dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+    });
+    expect(services.customers.selfDelete).not.toHaveBeenCalled();
+
+    // A full 3s hold commits.
+    await act(async () => {
+      holdBtn().dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(services.customers.selfDelete).toHaveBeenCalledWith(withRecovery.token);
     expect(services.identity.clear).toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledWith('/welcome', { replace: true });
+  });
+
+  it('remove (recoverable card): single-tap REMOVE clears the device identity', async () => {
+    const services = fakeServices();
+    await mount(services, withRecovery);
+
+    await tap(deviceRow());
+    // Recoverable: explains email recovery, no hold fineprint, single-tap button.
+    expect(container.textContent).toContain('I already have one');
+    expect(container.querySelector('.card-confirm-fine')).toBeNull();
+    expect(holdBtn().classList.contains('tap')).toBe(true);
+
+    await tap(holdBtn());
+    expect(services.identity.clear).toHaveBeenCalled();
+  });
+
+  it('remove (token-only card): warns of loss and gates REMOVE behind a hold', async () => {
+    const services = fakeServices();
+    await mount(services, tokenOnly);
+
+    await tap(deviceRow());
+    expect(container.textContent).toContain('permanently lost');
+    expect(container.querySelector('.card-confirm-fine')?.textContent).toContain('hold button');
+    expect(holdBtn().classList.contains('hold')).toBe(true);
   });
 });

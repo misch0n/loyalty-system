@@ -65,10 +65,12 @@ export function CupStamps({ filled, total, showcase = false }: CupStampsProps) {
   const safeFilled = Math.min(safeTotal, Math.max(0, Math.floor(filled)));
 
   if (showcase) {
-    const rewardReady = safeFilled >= safeTotal && safeTotal > 0;
+    // Fixed 10-stamp card: the first (welcome) and last (free) cups come
+    // pre-stamped on the house; the customer fills the `total` (e.g. 8) cups in
+    // between with purchases.
     const displayTotal = safeTotal + 2;
     return (
-      <div className="stamps" data-total={displayTotal} data-filled={safeFilled + 1}>
+      <div className="stamps" data-total={displayTotal} data-filled={safeFilled + 2}>
         {/* Welcome sticker — on the house, always stamped. */}
         <span className="stamp on welcome">
           <CupGlyph />
@@ -79,8 +81,8 @@ export function CupStamps({ filled, total, showcase = false }: CupStampsProps) {
             <CupGlyph />
           </span>
         ))}
-        {/* Free reward cup — stamped + a FREE label, lit once the reward lands. */}
-        <span className={rewardReady ? 'stamp on free' : 'stamp free'}>
+        {/* Free reward cup — always stamped with a FREE sticker (the prize). */}
+        <span className="stamp on free">
           <CupGlyph />
           <StickerSeal />
           <span className="free-label">FREE</span>

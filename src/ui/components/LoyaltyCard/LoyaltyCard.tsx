@@ -83,10 +83,11 @@ export function LoyaltyCard({
           <div className="left">
             <b>{remaining} more</b> for a free coffee
           </div>
-          {/* The card shows a 10-cup grid (welcome + earnable + free), so the
-              counter reflects the displayed cups, not the raw threshold. */}
+          {/* The card shows a fixed 10-stamp grid (welcome + earnable + free,
+              both freebies pre-stamped), so the counter reflects the displayed
+              cups, not the raw threshold. */}
           <div className="pts">
-            {filled + 1} / {total + 2}
+            {filled + 2} / {total + 2}
           </div>
         </div>
       )}

@@ -10,3 +10,43 @@
 .card-menu-context {
   margin-top: 14px;
 }
+
+/* Red-tinted confirmation block (remove / delete). */
+.card-confirm {
+  padding: 6px 2px 4px;
+}
+.card-confirm.danger {
+  --confirm-ink: var(--terra-600);
+}
+.card-confirm-msg {
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--terra-600);
+  background: var(--blush-200);
+  border: 1px solid var(--blush-600);
+  border-radius: 14px;
+  padding: 14px;
+  margin: 0 0 16px;
+}
+.card-confirm-fine {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  text-align: center;
+  margin: 8px 0 0;
+}
+.card-confirm-cancel {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  background: transparent;
+  border: 0;
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 8px;
+}

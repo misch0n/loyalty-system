@@ -1,26 +1,27 @@
 /**
- * CardMenu — the card "⋯" sheet: remember / forget / delete / recovery status
- * (Ckyka reference view 07).
+ * CardMenu — the card "⋯" sheet (Ckyka reference view 07).
  *
- * Device row (contextual):
- *  - saved on this device  → "Remembered on this device" + Remove (device-scoped
- *    `identity.clear()`; token-only cards confirm "can't be recovered" first).
- *  - not saved             → "Remember this card" (`identity.set`).
+ * Two entries:
+ *  - Device row: "Remember this card" (save) when not saved; "Remembered on this
+ *    device" (→ remove confirmation) when saved.
+ *  - "Delete my card" (→ delete confirmation).
  *
- * Recovery-status line is derived from PII presence. "Delete my card" →
- * self-service erasure via `customers.selfDelete(token)` (the service owns the
- * system actor; the UI never fabricates a staff Actor). Token-only cards confirm
- * with an "unrecoverable" warning first; on success the device identity is
- * cleared and the visitor lands on Welcome.
+ * Tapping the device row (when saved) or the delete row "redraws" the sheet into
+ * a red-tinted confirmation. Remove copy is recovery-aware: a token-only card
+ * (no name/email) warns it will be lost and gates the REMOVE behind a 3-second
+ * hold; a recoverable card explains how to get it back and removes on a single
+ * tap. Deletion is always a 3-second hold. The hold gate is `HoldButton`.
  *
- * When this device opens a card it does NOT own, a ContextBanner (default OFF)
- * offers to remember it instead of auto-clobbering the saved card.
+ * Erasure uses `customers.selfDelete(token)` (the service owns the system actor;
+ * the UI never fabricates a staff Actor). Removing from a device only clears the
+ * local identity link.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sheet, MenuRow, RecoveryLine } from '../../../components/Sheet/Sheet';
+import { Sheet, MenuRow } from '../../../components/Sheet/Sheet';
 import { ContextBanner } from '../../../components/ContextBanner/ContextBanner';
+import { HoldButton } from '../../../components/HoldButton/HoldButton';
 import { Toggle } from '../../../components/Field/Field';
 import { ROUTES } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
@@ -39,6 +40,10 @@ export interface CardMenuProps {
   token: string;
 }
 
+type Mode = 'menu' | 'remove' | 'delete';
+
+const HOLD_MS = 3000;
+
 /** Top-left card icon (remembered card). */
 const CARD_ICON = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -54,27 +59,42 @@ const TRASH_ICON = (
   </svg>
 );
 
-/** Token-only = no recoverable PII; deletion/removal is unrecoverable. */
-function isTokenOnly(c: Customer): boolean {
-  return !c.displayName && !c.email && !c.phone;
-}
-
-function recoveryLine(c: Customer): string {
-  if (c.email) return 'You can restore this card by email.';
-  if (c.displayName) return 'No email on file — ask staff to restore this card if it’s lost.';
-  return 'This card lives only on this device. There’s no way to restore it if it’s lost.';
+/** Recovery-aware copy for removing a saved card from this device. */
+function removeMessage(hasName: boolean, hasEmail: boolean): string {
+  if (!hasName && !hasEmail) {
+    return 'You have not entered any recovery information, your card will be permanently lost!';
+  }
+  const lines: string[] = [];
+  if (hasEmail) {
+    lines.push(
+      "You can recover your card by selecting 'I already have one' on the landing page and entering your email.",
+    );
+  }
+  if (hasName) {
+    lines.push('You can ask staff for assistance to recover your card.');
+  }
+  return lines.join(' ');
 }
 
 export function CardMenu({ open, onClose, customer, saved, onSavedChange, token }: CardMenuProps) {
   const navigate = useNavigate();
   const { identity, customers } = useServices();
 
+  const [mode, setMode] = useState<Mode>('menu');
   const [busy, setBusy] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const tokenOnly = isTokenOnly(customer);
+  // Always reopen on the menu, never mid-confirmation.
+  useEffect(() => {
+    if (open) {
+      setMode('menu');
+      setError(null);
+    }
+  }, [open]);
+
+  const hasName = Boolean(customer.displayName);
+  const hasEmail = Boolean(customer.email);
+  const tokenOnly = !hasName && !hasEmail;
 
   async function remember() {
     setBusy(true);
@@ -90,17 +110,12 @@ export function CardMenu({ open, onClose, customer, saved, onSavedChange, token 
   }
 
   async function removeFromDevice() {
-    // Token-only cards can't be recovered — confirm before forgetting.
-    if (tokenOnly && !confirmRemove) {
-      setConfirmRemove(true);
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
       await identity.clear();
       onSavedChange();
-      setConfirmRemove(false);
+      setMode('menu');
     } catch {
       setError('Could not remove this card from your device. Try again.');
     } finally {
@@ -109,10 +124,6 @@ export function CardMenu({ open, onClose, customer, saved, onSavedChange, token 
   }
 
   async function deleteCard() {
-    if (!confirmDelete) {
-      setConfirmDelete(true);
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
@@ -126,19 +137,6 @@ export function CardMenu({ open, onClose, customer, saved, onSavedChange, token 
     }
   }
 
-  const deviceTitle = saved ? 'Remembered on this device' : 'Remember this card';
-  const deviceSubtitle = saved
-    ? confirmRemove
-      ? 'This card can’t be recovered without an email — tap again to remove anyway.'
-      : 'Remove to forget it here — this does not delete your card'
-    : 'Save this card to this device so it opens automatically';
-
-  const deleteSubtitle = confirmDelete
-    ? tokenOnly
-      ? 'This card can’t be recovered — tap again to delete it for good.'
-      : 'Tap again to permanently erase your card and data.'
-    : 'Erases your card and data. Can’t be undone.';
-
   return (
     <Sheet open={open} onClose={onClose} label="Your card">
       {error && (
@@ -147,43 +145,77 @@ export function CardMenu({ open, onClose, customer, saved, onSavedChange, token 
         </p>
       )}
 
-      <MenuRow
-        first
-        icon={CARD_ICON}
-        title={deviceTitle}
-        subtitle={busy ? '…' : deviceSubtitle}
-        onClick={saved ? removeFromDevice : remember}
-      />
-
-      <RecoveryLine>{recoveryLine(customer)}</RecoveryLine>
-
-      <MenuRow
-        danger
-        icon={TRASH_ICON}
-        title="Delete my card"
-        subtitle={deleteSubtitle}
-        onClick={deleteCard}
-      />
-
-      {!saved && (
-        <div className="card-menu-context">
-          <ContextBanner
-            toggle={
-              <Toggle
-                on={false}
-                onChange={(on) => {
-                  if (on) void remember();
-                }}
-                label="Remember on this device"
-              />
+      {mode === 'menu' && (
+        <>
+          <MenuRow
+            first
+            icon={CARD_ICON}
+            title={saved ? 'Remembered on this device' : 'Remember this card'}
+            subtitle={
+              busy ? '…' : saved ? 'tap to remove from device' : 'tap to save to this device'
             }
+            onClick={saved ? () => setMode('remove') : remember}
+          />
+
+          <MenuRow
+            danger
+            icon={TRASH_ICON}
+            title="Delete my card"
+            subtitle="tap to delete your card and data permanently."
+            onClick={() => setMode('delete')}
+          />
+
+          {!saved && (
+            <div className="card-menu-context">
+              <ContextBanner
+                toggle={
+                  <Toggle
+                    on={false}
+                    onChange={(on) => {
+                      if (on) void remember();
+                    }}
+                    label="Remember on this device"
+                  />
+                }
+              >
+                Viewing{' '}
+                <b>{customer.displayName ? `${customer.displayName}’s` : 'this'}</b> card · remember
+                on this device?
+              </ContextBanner>
+            </div>
+          )}
+        </>
+      )}
+
+      {mode === 'remove' && (
+        <div className="card-confirm danger">
+          <p className="card-confirm-msg">{removeMessage(hasName, hasEmail)}</p>
+          <HoldButton
+            holdMs={tokenOnly ? HOLD_MS : 0}
+            disabled={busy}
+            onConfirm={() => void removeFromDevice()}
           >
-            Viewing{' '}
-            <b>
-              {customer.displayName ? `${customer.displayName}’s` : 'this'}
-            </b>{' '}
-            card · remember on this device?
-          </ContextBanner>
+            REMOVE
+          </HoldButton>
+          {tokenOnly && <p className="card-confirm-fine">hold button if you are certain</p>}
+          <button type="button" className="card-confirm-cancel" onClick={() => setMode('menu')}>
+            Keep my card
+          </button>
+        </div>
+      )}
+
+      {mode === 'delete' && (
+        <div className="card-confirm danger">
+          <p className="card-confirm-msg">
+            You are about to PERMANENTLY delete both your card and your data. This action cannot be
+            undone. Hold the button if you are certain.
+          </p>
+          <HoldButton holdMs={HOLD_MS} disabled={busy} onConfirm={() => void deleteCard()}>
+            DELETE
+          </HoldButton>
+          <button type="button" className="card-confirm-cancel" onClick={() => setMode('menu')}>
+            Keep my card
+          </button>
         </div>
       )}
     </Sheet>
