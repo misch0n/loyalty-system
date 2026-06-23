@@ -55,6 +55,8 @@ export interface CreateStaffInput {
   username: string;
   passwordHash: string;
   role: StaffRole;
+  /** Optional sign-in PIN (4–8 digits). Absent for password-only accounts. */
+  pin?: string;
 }
 
 export interface AppendAuditInput {
@@ -108,6 +110,8 @@ export interface DataStore {
   getStaffByPin(pin: string): Promise<StaffAccount | null>;
   setStaffActive(id: string, active: boolean): Promise<void>;
   setStaffPassword(id: string, passwordHash: string): Promise<void>;
+  /** Set/replace an account's sign-in PIN. PINs are unique among active accounts. */
+  setStaffPin(id: string, pin: string): Promise<void>;
   listStaff(): Promise<StaffAccount[]>;
   getConfig(): Promise<ProgramConfig>;
   updateConfig(patch: Partial<ProgramConfig>): Promise<ProgramConfig>;

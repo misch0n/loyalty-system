@@ -102,3 +102,63 @@ describe('account management', () => {
     expect((await staff.login('forgetful', 'fresh')).ok).toBe(true);
   });
 });
+
+describe('PIN management', () => {
+  it('setPin lets the account sign in with the new PIN', async () => {
+    const created = await staff.create(ADMIN, 'pinless', 'pw', 'staff');
+    await staff.setPin(ADMIN, created.id, '5678');
+    const result = await staff.loginWithPin('5678');
+    expect(result.ok).toBe(true);
+    expect(result.actor?.username).toBe('pinless');
+  });
+
+  it('setPin replaces an existing PIN (old PIN stops working)', async () => {
+    const created = await staff.create(ADMIN, 'rotator', 'pw', 'staff', '5678');
+    await staff.setPin(ADMIN, created.id, '8765');
+    expect((await staff.loginWithPin('5678')).ok).toBe(false);
+    expect((await staff.loginWithPin('8765')).ok).toBe(true);
+  });
+
+  it('setPin can re-save the same account’s own PIN without a collision', async () => {
+    const created = await staff.create(ADMIN, 'samepin', 'pw', 'staff', '5678');
+    await expect(staff.setPin(ADMIN, created.id, '5678')).resolves.toBeUndefined();
+  });
+
+  it('setPin rejects PINs that are too short, too long, or non-numeric', async () => {
+    const created = await staff.create(ADMIN, 'badpin', 'pw', 'staff');
+    await expect(staff.setPin(ADMIN, created.id, '12')).rejects.toThrow();
+    await expect(staff.setPin(ADMIN, created.id, '123456789')).rejects.toThrow();
+    await expect(staff.setPin(ADMIN, created.id, 'abcd')).rejects.toThrow();
+    await expect(staff.setPin(ADMIN, created.id, '')).rejects.toThrow();
+  });
+
+  it('setPin rejects a PIN already used by another active account', async () => {
+    const created = await staff.create(ADMIN, 'dup', 'pw', 'staff');
+    // 1234 belongs to the seeded staff account.
+    await expect(staff.setPin(ADMIN, created.id, '1234')).rejects.toThrow();
+  });
+
+  it('does not record the PIN value in the audit detail', async () => {
+    const created = await staff.create(ADMIN, 'audited', 'pw', 'staff');
+    await staff.setPin(ADMIN, created.id, '7777');
+    const entries = await store.listAudit({ action: 'staff.resetPassword' });
+    const entry = entries.find((e) => e.targetId === created.id);
+    expect(entry?.details).toBe('pin');
+    expect(entry?.details).not.toContain('7777');
+  });
+
+  it('create(..., pin) yields an account that can sign in by that PIN', async () => {
+    await staff.create(ADMIN, 'withpin', 'pw', 'staff', '6543');
+    const result = await staff.loginWithPin('6543');
+    expect(result.ok).toBe(true);
+    expect(result.actor?.username).toBe('withpin');
+  });
+
+  it('create rejects an invalid PIN', async () => {
+    await expect(staff.create(ADMIN, 'badcreate', 'pw', 'staff', '12')).rejects.toThrow();
+  });
+
+  it('create rejects a PIN already in use', async () => {
+    await expect(staff.create(ADMIN, 'dupcreate', 'pw', 'staff', '1234')).rejects.toThrow();
+  });
+});

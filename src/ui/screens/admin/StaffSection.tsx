@@ -3,15 +3,13 @@
  *
  * Lists named staff accounts and supports: create (username + role + initial
  * credential), enable/disable (setActive), and reset the credential
- * (resetPassword). "Sign out all devices" revokes every trusted session via
- * `staff.revokeAllSessions(actor)` behind STEP-UP re-auth, then toasts the count.
+ * (resetPassword), and set/replace the sign-in PIN (setPin). The create form
+ * takes an optional initial PIN. "Sign out all devices" revokes every trusted
+ * session via `staff.revokeAllSessions(actor)` behind STEP-UP re-auth, then
+ * toasts the count.
  *
- * BACKEND GAP (flagged): there is no PIN-reset service method, and `create`
- * takes a PASSWORD, not a PIN. The staff sign-in screen uses PINs, so the
- * credential managed here is the password — NOT the PIN a staffer types to sign
- * in. The field is labelled honestly ("Password") and a notice spells this out.
- * Resolving it means adding e.g. `staff.setPin(actor, id, pin)` +
- * `create(..., pin)` to StaffService.
+ * Sign-in is by PIN, so "Set PIN" is the credential a staffer types to sign in;
+ * "Reset password" manages the secondary username/password credential.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -30,12 +28,17 @@ export function StaffSection({ actor }: { actor: Actor }) {
   // Create form.
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [newPin, setNewPin] = useState('');
   const [newRole, setNewRole] = useState<StaffRole>('staff');
   const [createError, setCreateError] = useState<string | null>(null);
 
   // Per-account password reset.
   const [resetFor, setResetFor] = useState<string | null>(null);
   const [resetValue, setResetValue] = useState('');
+
+  // Per-account PIN set/replace.
+  const [pinFor, setPinFor] = useState<string | null>(null);
+  const [pinValue, setPinValue] = useState('');
 
   // Revoke-all step-up.
   const [revokeOpen, setRevokeOpen] = useState(false);
@@ -64,9 +67,10 @@ export function StaffSection({ actor }: { actor: Actor }) {
     e.preventDefault();
     setCreateError(null);
     try {
-      await services.staff.create(actor, newUsername, newPassword, newRole);
+      await services.staff.create(actor, newUsername, newPassword, newRole, newPin || undefined);
       setNewUsername('');
       setNewPassword('');
+      setNewPin('');
       setNewRole('staff');
       toast.show('Staff account added.', { tone: 'success' });
       refresh();
@@ -99,6 +103,20 @@ export function StaffSection({ actor }: { actor: Actor }) {
     }
   };
 
+  const submitPin = async (id: string) => {
+    try {
+      await services.staff.setPin(actor, id, pinValue);
+      setPinFor(null);
+      setPinValue('');
+      toast.show('PIN set.', { tone: 'success' });
+    } catch (err) {
+      toast.show(
+        err instanceof Error ? err.message : 'Couldn’t set that PIN.',
+        { tone: 'warning' },
+      );
+    }
+  };
+
   const revokeAll = async () => {
     try {
       const count = await services.staff.revokeAllSessions(actor);
@@ -118,8 +136,8 @@ export function StaffSection({ actor }: { actor: Actor }) {
       </h2>
 
       <Banner tone="info">
-        Sign-in uses a PIN, but accounts are managed by password here — there’s no PIN reset yet.
-        The password below is the account credential, not the sign-in PIN.
+        Sign-in uses a PIN. Use “Set PIN” to give a staffer their sign-in code (4–8 digits).
+        The password is a secondary account credential.
       </Banner>
 
       {loadError && <Banner tone="warning">Couldn’t load staff. Refresh to try again.</Banner>}
@@ -143,6 +161,15 @@ export function StaffSection({ actor }: { actor: Actor }) {
               <Button
                 variant="ghost"
                 onClick={() => {
+                  setPinFor(pinFor === account.id ? null : account.id);
+                  setPinValue('');
+                }}
+              >
+                Set PIN
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
                   setResetFor(resetFor === account.id ? null : account.id);
                   setResetValue('');
                 }}
@@ -150,6 +177,26 @@ export function StaffSection({ actor }: { actor: Actor }) {
                 Reset password
               </Button>
             </div>
+            {pinFor === account.id && (
+              <div className="admin-staff-row__reset">
+                <Field
+                  label="Sign-in PIN"
+                  hint="4–8 digits. This is the code the staffer types to sign in."
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={pinValue}
+                  onChange={(e) => setPinValue(e.target.value.replace(/\D/g, ''))}
+                />
+                <Button
+                  variant="forest"
+                  disabled={pinValue.length < 4}
+                  onClick={() => submitPin(account.id)}
+                >
+                  Save PIN
+                </Button>
+              </div>
+            )}
             {resetFor === account.id && (
               <div className="admin-staff-row__reset">
                 <Field
@@ -186,11 +233,20 @@ export function StaffSection({ actor }: { actor: Actor }) {
         />
         <Field
           label="Password"
-          hint="Initial account credential (not the sign-in PIN — see the note above)."
+          hint="Secondary account credential (the sign-in code is the PIN below)."
           type="password"
           autoComplete="new-password"
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
+        />
+        <Field
+          label="Sign-in PIN (optional)"
+          hint="4–8 digits the staffer types to sign in. You can also set it later."
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          value={newPin}
+          onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))}
         />
         <label className="admin-field">
           <span className="admin-field__label">Role</span>

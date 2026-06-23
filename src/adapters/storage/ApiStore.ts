@@ -124,6 +124,10 @@ export class ApiStore implements DataStore {
   setStaffPassword(id: string, passwordHash: string): Promise<void> {
     return this.request('PATCH', `/staff/${id}/password`, { passwordHash });
   }
+  setStaffPin(id: string, pin: string): Promise<void> {
+    // Production hashes/verifies the PIN server-side; the shape is illustrative.
+    return this.request('PATCH', `/staff/${id}/pin`, { pin });
+  }
   listStaff(): Promise<StaffAccount[]> {
     return this.request('GET', '/staff');
   }

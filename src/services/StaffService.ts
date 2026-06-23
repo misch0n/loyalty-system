@@ -4,6 +4,10 @@
  * Auth is MOCKED in the prototype: passwords are compared as plain strings (the
  * seed accounts are admin/admin and staff/staff). Production replaces this with
  * hashed passwords verified server-side — the call sites do not change.
+ *
+ * Sign-in is by PIN (`loginWithPin`); admins manage PINs via `create(..., pin)`
+ * and `setPin`. PINs are 4–8 digits, unique among active accounts, and are
+ * NEVER logged (they are credentials).
  */
 
 import type { StaffAccount, StaffRole } from '../domain/models';
@@ -86,16 +90,23 @@ export class StaffService {
     username: string,
     password: string,
     role: StaffRole,
+    pin?: string,
   ): Promise<StaffAccount> {
     const trimmed = username.trim();
     if (!trimmed) throw new Error('Username is required.');
     if (!password) throw new Error('Password is required.');
     const existing = await this.store.getStaffByUsername(trimmed);
     if (existing) throw new Error('That username is already taken.');
+    let cleanPin: string | undefined;
+    if (pin !== undefined && pin !== '') {
+      cleanPin = this.validatePin(pin);
+      await this.assertPinUnique(cleanPin);
+    }
     const account = await this.store.createStaff({
       username: trimmed,
       passwordHash: password, // mock: plain in prototype, hashed in production
       role,
+      pin: cleanPin,
     });
     await this.audit.log(actor, 'staff.create', account.id, role);
     return account;
@@ -110,5 +121,36 @@ export class StaffService {
     if (!newPassword) throw new Error('New password is required.');
     await this.store.setStaffPassword(id, newPassword);
     await this.audit.log(actor, 'staff.resetPassword', id);
+  }
+
+  /**
+   * Set/replace a staff member's sign-in PIN (§6). Validates 4–8 digits and
+   * enforces uniqueness among OTHER active accounts (sign-in resolves by PIN).
+   * The PIN value is a credential — it is NEVER logged (audit detail is 'pin').
+   */
+  async setPin(actor: Actor, id: string, pin: string): Promise<void> {
+    const cleanPin = this.validatePin(pin);
+    await this.assertPinUnique(cleanPin, id);
+    await this.store.setStaffPin(id, cleanPin);
+    await this.audit.log(actor, 'staff.resetPassword', id, 'pin');
+  }
+
+  /** Trim + validate a PIN is 4–8 digits. Throws on bad input; returns the clean PIN. */
+  private validatePin(pin: string): string {
+    const trimmed = pin.trim();
+    if (!trimmed) throw new Error('PIN is required.');
+    if (!/^\d{4,8}$/.test(trimmed)) throw new Error('PIN must be 4–8 digits.');
+    return trimmed;
+  }
+
+  /**
+   * Ensure no OTHER active account already uses this PIN (`exceptId` is the
+   * account being updated, so re-saving its own PIN doesn't collide).
+   */
+  private async assertPinUnique(pin: string, exceptId?: string): Promise<void> {
+    const owner = await this.store.getStaffByPin(pin);
+    if (owner && owner.id !== exceptId) {
+      throw new Error('That PIN is already in use. Choose a different one.');
+    }
   }
 }

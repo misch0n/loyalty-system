@@ -159,6 +159,27 @@ describe('staff & config', () => {
     await expect(store.setStaffPassword('nope', 'pw')).rejects.toThrow();
   });
 
+  it('persists an optional PIN on create and resolves it via getStaffByPin', async () => {
+    const s = await store.createStaff({
+      username: 'pinner',
+      passwordHash: 'pw',
+      role: 'staff',
+      pin: '5678',
+    });
+    expect(s.pin).toBe('5678');
+    expect(await store.getStaffByPin('5678')).toMatchObject({ id: s.id });
+  });
+
+  it('setStaffPin sets/replaces a PIN and throws on a missing account', async () => {
+    const s = await store.createStaff({ username: 'setpin', passwordHash: 'pw', role: 'staff' });
+    await store.setStaffPin(s.id, '4444');
+    expect(await store.getStaffByPin('4444')).toMatchObject({ id: s.id });
+    await store.setStaffPin(s.id, '5555');
+    expect(await store.getStaffByPin('4444')).toBeNull();
+    expect(await store.getStaffByPin('5555')).toMatchObject({ id: s.id });
+    await expect(store.setStaffPin('nope', '6666')).rejects.toThrow();
+  });
+
   it('lists staff sorted by username', async () => {
     await store.createStaff({ username: 'zara', passwordHash: 'pw', role: 'staff' });
     await store.createStaff({ username: 'bea', passwordHash: 'pw', role: 'staff' });

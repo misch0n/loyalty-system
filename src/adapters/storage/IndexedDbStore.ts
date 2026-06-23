@@ -286,6 +286,7 @@ export class IndexedDbStore implements DataStore {
       id: generateId(),
       username: input.username,
       passwordHash: input.passwordHash,
+      pin: input.pin,
       role: input.role,
       active: true,
       createdAt: this.now(),
@@ -323,6 +324,15 @@ export class IndexedDbStore implements DataStore {
     const current = await tx.store.get(id);
     if (!current) throw new Error('Staff account not found.');
     await tx.store.put({ ...current, passwordHash });
+    await tx.done;
+  }
+
+  async setStaffPin(id: string, pin: string): Promise<void> {
+    const db = await this.dbPromise;
+    const tx = db.transaction('staff', 'readwrite');
+    const current = await tx.store.get(id);
+    if (!current) throw new Error('Staff account not found.');
+    await tx.store.put({ ...current, pin });
     await tx.done;
   }
 
