@@ -53,6 +53,8 @@ jobs:
           VITE_TURN_HOST: ${{ secrets.VITE_TURN_HOST }}
           VITE_TURN_USERNAME: ${{ secrets.VITE_TURN_USERNAME }}
           VITE_TURN_CREDENTIAL: ${{ secrets.VITE_TURN_CREDENTIAL }}
+          # B4 post-redemption Google review deep link (Place ID); optional.
+          VITE_GOOGLE_PLACE_ID: ${{ secrets.VITE_GOOGLE_PLACE_ID }}
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

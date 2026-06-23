@@ -7,6 +7,7 @@ import { QrDisplay } from '../common/QrDisplay';
 import { cardPayload } from '../../qr/encode';
 import { appUrl } from '../../config/links';
 import { WalletButton } from './WalletButton';
+import { RememberControl } from './RememberControl';
 import type { Customer } from '../../domain/models';
 
 export function CardView({ customer }: { customer: Customer }) {
@@ -20,6 +21,11 @@ export function CardView({ customer }: { customer: Customer }) {
       <div className="wallet-stubs">
         <WalletButton token={customer.token} />
       </div>
+
+      <RememberControl
+        token={customer.token}
+        recoverable={Boolean(customer.email || customer.displayName)}
+      />
 
       <p className="hint">
         Check your points any time:&nbsp;

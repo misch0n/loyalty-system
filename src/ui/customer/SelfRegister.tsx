@@ -8,7 +8,7 @@
  * secondary path on the staff screen.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useServices } from '../common/ServicesContext';
 import { PrivacyNotice } from '../common/PrivacyNotice';
@@ -25,6 +25,19 @@ export function SelfRegister() {
   const [errors, setErrors] = useState<FieldError[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [created, setCreated] = useState<Customer | null>(null);
+  // B1: remember toggle defaults ON with no saved card, OFF if a different card
+  // is already saved on this device (protect it).
+  const [remember, setRemember] = useState(true);
+  const [hasOtherSaved, setHasOtherSaved] = useState(false);
+
+  useEffect(() => {
+    identity.get().then((saved) => {
+      if (saved) {
+        setHasOtherSaved(true);
+        setRemember(false);
+      }
+    });
+  }, [identity]);
 
   function errorFor(field: FieldError['field']): string | undefined {
     return errors.find((e) => e.field === field)?.message;
@@ -44,7 +57,7 @@ export function SelfRegister() {
         setErrors(result.errors ?? [{ field: 'consent', message: 'Could not create your card.' }]);
         return;
       }
-      await identity.set(result.customer.token); // remember this browser
+      if (remember) await identity.set(result.customer.token); // B1: only if chosen
       setCreated(result.customer);
     } finally {
       setSubmitting(false);
@@ -55,7 +68,7 @@ export function SelfRegister() {
     return (
       <div className="card">
         <h1>Your card is ready</h1>
-        <p className="muted">Saved on this device — just reopen this page to find it again.</p>
+        <p className="muted">Show the QR at the till to collect points.</p>
         <CardView customer={created} />
       </div>
     );
@@ -98,6 +111,18 @@ export function SelfRegister() {
           I've read the privacy notice and consent to joining.
         </label>
         {errorFor('consent') && <span className="error">{errorFor('consent')}</span>}
+
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+          />
+          Remember this card on this device
+        </label>
+        {hasOtherSaved && remember && (
+          <p className="muted small">This replaces the card currently saved on this device.</p>
+        )}
 
         <button type="submit" disabled={submitting}>
           {submitting ? 'Creating…' : 'Join'}

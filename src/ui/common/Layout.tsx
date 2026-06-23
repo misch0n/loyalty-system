@@ -8,6 +8,7 @@ import { NavLink, Link, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useSession } from './SessionContext';
 import { PrototypeMenu } from './PrototypeMenu';
+import { cafeMapUrl, cafeContactEmail } from '../../config/cafe';
 
 function NavTab({ to, children }: { to: string; children: ReactNode }) {
   return (
@@ -74,8 +75,16 @@ export function Layout({ children }: { children: ReactNode }) {
       <main className="app-main">{children}</main>
 
       <footer className="app-footer">
-        Demo only — browser storage, no real customer data. The system never
-        handles money.
+        <p className="footer-links">
+          <a href={cafeMapUrl} target="_blank" rel="noopener noreferrer">
+            Find us
+          </a>
+          <span aria-hidden="true"> · </span>
+          <a href={`mailto:${cafeContactEmail}`}>Contact</a>
+        </p>
+        <p>
+          Demo only — browser storage, no real customer data. The system never handles money.
+        </p>
       </footer>
     </div>
   );

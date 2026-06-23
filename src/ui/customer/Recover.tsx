@@ -80,7 +80,7 @@ function RecoverRequest() {
 }
 
 function RecoverConsume({ code }: { code: string }) {
-  const { recovery, identity } = useServices();
+  const { recovery } = useServices();
   const navigate = useNavigate();
   const [failed, setFailed] = useState(false);
   const ran = useRef(false);
@@ -94,10 +94,11 @@ function RecoverConsume({ code }: { code: string }) {
         setFailed(true);
         return;
       }
-      await identity.set(result.token);
+      // B1: don't auto-remember on recovery — the card page offers "Remember this
+      // card on this device" so a fresh/borrowed device isn't silently bound.
       navigate(`/status/${result.token}`, { replace: true });
     })();
-  }, [code, recovery, identity, navigate]);
+  }, [code, recovery, navigate]);
 
   if (failed) {
     return (

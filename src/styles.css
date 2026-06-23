@@ -85,6 +85,41 @@ a.button.primary { background: var(--accent); border-color: var(--accent); }
   text-align: center;
 }
 
+/* B1 device-persistence control on the own-card page. */
+.remember-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-start;
+  margin: 0.75rem 0;
+}
+
+/* B4 post-redemption review prompt. */
+.review-prompt {
+  position: relative;
+  background: #fff7e6;
+  border: 1px solid #f0d9a8;
+  border-radius: var(--radius);
+  padding: 0.85rem 2rem 0.85rem 0.85rem;
+  margin: 0 0 0.85rem;
+  text-align: center;
+}
+.review-prompt p { margin: 0 0 0.6rem; }
+.review-prompt .dismiss {
+  position: absolute;
+  top: 0.2rem;
+  right: 0.4rem;
+  background: none;
+  border: none;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--ink, #6b6b6b);
+}
+
+.footer-links { margin: 0 0 0.35rem; }
+.footer-links a { color: inherit; }
+
 input, select {
   font: inherit;
   padding: 0.5rem;

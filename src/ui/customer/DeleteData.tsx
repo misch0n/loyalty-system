@@ -54,14 +54,14 @@ export function DeleteData() {
 
   return (
     <div className="card">
-      <h1>Delete my data</h1>
+      <h1>Delete my card</h1>
       {error && <p className="error">{error}</p>}
       {customer && (
         <>
           <p>
-            This permanently removes the name, email and phone on this card and
-            deactivates it. The café's anonymised transaction records are kept for
-            accounting integrity.
+            This deletes your loyalty account and your card: it permanently removes the name, email
+            and phone on the card and deactivates it. The café's anonymised transaction records are
+            kept for accounting integrity.
           </p>
           {actor ? (
             <button type="button" className="danger" disabled={busy} onClick={confirmDelete}>

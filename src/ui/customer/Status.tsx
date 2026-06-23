@@ -10,12 +10,14 @@ import { usePairing } from '../common/PairingContext';
 import { ProgressBar } from '../common/Progress';
 import { QrDisplay } from '../common/QrDisplay';
 import { WalletButton } from './WalletButton';
+import { RememberControl } from './RememberControl';
+import { ReviewPrompt } from './ReviewPrompt';
 import { cardPayload } from '../../qr/encode';
 import type { CustomerState } from '../../services/LoyaltyService';
 
 export function Status() {
   const { token: tokenParam } = useParams<{ token: string }>();
-  const { loyalty, identity } = useServices();
+  const { loyalty } = useServices();
   const { dataVersion } = usePairing();
   const navigate = useNavigate();
 
@@ -40,8 +42,8 @@ export function Status() {
       }
       setState(result);
       activeToken.current = trimmed;
-      // Remember this browser so the base URL routes straight here next time.
-      await identity.set(result.customer.token);
+      // B1: viewing a card no longer auto-remembers it — the RememberControl
+      // below lets the customer decide, protecting an already-saved card.
     } finally {
       setLoading(false);
     }
@@ -97,6 +99,11 @@ export function Status() {
       {cardToken && (
         <div className="status-result">
           {state?.customer.displayName && <p className="hello">Hi, {state.customer.displayName}!</p>}
+
+          <ReviewPrompt
+            hasRedemption={Boolean(state?.transactions.some((t) => t.type === 'redemption'))}
+          />
+
           <QrDisplay
             payload={cardPayload(cardToken)}
             label="Your card QR"
@@ -124,20 +131,30 @@ export function Status() {
                 </p>
               )}
 
+              {/* B1: device persistence (remember/forget) — distinct from account deletion. */}
+              <RememberControl
+                token={cardToken}
+                recoverable={Boolean(state.customer.email || state.customer.displayName)}
+              />
+
               <button
                 type="button"
                 className="link danger"
+                title="This deletes your loyalty account and your card."
                 onClick={() => navigate(`/delete/${state.customer.token}`)}
               >
-                Delete my data
+                Delete my card
               </button>
             </>
           ) : (
-            <p className="muted">
-              {loading
-                ? 'Checking…'
-                : 'Show this code at the till — your points appear here the moment staff add them.'}
-            </p>
+            <>
+              <RememberControl token={cardToken} recoverable />
+              <p className="muted">
+                {loading
+                  ? 'Checking…'
+                  : 'Show this code at the till — your points appear here the moment staff add them.'}
+              </p>
+            </>
           )}
         </div>
       )}

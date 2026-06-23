@@ -57,6 +57,13 @@ export const isEmailConfigured: boolean = Boolean(
 );
 
 /**
+ * Google Place ID for the post-redemption "leave a review" deep link (B4).
+ * Build-time injected; empty until configured (the prompt still renders for the
+ * demo, but the link won't resolve without an id).
+ */
+export const googlePlaceId: string = import.meta.env.VITE_GOOGLE_PLACE_ID ?? '';
+
+/**
  * ICE servers for the PeerJS WebRTC transport. STUN is always present (public,
  * not secret). TURN relay entries are added only when credentials were injected
  * at build time — a cross-network demo (customer on cellular, staff on wifi)
