@@ -1,0 +1,7 @@
+/* Ckyka Rewards — theme entry. The app imports THIS once (in main.tsx); it pulls
+   in the design foundation. Component styles are imported by their own modules,
+   keeping each slice next to the code it styles (no monolith). */
+
+@import './tokens.css';
+@import './base.css';
+@import './keyframes.css';

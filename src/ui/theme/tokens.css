@@ -1,0 +1,34 @@
+/* Ckyka Rewards — design tokens (the single source of color/type/shape values).
+   Lifted verbatim from the approved mock (reference theme.css). Do not
+   re-interpret values. Component styles consume these; they never redefine them. */
+
+:root {
+  /* forest — primary / depth / bezel */
+  --forest: #2e4a3a;
+  --forest-700: #243c2e;
+  --forest-900: #192a20;
+  /* sage — secondary / filled stamp */
+  --sage: #c4ce8f;
+  --sage-600: #a7b36c;
+  --sage-100: #e8eccf;
+  /* blush — accent surface */
+  --blush: #f1ccd5;
+  --blush-200: #f9e4ea;
+  --blush-600: #dba0af;
+  /* surfaces */
+  --cream: #f8f3e8;
+  --paper: #fbf8f0;
+  /* terra — accent, sparingly */
+  --terra: #c76e44;
+  --terra-600: #af5a33;
+  --espresso: #3e2a1e;
+  /* text + hairline */
+  --ink: #243029;
+  --ink-soft: #566054;
+  --line: rgba(36, 48, 41, 0.12);
+
+  /* type families (Google Fonts; local fallbacks shipped) */
+  --serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --sans: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}

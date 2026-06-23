@@ -1,0 +1,89 @@
+/* Ckyka Rewards — base reset, app shell layout, shared utilities + backgrounds.
+   These are the truly-global pieces every screen sits on. Component-specific
+   styles live with their components, not here. */
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+body {
+  font-family: var(--sans);
+  color: var(--ink);
+  /* neutral field around the centered phone-width column (matches the mock) */
+  background: #e7e2d6;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+a {
+  color: inherit;
+}
+
+/* Visible keyboard focus everywhere (quality floor). Components may override
+   with a tighter ring, but nothing should be focusable without an indicator. */
+:focus-visible {
+  outline: 3px solid var(--terra);
+  outline-offset: 3px;
+}
+
+/* ---- full-screen app shell ------------------------------------------------
+   The real app is a full-bleed responsive web view. `.screen` = one view,
+   phone-width, centered on desktop, ~24px gutters (in `.screen-pad`). */
+.screen {
+  position: relative;
+  max-width: 430px;
+  min-height: 100dvh;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  background: var(--paper);
+}
+.screen-pad {
+  padding: 24px;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* small shared utilities (used across views) */
+.on-dark {
+  color: var(--cream);
+}
+.center {
+  text-align: center;
+}
+.spacer {
+  flex: 1 1 auto;
+}
+.stack-sm > * + * {
+  margin-top: 9px;
+}
+
+/* background treatments (exact mock gradients) */
+.bg-forest {
+  background: linear-gradient(170deg, #34543f, #223a2c);
+  color: var(--cream);
+}
+.bg-blush {
+  background: linear-gradient(180deg, var(--blush-200), var(--blush));
+}
+.bg-sage {
+  background: linear-gradient(180deg, var(--sage-100), #dfe7c4);
+}
+.bg-cream {
+  background: var(--paper);
+}
+.bg-white {
+  background: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

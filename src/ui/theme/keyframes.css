@@ -1,0 +1,24 @@
+/* Ckyka Rewards — shared keyframes. Kept central because more than one component
+   references them (the reward banner sweep, the scanner laser). Components that
+   own a one-off animation keep it in their own stylesheet. */
+
+@keyframes sweep {
+  0%,
+  55% {
+    transform: translateX(-120%);
+  }
+  80%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes scan {
+  0%,
+  100% {
+    top: 24%;
+  }
+  50% {
+    top: 74%;
+  }
+}
