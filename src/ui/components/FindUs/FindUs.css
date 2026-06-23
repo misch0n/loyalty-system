@@ -64,16 +64,18 @@
   pointer-events: none; /* taps fall through to the wrapping link → open in Maps */
 }
 
-/* "Contact us" rendered as a section title, offset from the map. */
+/* "Contact us" rendered as a section title, offset from the map and centred. */
 .findus-contact-title {
   margin-bottom: 10px;
+  text-align: center;
 }
 
-/* Email + Instagram on one line, as underlined text links. */
+/* Email + Instagram on one line, centred, as underlined text links. */
 .findus-links {
   display: flex;
   gap: 26px;
   align-items: center;
+  justify-content: center;
 }
 .findus-link {
   font-family: var(--sans);
