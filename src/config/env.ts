@@ -58,10 +58,10 @@ export const isEmailConfigured: boolean = Boolean(
 
 /**
  * Google Place ID for the post-redemption "leave a review" deep link (B4).
- * Build-time injected; empty until configured (the prompt still renders for the
- * demo, but the link won't resolve without an id).
+ * Defaults to the café's real Place ID; overridable at build time.
  */
-export const googlePlaceId: string = import.meta.env.VITE_GOOGLE_PLACE_ID ?? '';
+export const googlePlaceId: string =
+  import.meta.env.VITE_GOOGLE_PLACE_ID || 'ChIJk_kwFsWFqkARDZkg8CtQ2mA';
 
 /**
  * ICE servers for the PeerJS WebRTC transport. STUN is always present (public,

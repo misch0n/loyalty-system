@@ -8,7 +8,7 @@ import { NavLink, Link, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useSession } from './SessionContext';
 import { PrototypeMenu } from './PrototypeMenu';
-import { cafeMapUrl, cafeContactEmail } from '../../config/cafe';
+import { cafeMapUrl, cafeContactEmail, cafeName, cafeAddress } from '../../config/cafe';
 
 function NavTab({ to, children }: { to: string; children: ReactNode }) {
   return (
@@ -76,8 +76,8 @@ export function Layout({ children }: { children: ReactNode }) {
 
       <footer className="app-footer">
         <p className="footer-links">
-          <a href={cafeMapUrl} target="_blank" rel="noopener noreferrer">
-            Find us
+          <a href={cafeMapUrl} target="_blank" rel="noopener noreferrer" title={cafeAddress}>
+            Find {cafeName}
           </a>
           <span aria-hidden="true"> · </span>
           <a href={`mailto:${cafeContactEmail}`}>Contact</a>
