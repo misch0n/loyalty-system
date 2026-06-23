@@ -208,11 +208,12 @@ export function CardMenu({ open, onClose, customer, saved, onSavedChange, token 
         <div className="card-confirm danger">
           <p className="card-confirm-msg">
             You are about to PERMANENTLY delete both your card and your data. This action cannot be
-            undone. Hold the button if you are certain.
+            undone.
           </p>
           <HoldButton holdMs={HOLD_MS} disabled={busy} onConfirm={() => void deleteCard()}>
             DELETE
           </HoldButton>
+          <p className="card-confirm-fine">hold button if you are certain</p>
           <button type="button" className="card-confirm-cancel" onClick={() => setMode('menu')}>
             Keep my card
           </button>
