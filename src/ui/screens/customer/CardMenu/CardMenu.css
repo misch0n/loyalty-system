@@ -1,0 +1,12 @@
+/* CardMenu — screen-specific layout (Ckyka reference view 07). */
+
+.card-menu-error {
+  color: var(--terra, #b4533a);
+  font-size: 12.5px;
+  margin: 0 0 8px;
+  padding: 0 4px;
+}
+
+.card-menu-context {
+  margin-top: 14px;
+}

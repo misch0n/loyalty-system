@@ -1,0 +1,49 @@
+/* Card — screen-specific layout (Ckyka reference views 04 + 05). */
+
+.card-topline {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-eyebrow {
+  flex: 1;
+}
+
+/* Discreet gesture mark tucked into the header corner. */
+.card-gesture {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.4;
+}
+
+.card-gap {
+  height: 14px;
+}
+
+.card-banner {
+  margin: 10px 0 4px;
+}
+
+.card-missing-actions {
+  margin-top: 24px;
+}
+
+/* Loading skeleton sized like the card. */
+.card-skeleton {
+  margin-top: 28px;
+  height: 360px;
+  border-radius: 24px;
+  background: linear-gradient(110deg, #ffffff22, #ffffff44, #ffffff22);
+  background-size: 200% 100%;
+  animation: sweep 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-skeleton {
+    animation: none;
+  }
+}

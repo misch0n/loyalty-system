@@ -1,0 +1,48 @@
+/* LostCard — screen-specific layout (Ckyka reference view 03). */
+
+.lost-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.lost-back {
+  align-self: flex-start;
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+  text-decoration: none;
+  width: auto;
+}
+
+.lost-sent {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin: 4px 0 0;
+}
+
+.lost-form-error {
+  color: var(--terra, #b4533a);
+  font-size: 12.5px;
+  margin: -4px 0 12px;
+}
+
+.lost-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 0 16px;
+}
+.lost-or-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.lost-or-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}

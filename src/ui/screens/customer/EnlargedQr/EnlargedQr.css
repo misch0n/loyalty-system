@@ -1,0 +1,34 @@
+/* EnlargedQr — screen-specific layout (Ckyka reference view 06). */
+
+.qr-enlarge .enlarged-qr-img {
+  width: min(74vw, 260px);
+  height: auto;
+  aspect-ratio: 1;
+}
+
+.qr-enlarge .enlarged-qr-placeholder {
+  background: #f1ede4;
+  border-radius: 12px;
+}
+
+.enlarged-qr-wallet-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+}
+
+.enlarged-qr-error {
+  color: var(--terra, #b4533a);
+  font-size: 12.5px;
+  margin: 0;
+}
+
+.enlarged-qr-caveat {
+  font-size: 11px;
+  color: var(--ink-soft);
+  max-width: 30ch;
+  text-align: center;
+  margin: 2px 0 0;
+}

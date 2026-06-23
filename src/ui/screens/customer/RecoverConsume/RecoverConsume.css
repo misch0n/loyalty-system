@@ -1,0 +1,11 @@
+/* RecoverConsume — screen-specific layout (Ckyka recovery landing). */
+
+.recover-head {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+
+.recover-actions {
+  margin-top: 24px;
+}
