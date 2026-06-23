@@ -55,7 +55,7 @@ Points live in an **append-only ledger**. Balance and "reward available" are
 | **Self-service registration** | PRIMARY path: customer visits `/register`, creates their own card in one step — remembered on the browser via `IdentityStore`. No approval queue, no staff involvement. Recovery tier disclosed at registration (email → self-recovery link; name-only → staff best-effort; neither → not recoverable). |
 | **Staff-initiated registration** | SECONDARY path: staff start a card over real PeerJS; customer joins on their own device. Duplicate details **warn before** a second card is created. |
 | **Auto-provision on scan** | Scanning an unknown-but-valid token creates a token-only card on the staff device so accrual can proceed immediately. Staff still initiates the credit. |
-| **Loyalty accrual** | Staff scan → see customer state → add points (default `pointsPerPurchase`, **capped** at `maxPointsPerTransaction`). Appends an `accrual` + audit entry. Sends a best-effort reward-available email on threshold crossing (when customer has an email). |
+| **Loyalty accrual** | Staff scan → see customer state → add points (default `pointsPerPurchase`, **capped** at `maxPointsPerTransaction`). Appends an `accrual` + audit entry. Sends a best-effort reward-available email on threshold crossing (when customer has an email). Seed threshold: **10 coffees** (`pointsPerReward: 10`). |
 | **Redemption** | Staff redeem when balance ≥ threshold. **Atomic** check-and-write — no double-spend. |
 | **Self-service recovery** | Customer visits `/lost`, enters their registered email → single-use link (15-min expiry) via EmailJS → opening the link re-establishes identity on the browser. Token-only customers remain unrecoverable by design. Uniform response (no account enumeration). |
 | **Staff recovery / reissue** | Staff find customer by name/email/phone; reissue with a rotated token (default) or keep it. |
@@ -68,13 +68,13 @@ Points live in an **append-only ledger**. Balance and "reward available" are
 | **Admin — audit log** | Filterable, append-only staff-attributed action trail (no PII). |
 | **Admin — alerts** | Suspicious-activity alerts surfaced from `LoyaltyService.getAlerts()`. |
 | **Backup** | JSON export/import (behind the same `DataStore` port). |
-| **Wallet — WalletProvider seam** | `src/ports/WalletProvider.ts` (`ensurePass`, `pushUpdate`). Proto adapter: `StaticWalletProvider` links to pre-generated walletwallet.dev passes (`wallet/passes.ts`; `pushUpdate` is no-op — static snapshot). Prod placeholder: `ServerWalletProvider` (throws). Selected by `VITE_WALLET` env flag (default `static`). Wallet button lives inside the **enlarged-QR overlay** (`EnlargedQrOverlay`), OS-aware (iOS → Apple, Android → Google), mobile-only. |
-| **Card view (customer hub)** | A recognized customer lands directly on `/card/:token` — no home dashboard. `EnlargedQrOverlay` provides the full-screen QR + wallet button. Card "⋯" menu provides self-delete. |
+| **Wallet — WalletProvider seam** | `src/ports/WalletProvider.ts` (`ensurePass`, `pushUpdate`). Proto adapter: `StaticWalletProvider` links to pre-generated walletwallet.dev passes (`wallet/passes.ts`; `pushUpdate` is no-op — static snapshot). Prod placeholder: `ServerWalletProvider` (throws). Selected by `VITE_WALLET` env flag (default `static`). Wallet button lives inside the **enlarged-QR overlay** (`src/ui/screens/customer/EnlargedQr/EnlargedQr.tsx`), OS-aware (iOS → Apple, Android → Google), mobile-only. |
+| **Card view (customer hub)** | A recognized customer lands directly on `/card/:token` — no home dashboard. `EnlargedQr` overlay provides the full-screen QR + wallet button. Card "⋯" menu (`CardMenu`) provides self-delete. The "Gold" tier pill is decorative (v1 has no tiers). |
 | **Welcome** | Shown to unrecognized visitors only. Carries **Find us** (location/hours) below the fold. |
 | **Reset device** | `Services.reset()` drops the `cafe-loyalty` IndexedDB database and clears storage keys so a workflow can be rerun from a clean device state. Prototype-only. |
 | **Device pairing (prototype)** | Every device defaults to hosting. Scanning another device's pairing QR (accessed via the **Prototype panel** — logo tap) makes this device a customer of that till. The till accepts many customer devices simultaneously. Unpairing sends `{ t: 'unpair' }` to all peers; each resumes hosting. `/pair` is scan-only (`?host=` auto-joins). |
-| **Prototype panel** | `src/ui/screens/proto/ProtoPanel.tsx` (build-flag gated, non-production). Opened by **tapping the logo** in the shell. Hosts pairing QR/scan/unpair/reset/sign-in/demo-cards. Replaces old header `PrototypeMenu`. |
-| **Logo gestures** | Tap logo → Prototype panel. Long-press ≥600ms → staff/admin sign-in. Keyboard path also provided in Shell. |
+| **Prototype panel** | `src/ui/screens/proto/ProtoPanel/ProtoPanel.tsx` (build-flag gated, non-production). Opened by **tapping the right half** of the `LogoGestures` mark. Hosts pairing QR/scan/unpair/reset/sign-in/demo-cards. Replaces old header `PrototypeMenu`. |
+| **Logo gestures** | `LogoGestures` (`src/ui/app/LogoGestures.tsx`) — tap left half → home; tap right half → Prototype panel (gated on `isPrototype`, not `import.meta.env.PROD`); long-press ≥600ms → staff/admin sign-in. Visually-hidden keyboard path to sign-in. No global "Staff sign-in" subtitle. |
 | **Card QR = card URL (B2)** | The card QR encodes the full card-page URL. `tokenFromCardScan()` extracts the token; bare tokens still accepted. No PII in the URL. |
 | **Family / couples sharing (B7)** | Opening the card URL or QR on a second device shows that card without overwriting either device's saved card. Balance pools naturally (one ledger, one token). No feature code needed. |
 
@@ -89,10 +89,11 @@ talks only to services; services orchestrate the pure domain against interfaces
 ```mermaid
 flowchart TB
     subgraph ui["ui/ · React screens"]
-        APP["app/ · Shell · AuthContext · EntryResolver · routes"]
-        KIT["kit/ · presentational components (Button, Card, CupStamps…)"]
-        SCR["screens/{customer,staff,admin,proto}/"]
+        APP["app/ · LogoGestures · AuthContext · EntryResolver · routes"]
+        KIT["components/<Name>/ · Logo · Heading · Button · Field · CupStamps · LoyaltyCard · Qr · Overlay · Toast · PinPad · Slider · Sheet · ContextBanner"]
+        SCR["screens/<area>/<Screen>/ · customer · staff · admin · proto"]
         CMN["common/ · ServicesContext · PairingContext · QrDisplay · QrScanner · PairDevices"]:::proto
+        THM["theme/ · tokens.css · base.css · keyframes.css"]
     end
 
     subgraph services["services/ · orchestration"]
@@ -334,23 +335,41 @@ src/
 │   └── passes.ts          # PRESET_CARD_TOKENS, PASS_SERIALS, passSerialForToken, walletPassUrl,
 │                          #   detectWalletKind — walletwallet.dev integration (prototype)
 └── ui/
-    ├── theme.css          # design tokens (forest/sage/blush/cream/terra), Fraunces/DM Sans/DM Mono
-    ├── app/               # Shell (logo gestures), AuthContext (PIN session + inactivity lock),
-    │                      #   EntryResolver (entry routing), routes.ts
-    ├── kit/               # presentational components: Button, Card, CupStamps, Field, ConsentRow,
-    │                      #   Sheet, Overlay, PointsSlider, CustomerChip, PinPad, Stat, ActivityRow,
-    │                      #   AlertRow, Banner, Toast/ToastProvider/useToast, ScanFrame,
-    │                      #   ProtoDrawer, Eyebrow, Pills — barrel: kit/index.ts
-    ├── screens/
-    │   ├── customer/      # Welcome (+ Find us), Register, LostCard, RecoverConsume,
-    │   │                  #   CardView (hub), EnlargedQrOverlay (QR + wallet button), CardMenu
-    │   ├── staff/         # StaffLogin, StaffUnlock (PIN re-auth), StaffPanel, ScanWorkflow
-    │   ├── admin/         # AdminHome (tabbed: ThisWeekSection, ProgramSection, StaffSection,
-    │   │                  #   ActivityLogSection, AlertsSection), StepUpSheet
-    │   └── proto/         # ProtoPanel (logo-tap, build-flag gated)
+    ├── theme/             # design system slices (no monolith)
+    │   ├── tokens.css     #   design tokens: forest/sage/blush/cream/terra palette,
+    │   │                  #   Fraunces/DM Sans/DM Mono fonts, spacing, touch targets
+    │   ├── base.css       #   reset, .screen shell, utilities, bg-* gradients,
+    │   │                  #   focus-visible ring, reduced-motion, .card-hint
+    │   ├── keyframes.css  #   animation keyframes
+    │   └── index.css      #   single import entry point (used in main.tsx)
+    ├── components/        # shared presentational components — folder-per-component
+    │   │                  #   each: <Name>.tsx + <Name>.css + <Name>.test.tsx
+    │   ├── Logo/          # cup+sunburst mark + lockup
+    │   ├── Heading/       # Eyebrow / Title / Sub
+    │   ├── Button/        # Button + WalletButton
+    │   ├── Field/         # text input; Consent toggle
+    │   ├── CupStamps/     # stamp progress row
+    │   ├── LoyaltyCard/   # centerpiece card (centerpiece; "Gold" pill is decorative v1)
+    │   ├── Qr/            # real QR on cream tile
+    │   ├── Overlay/       # enlarged-QR overlay
+    │   ├── Toast/         # toast notifications
+    │   ├── PinPad/        # numeric PIN pad
+    │   ├── Slider/        # PointsSlider
+    │   ├── Sheet/         # bottom sheet + MenuRow + RecoveryLine
+    │   └── ContextBanner/ # pairing / session context strip
+    ├── app/               # LogoGestures, AuthContext (PIN session + inactivity lock),
+    │                      #   EntryResolver (entry routing), routes.ts, session.ts
+    ├── screens/           # folder-per-screen: <Screen>.tsx + <Screen>.css + <Screen>.test.tsx
+    │   ├── customer/      # Welcome/ (+ Find us), Register/, LostCard/, RecoverConsume/,
+    │   │                  #   Card/ (hub), EnlargedQr/ (QR + wallet button), CardMenu/
+    │   ├── staff/         # Login/, Unlock/ (PIN re-auth), Panel/, Scan/
+    │   │                  #   _parts/: TopBar/ ScanView/ CustChip/ StateLabel/
+    │   ├── admin/         # Admin/ (tabbed); _parts/: Stat/ FeedRow/ Alert/ StepUp/
+    │   └── proto/         # ProtoPanel/ (logo-tap right-half, build-flag gated)
     └── common/            # ServicesContext, PairingContext/usePairing, QrDisplay, QrScanner,
                            #   PrivacyNotice, PairDevices
-tests/                     # Vitest: domain, service, adapter, qr, wallet, config (247 passing)
+tests/                     # Vitest: domain, service, adapter, qr, wallet, config, ui/app/session
+e2e/                       # Puppeteer smoke suite (headless Chrome, drives built app)
 .env.example               # documents required build-time secrets
 .github/workflows/deploy.yml   # build + test + deploy (injects secrets at build time)
 ```
@@ -405,8 +424,10 @@ is dropped entirely.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 247 unit tests (Vitest)
+npm test           # 341 unit/component tests (Vitest — includes src/ui/**/*.test.tsx)
 npm run build      # static output in dist/
+npm run preview    # serve dist/ locally (required for e2e)
+npm run e2e          # browser UI regression suite (Puppeteer headless Chrome: builds, serves, runs)
 npm run typecheck  # strict TS, no emit
 ```
 
@@ -425,7 +446,7 @@ can pair to the same till simultaneously. State reflects live on all paired
 devices. Use "Reset this device" (also in the Prototype panel) to rerun a workflow
 from a clean state.
 
-Sign in as staff/admin: PIN `4321` (admin) or `1234` (staff) via the long-press logo gesture or the Prototype panel. Username/password (`admin / admin`, `staff / staff`) also accepted.
+Sign in as staff/admin: PIN `4321` (admin) or `1234` (staff) via the long-press `LogoGestures` mark or the Prototype panel. Username/password (`admin / admin`, `staff / staff`) also accepted. Reward threshold is 10 coffees (configurable via Admin → Program).
 
 ### Deployment
 Pushing to `main` runs [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml):

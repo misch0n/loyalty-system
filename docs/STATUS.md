@@ -5,7 +5,7 @@
 > [`SPEC.md`](SPEC.md); working rules in [`../CLAUDE.md`](../CLAUDE.md).
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 
-**Last updated:** 2026-06-23 (Frontend rebuilt to Ckyka Rewards design: new UI structure `src/ui/{app,kit,screens}`, WalletProvider seam, PIN/session auth, suspicious-activity alerts, customer self-delete, admin alerts tab) · **Phase:** v1 prototype — feature-complete against SPEC §15 (Appendix A implemented) + Appendix B partially implemented (B1–B3, B6 partial via Welcome, B7 documented; B4 and B5 dropped, B6 remainder deferred).
+**Last updated:** 2026-06-23 (Ckyka reference-UI rebuild: entire `src/ui/` presentation replaced to match approved pixel reference; new folder-per-unit structure `src/ui/{theme/,components/<Name>/,screens/<area>/<Screen>/,app/,common/}`; Shell replaced by `LogoGestures`; reward threshold now 10; co-located component/screen tests + Puppeteer e2e suite added) · **Phase:** v1 prototype — feature-complete against SPEC §15 (Appendix A implemented) + Appendix B partially implemented (B1–B3, B6 partial via Welcome, B7 documented; B4 and B5 dropped, B6 remainder deferred).
 
 ---
 
@@ -14,44 +14,47 @@
 - React + TypeScript + Vite SPA, IndexedDB storage, deployed to GitHub Pages.
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
-- **247 unit tests** passing (`npm test`); strict typecheck + production build green.
+- **341 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
+- **Puppeteer e2e suite** (`e2e/`, run with `npm run e2e`) drives the built app in headless Chrome: welcome, register→card, staff PIN, prototype panel, and the reference bug-list regressions (13 checks).
 - CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`,
   `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets) → deploys on push to `main`.
 - Five swappable seams: `DataStore`, `Transport`, `Mailer`, `IdentityStore`, `WalletProvider`.
 - Prototype device-pairing layer in `src/adapters/sync/` (dropped in production).
-- UI rebuilt to "Ckyka Rewards" design system (`src/ui/theme.css` tokens, `src/ui/kit/` component kit, `src/ui/{app,screens}/` structure).
+- UI rebuilt to Ckyka reference design: `src/ui/theme/` (token slices), `src/ui/components/<Name>/` (folder-per-component), `src/ui/screens/<area>/<Screen>/` (folder-per-screen), `src/ui/app/` (AuthContext, EntryResolver, routes, LogoGestures), `src/ui/common/` (logic contexts).
 
 ## Acceptance criteria (SPEC §15)
 
 | Criterion | State | Where |
 |---|---|---|
-| Staff/admin login + role gating | ✅ | `services/StaffService.ts`, `ui/app/AuthContext.tsx`, `ui/screens/staff/StaffLogin.tsx` — PIN (seed: admin `4321` / staff `1234`) or username/password; staff guard via `useStaffGuard` inside screens |
-| Self-service registration (primary path); no approval queue | ✅ | `ui/screens/customer/Register.tsx`, `CustomerService.selfRegister`, `adapters/identity/LocalStorageIdentityStore.ts` |
-| Staff-initiated registration over real PeerJS (secondary path); duplicate warning | ✅ | `ui/screens/staff/ScanWorkflow.tsx`, `adapters/transport/PeerTransport.ts` |
+| Staff/admin login + role gating | ✅ | `services/StaffService.ts`, `ui/app/AuthContext.tsx`, `ui/screens/staff/Login/Login.tsx` — PIN (seed: admin `4321` / staff `1234`) or username/password; staff guard via `useStaffGuard` inside screens |
+| Self-service registration (primary path); no approval queue | ✅ | `ui/screens/customer/Register/Register.tsx`, `CustomerService.selfRegister`, `adapters/identity/LocalStorageIdentityStore.ts` |
+| Staff-initiated registration over real PeerJS (secondary path); duplicate warning | ✅ | `ui/screens/staff/Scan/Scan.tsx`, `adapters/transport/PeerTransport.ts` |
 | No single-browser / dual-pane simulation | ✅ (LocalBridgeTransport removed) | `adapters/transport/` |
 | Optional-PII and token-only registration | ✅ | `services/CustomerService.ts`, `domain/validation.ts` |
 | Auto-provision on scan (unknown valid token → token-only card) | ✅ | `CustomerService.provisionFromToken`, `ui/screens/staff/ScanWorkflow.tsx` |
 | Accrual respects cap; append-only ledger; derived balance | ✅ | `services/LoyaltyService.ts`, `domain/loyalty.ts` |
 | Reward-available email on threshold crossing (best-effort) | ✅ | `LoyaltyService.accrue` → `Mailer` |
 | Atomic redemption (no double-spend) | ✅ | `adapters/storage/IndexedDbStore.ts` (`redeemReward`) |
-| Self-service recovery via single-use expiring link (EmailJS) | ✅ impl; needs live verification | `services/RecoveryService.ts`, `ui/screens/customer/LostCard.tsx`, `ui/screens/customer/RecoverConsume.tsx`, `adapters/email/EmailJsMailer.ts` |
-| Staff recovery / reissue; token-only unrecoverable | ✅ | `ui/screens/staff/StaffPanel.tsx`, `CustomerService.reissue` |
+| Self-service recovery via single-use expiring link (EmailJS) | ✅ impl; needs live verification | `services/RecoveryService.ts`, `ui/screens/customer/LostCard/LostCard.tsx`, `ui/screens/customer/RecoverConsume/RecoverConsume.tsx`, `adapters/email/EmailJsMailer.ts` |
+| Staff recovery / reissue; token-only unrecoverable | ✅ | `ui/screens/staff/Panel/Panel.tsx`, `CustomerService.reissue` |
 | Correction/reversal, logged | ✅ | `LoyaltyService.reverse` |
-| Deletion/opt-out — customer self-delete from card menu; staff-confirmed also available | ✅ | `CustomerService.selfDelete(token)` ← `ui/screens/customer/CardMenu.tsx`; `IndexedDbStore.softDeleteCustomer` |
-| Admin: staff CRUD (+ PIN create/set + "Sign out all devices"), config (step-up PIN re-auth on save), stats, audit viewer, alerts | ✅ | `ui/screens/admin/AdminHome.tsx` and section files |
+| Deletion/opt-out — customer self-delete from card menu; staff-confirmed also available | ✅ | `CustomerService.selfDelete(token)` ← `ui/screens/customer/CardMenu/CardMenu.tsx`; `IndexedDbStore.softDeleteCustomer` |
+| Admin: staff CRUD (+ PIN create/set + "Sign out all devices"), config (step-up PIN re-auth on save), stats, audit viewer, alerts | ✅ | `ui/screens/admin/Admin/Admin.tsx` and `ui/screens/admin/_parts/` |
 | Staff/admin session never auto-displays customer card (entry routing) | ✅ | `ui/app/EntryResolver.tsx` — trusted staff+active→`/staff`; remembered card→`/card/:token`; else→`/welcome` |
-| Inactivity lock (5 min) → PIN re-auth at `/staff/unlock` | ✅ | `ui/app/AuthContext.tsx`, `ui/screens/staff/StaffUnlock.tsx`, `StaffService.loginWithPin` |
+| Inactivity lock (5 min) → PIN re-auth at `/staff/unlock` | ✅ | `ui/app/AuthContext.tsx`, `ui/screens/staff/Unlock/Unlock.tsx`, `StaffService.loginWithPin` |
 | Epoch-based "Sign out all devices" revocation | ✅ | `StaffService.revokeAllSessions`, `ProgramConfig.sessionEpoch` |
-| Suspicious-activity alerts (velocity, repeat-target, off-hours, etc.) — monitoring only | ✅ | `domain/alerts.ts`, `LoyaltyService.getAlerts()`, `ui/screens/admin/AlertsSection.tsx` |
-| WalletProvider seam; OS-detected wallet button inside enlarged-QR overlay; links to walletwallet.dev pre-generated passes | ✅ | `ports/WalletProvider.ts`, `adapters/wallet/StaticWalletProvider.ts`, `ui/screens/customer/EnlargedQrOverlay.tsx`, `wallet/passes.ts` |
+| Suspicious-activity alerts (velocity, repeat-target, off-hours, etc.) — monitoring only | ✅ | `domain/alerts.ts`, `LoyaltyService.getAlerts()`, `ui/screens/admin/_parts/Alert/Alert.tsx` |
+| WalletProvider seam; OS-detected wallet button inside enlarged-QR overlay; links to walletwallet.dev pre-generated passes | ✅ | `ports/WalletProvider.ts`, `adapters/wallet/StaticWalletProvider.ts`, `ui/screens/customer/EnlargedQr/EnlargedQr.tsx`, `wallet/passes.ts` |
 | Storage behind `DataStore`; Transport behind `Transport`; Email behind `Mailer`; Identity behind `IdentityStore`; Wallet behind `WalletProvider` — swap = no UI/service change | ✅ | `ports/`, `adapters/`, `services/Services.ts` |
 | Two-device demo over PeerJS + TURN (real cross-device, not simulated) | ✅ impl; cellular verification = manual live-demo step | `adapters/transport/PeerTransport.ts`, `config/env.ts` |
 | Device pairing — one till hosts many customers; live DataStore sync across all devices | ✅ prototype-only (see divergences e, f) | `adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` — all devices host by default; scanning a till's QR (from Prototype panel, logo tap) makes the scanning device a customer; first pair routes till → `/staff`, customer → `/welcome`; unpair signals all peers and each resumes hosting |
-| Domain unit-tested; file tree matches SPEC §12 | ✅ (new UI layout diverges from SPEC §12 — see divergence g) | `tests/`, domain + services match |
+| Domain unit-tested; file tree matches SPEC §12 | ✅ (new UI layout diverges from SPEC §12 — see divergences g, k) | `tests/`, domain + services match |
 | Adapters/transports/services unit-tested (regression cover) | ✅ | `tests/adapters/*`, `tests/services/*`, `tests/qr/*`, `tests/domain/alerts.test.ts`, `tests/adapters/wallet/*` |
-| **B1** Device persistence — remember/forget exactly one card; no auto-save on view; registration toggle | ✅ | `ui/screens/customer/CardView.tsx`, `ui/screens/customer/Register.tsx` |
-| **B2** Card QR encodes card-page URL; `tokenFromCardScan()` extracts token; bare tokens still accepted | ✅ | `qr/encode.ts` (`cardPayload`, `tokenFromCardScan`), `ui/screens/staff/ScanWorkflow.tsx` |
-| **B3** Recovery-tier disclosure at signup | ✅ | `ui/screens/customer/Register.tsx` |
+| Co-located component/screen tests (Vitest, jsdom) | ✅ | `src/ui/components/**/*.test.tsx`, `src/ui/screens/**/*.test.tsx` — included via `vite.config.ts` `test.include` |
+| Browser-level end-to-end smoke | ✅ impl (manual) | `e2e/*.e2e.ts` (Puppeteer, headless Chrome) via `npm run e2e` — 13 checks across welcome/card/staff/prototype/regression |
+| **B1** Device persistence — remember/forget exactly one card; no auto-save on view; registration toggle | ✅ | `ui/screens/customer/Card/Card.tsx`, `ui/screens/customer/Register/Register.tsx` |
+| **B2** Card QR encodes card-page URL; `tokenFromCardScan()` extracts token; bare tokens still accepted | ✅ | `qr/encode.ts` (`cardPayload`, `tokenFromCardScan`), `ui/screens/staff/Scan/Scan.tsx` |
+| **B3** Recovery-tier disclosure at signup | ✅ | `ui/screens/customer/Register/Register.tsx` |
 | **B4** Post-first-redemption review prompt; dismissible; once per device; deep-links Google write-review; no sentiment gating | ❌ dropped in the Ckyka rebuild (not in the new UI spec); the old `ReviewPrompt` was removed with the old screens — re-add if wanted | was: `ui/customer/ReviewPrompt.tsx` |
 | **B5** Own-card photo | ❌ explicitly dropped (out of scope per requester) | — |
 | **B6** Footer / Find us | ✅ partial — "Find us" (location/hours) on Welcome screen below the fold; café details in `config/cafe.ts`. Light/dark mode, progressive card animations, menu page intentionally not built. | `ui/screens/customer/Welcome.tsx`, `config/cafe.ts` |
@@ -64,12 +67,12 @@
   → hashed server-side. `AuthContext` (`ui/app/AuthContext.tsx`) manages the active
   session: "remember this device" flag, 5-minute inactivity lock, epoch-based
   revocation. PIN is never logged.
-- **Prototype panel** (`ui/screens/proto/ProtoPanel.tsx`) is opened by tapping the
-  **right half** of the shell logo (the left half goes home; long-press → staff
-  sign-in). Gated on `isPrototype` (env.ts) — i.e. the local adapter selection,
-  NOT `import.meta.env.PROD`: the deployed GitHub Pages demo is itself a
-  production `vite build`, so gating on `PROD` previously hid the panel on the
-  very deployment that needs it. Hosts demo scaffolding: Pair/Unpair, Reset this
+- **Prototype panel** (`ui/screens/proto/ProtoPanel/ProtoPanel.tsx`) is opened by
+  tapping the **right half** of the `LogoGestures` mark (the left half goes home;
+  long-press → staff sign-in). Gated on `isPrototype` (env.ts) — i.e. the local
+  adapter selection, NOT `import.meta.env.PROD`: the deployed GitHub Pages demo is
+  itself a production `vite build`, so gating on `PROD` previously hid the panel on
+  the very deployment that needs it. Hosts demo scaffolding: Pair/Unpair, Reset this
   device, sign-in shortcut, demo cards. Replaces the old header `PrototypeMenu`.
   Prototype-only; dropped from a real server-backed build.
 - **Reset device** (`Services.reset()` → `IndexedDbStore.close()`) closes and
@@ -111,8 +114,8 @@
 
 ## Test coverage
 
-`npm test` runs **247 Vitest unit tests** covering every non-UI module (plus the
-pure staff/admin session logic extracted from `AuthContext`):
+`npm test` runs **341 Vitest unit/component tests** (includes co-located
+`src/ui/**/*.test.tsx` via the extended `test.include` in `vite.config.ts`):
 
 - **domain/** — `loyalty`, `tokens`, `validation` (pure logic), `alerts`
   (velocity, repeat-target, off-hours, outlier-share, earn-then-redeem, oversized
@@ -134,19 +137,22 @@ pure staff/admin session logic extracted from `AuthContext`):
 - **ui/app/** — `session` (`tests/ui/app/session.test.ts`): the pure session
   decision logic from `AuthContext` — `parseSession` validation, `reconcile`
   (epoch revocation, idle→locked for trusted vs anon for ephemeral), `isIdle`
-  boundary.
+  boundary. `LogoGestures` (`src/ui/app/LogoGestures.test.tsx`).
+- **ui/components/** — co-located tests for each shared component: Logo, Heading,
+  Button, Field, CupStamps, Sheet, Qr, Overlay, Toast, PinPad, LoyaltyCard,
+  Slider, ContextBanner.
+- **ui/screens/** — co-located tests for each screen: Welcome, Register, LostCard,
+  RecoverConsume, Card, CardMenu (customer); Login, Unlock, Panel, Scan + TopBar,
+  ScanView, CustChip, StateLabel _parts (staff); Admin (admin); ProtoPanel (proto).
 - **qr/** (`encode` — incl. `cardPayload` URL format and `tokenFromCardScan`,
   `scan` with html5-qrcode mocked), **wallet/** (`passes.test.ts` — preset
   tokens, serial lookup, URL construction, OS detection),
   **config/** (`env` flag mapping incl. `googlePlaceId`, `walletKind`, `links.ts` URL building).
 
-The **React `ui/` components themselves are intentionally not unit-tested**: the
-SPEC's testing bar is the pure domain + core service logic, and adding a component
-test framework would mean new dependencies (CLAUDE.md: don't add deps the spec
-didn't call for). The one exception is the security-relevant staff/admin session
-logic, which is deliberately extracted into the pure `src/ui/app/session.ts` so it
-can be unit-tested without a React test harness. UI components are verified
-manually against the acceptance criteria.
+**End-to-end layer:** `e2e/` (Puppeteer, headless Chrome, `npm run e2e`) drives the
+built app — runs against `npm run preview`. Not part of `npm test`; run manually
+or in CI as a separate step. Catches regressions at the rendered-DOM level that
+unit tests cannot.
 
 ## Conventions worth knowing before editing
 
@@ -165,21 +171,35 @@ manually against the acceptance criteria.
   `import.meta.env` directly.
 - `src/config/cafe.ts` holds static café public details (name, address, Maps URL,
   contact email). Use it in UI rather than hard-coding strings.
-- **UI design system:** `src/ui/theme.css` defines all design tokens (forest/sage/
-  blush/cream/terra palette, Fraunces/DM Sans/DM Mono fonts, 44px touch targets,
-  focus-visible ring, reduced-motion). Import order: `styles.css` first (legacy
-  common-component classes), then `theme.css` (tokens win on conflict).
-- **UI kit:** `src/ui/kit/` is the presentational component layer. Import from the
-  barrel `src/ui/kit/index.ts`. No business logic in kit components.
-- **UI structure:** app-level infra in `src/ui/app/` (Shell, AuthContext,
-  EntryResolver, routes); screens in `src/ui/screens/{customer,staff,admin,proto}/`;
-  shared prototype/pairing scaffolding in `src/ui/common/`.
+- **UI design system:** `src/ui/theme/` replaces the old monolith `src/ui/theme.css`.
+  Slices: `tokens.css` (design tokens — forest/sage/blush/cream/terra palette,
+  Fraunces/DM Sans/DM Mono fonts), `base.css` (reset, `.screen` shell, utilities,
+  `bg-*` gradients, focus-visible ring, reduced-motion, `card-hint`),
+  `keyframes.css`. All imported once via `src/ui/theme/index.css` in `main.tsx`.
+  No monolith; no `styles.css`. Tokens always win — import order is handled in
+  `index.css`.
+- **UI components:** `src/ui/components/<Name>/` — each shared presentational
+  component is its own folder (`Name.tsx` + `Name.css` + `Name.test.tsx`). No kit
+  barrel export; import directly from the component folder. No business logic in
+  components.
+- **UI structure:** app-level infra in `src/ui/app/` (AuthContext, EntryResolver,
+  routes, `LogoGestures` — the global shell chrome is gone; screens own their
+  headers). Screens in `src/ui/screens/<area>/<Screen>/` (folder-per-screen:
+  `Screen.tsx` + `Screen.css` + `Screen.test.tsx`); screen-scoped parts live in
+  their screen's `_parts/` sub-folder; only truly shared pieces live in
+  `src/ui/components/`. Shared prototype/pairing scaffolding in `src/ui/common/`.
 - **`AuthContext`** (`src/ui/app/AuthContext.tsx`) manages the staff/admin session:
   trusted vs. ephemeral device, inactivity lock, epoch revocation. Replaces the old
   `SessionContext`. Staff/admin guards use `useAuth` inside each screen — no
   `RequireAuth` wrapper component.
 - **Navigation:** no home dashboard for customers. Recognized customer → `/card/:token`
   directly. Unrecognized → `/welcome`. Entry routing is `EntryResolver` at `/`.
+  Logo gestures handled by `LogoGestures` (`src/ui/app/LogoGestures.tsx`): tap
+  left half → home, tap right half → Prototype panel (gated on `isPrototype`, not
+  `import.meta.env.PROD`), long-press ≥600ms → staff sign-in. There is no global
+  "Staff sign-in" subtitle in the shell (that bug is fixed).
+- **Reward threshold is 10** (`pointsPerReward: 10` in `adapters/storage/schema.ts`
+  seed). "The tenth coffee" earns the reward.
 
 ## Known gaps / not built (by design or deferred)
 
@@ -267,10 +287,23 @@ f. **Prototype UX scaffolding (ProtoPanel, Reset, pairing role, QR-in-panel).**
 
 g. **UI file layout diverges from SPEC §12.** SPEC §12 specifies
    `src/ui/{customer,staff,admin,auth}/` + `src/ui/common/`. The rebuilt frontend
-   uses `src/ui/{app,kit,screens/{customer,staff,admin,proto}}/` +
-   `src/ui/common/` (reduced). The domain, ports, adapters, and services layers are
-   unchanged. The divergence is UI-structure-only and does not affect the production
-   swap path. Recorded here; `docs/SPEC.md` is not edited.
+   (Ckyka reference-UI) uses `src/ui/{theme/,components/<Name>/,screens/<area>/<Screen>/,app/,common/}`.
+   The domain, ports, adapters, and services layers are unchanged. The divergence is
+   UI-structure-only and does not affect the production swap path. Recorded here;
+   `docs/SPEC.md` is not edited.
+
+k. **UI fully reskinned to the Ckyka reference bundle.** The entire `src/ui/`
+   presentation was replaced to match an approved pixel reference (12 styled view
+   files + donor `theme.css`). Behavior, wiring, and the backend layers are
+   unchanged. Removed: old `src/ui/kit/`, old flat `src/ui/screens/` files, old
+   `app/Shell`, monolith `src/ui/theme.css`, `src/styles.css`. The "Gold" tier pill
+   on the card is intentionally static — v1 has no tiers; it is decorative only.
+   Admin program-config edits and PIN changes use browser `prompt()` dialogs (the
+   reference design does not include full-sheet edit forms for these fields).
+   Demo state-jump in ProtoPanel is limited to preset reseeds; arbitrary point
+   manipulation is not surfaced.
+   Gesture anchor: the small cup+sunburst mark is present on the card, register,
+   and lost-card screens; `LogoGestures` attaches the tap/long-press handlers there.
 
 h. **WalletProvider pushUpdate is a no-op (prototype).** WalletWallet Free tier
    produces a static pass snapshot. `StaticWalletProvider.pushUpdate` does nothing.
