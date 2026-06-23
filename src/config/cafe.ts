@@ -17,7 +17,7 @@ export const cafeMapUrl =
  * embed (`output=embed`) so no Google Maps API key is needed in the prototype.
  */
 export const cafeMapEmbedUrl =
-  'https://maps.google.com/maps?q=42.693861,23.349611&z=16&hl=en&output=embed';
+  'https://maps.google.com/maps?q=42.693861,23.349611&z=15&hl=en&output=embed';
 
 /** The café's contact address ("Contact us" mailto target). */
 export const cafeContactEmail = 'ckykacafe@gmail.com';

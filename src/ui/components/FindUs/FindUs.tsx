@@ -58,7 +58,7 @@ export function FindUs() {
       <div className="ey findus-contact-title">Contact us</div>
       <div className="findus-links">
         <a className="findus-link" href={`mailto:${cafeContactEmail}`}>
-          Email
+          email
         </a>
         <a
           className="findus-link"
@@ -66,7 +66,7 @@ export function FindUs() {
           target="_blank"
           rel="noreferrer"
         >
-          Instagram
+          instagram
         </a>
       </div>
     </div>
