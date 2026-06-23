@@ -1,32 +1,35 @@
 /**
- * App routing + shell (UX-SPEC §2, UI-SPEC §4). The Shell wraps every route and
- * owns the global logo gestures: long-press → staff/admin sign-in, tap → the
- * prototype tools panel (non-production only; in production the tap handler is
- * omitted and the panel is never rendered).
+ * App routing + logo gestures (UX-SPEC §2, Ckyka reference).
  *
- * Route guards for staff/admin live inside the screens themselves (they consult
- * `useAuth`), so there is no RequireAuth wrapper here. HashRouter keeps GitHub
- * Pages happy — client routes live after the `#`, no server rewrites needed.
+ * There is no global chrome: each screen renders its own full-bleed `.screen`
+ * surface and its own logo where the reference shows one. The app provides the
+ * logo-gesture handlers once via `LogoGesturesProvider`:
+ *   - tap left half  → home ('/' → entry resolver)
+ *   - tap right half → prototype tools panel (prototype build only)
+ *   - long-press     → staff/admin sign-in
+ *
+ * Route guards for staff/admin live inside the screens (they consult `useAuth`).
+ * HashRouter keeps GitHub Pages happy — client routes live after the `#`.
  */
 
 import { useState } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { Shell } from './ui/app/Shell';
+import { LogoGesturesProvider } from './ui/app/LogoGestures';
 import { EntryResolver } from './ui/app/EntryResolver';
 import { ROUTES } from './ui/app/routes';
 import { isPrototype } from './config/env';
 
-import { Welcome } from './ui/screens/customer/Welcome';
-import { Register } from './ui/screens/customer/Register';
-import { LostCard } from './ui/screens/customer/LostCard';
-import { RecoverConsume } from './ui/screens/customer/RecoverConsume';
-import { CardView } from './ui/screens/customer/CardView';
-import { StaffLogin } from './ui/screens/staff/StaffLogin';
-import { StaffUnlock } from './ui/screens/staff/StaffUnlock';
-import { StaffPanel } from './ui/screens/staff/StaffPanel';
-import { ScanWorkflow } from './ui/screens/staff/ScanWorkflow';
-import { AdminHome } from './ui/screens/admin/AdminHome';
-import { ProtoPanel } from './ui/screens/proto/ProtoPanel';
+import { Welcome } from './ui/screens/customer/Welcome/Welcome';
+import { Register } from './ui/screens/customer/Register/Register';
+import { LostCard } from './ui/screens/customer/LostCard/LostCard';
+import { RecoverConsume } from './ui/screens/customer/RecoverConsume/RecoverConsume';
+import { Card } from './ui/screens/customer/Card/Card';
+import { Login } from './ui/screens/staff/Login/Login';
+import { Unlock } from './ui/screens/staff/Unlock/Unlock';
+import { Panel } from './ui/screens/staff/Panel/Panel';
+import { Scan } from './ui/screens/staff/Scan/Scan';
+import { Admin } from './ui/screens/admin/Admin/Admin';
+import { ProtoPanel } from './ui/screens/proto/ProtoPanel/ProtoPanel';
 import { PairDevices } from './ui/common/PairDevices';
 
 export function App() {
@@ -34,10 +37,12 @@ export function App() {
   const [protoOpen, setProtoOpen] = useState(false);
 
   return (
-    <Shell
-      onLogoHome={() => navigate('/')}
-      onLogoTools={isPrototype ? () => setProtoOpen(true) : undefined}
-      onLogoHold={() => navigate(ROUTES.login)}
+    <LogoGesturesProvider
+      value={{
+        onHome: () => navigate('/'),
+        onTools: isPrototype ? () => setProtoOpen(true) : undefined,
+        onHold: () => navigate(ROUTES.login),
+      }}
     >
       <Routes>
         <Route path="/" element={<EntryResolver />} />
@@ -48,16 +53,16 @@ export function App() {
         <Route path={ROUTES.lost} element={<LostCard />} />
         <Route path={ROUTES.recoverWithCode} element={<RecoverConsume />} />
         <Route path={ROUTES.recover} element={<Navigate to={ROUTES.lost} replace />} />
-        <Route path={ROUTES.card} element={<CardView />} />
-        <Route path={ROUTES.cardSelf} element={<CardView />} />
+        <Route path={ROUTES.card} element={<Card />} />
+        <Route path={ROUTES.cardSelf} element={<Card />} />
 
         {/* Staff / admin (guards live inside the screens) */}
-        <Route path={ROUTES.login} element={<StaffLogin />} />
-        <Route path={ROUTES.staffUnlock} element={<StaffUnlock />} />
-        <Route path={ROUTES.staff} element={<StaffPanel />} />
-        <Route path={ROUTES.staffScan} element={<ScanWorkflow />} />
-        <Route path={ROUTES.admin} element={<AdminHome />} />
-        <Route path="/admin/:section" element={<AdminHome />} />
+        <Route path={ROUTES.login} element={<Login />} />
+        <Route path={ROUTES.staffUnlock} element={<Unlock />} />
+        <Route path={ROUTES.staff} element={<Panel />} />
+        <Route path={ROUTES.staffScan} element={<Scan />} />
+        <Route path={ROUTES.admin} element={<Admin />} />
+        <Route path="/admin/:section" element={<Admin />} />
 
         {/* Prototype scaffolding */}
         <Route path={ROUTES.pair} element={<PairDevices />} />
@@ -68,6 +73,6 @@ export function App() {
       {isPrototype ? (
         <ProtoPanel open={protoOpen} onClose={() => setProtoOpen(false)} />
       ) : null}
-    </Shell>
+    </LogoGesturesProvider>
   );
 }

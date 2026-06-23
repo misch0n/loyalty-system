@@ -2,9 +2,9 @@
  * Entry point. Builds the services (composition root), then mounts the app under
  * the provider tree: services → toasts → router → auth → device pairing.
  *
- * CSS order matters: legacy `styles.css` loads FIRST (it carries the classes for
- * the reused common components — QrDisplay/QrScanner/PrivacyNotice/PairDevices),
- * then `ui/theme.css` loads AFTER so the rebuilt design tokens and body styles win.
+ * The design foundation is imported once here (`ui/theme/index.css`); every
+ * component imports its own co-located stylesheet, so there is no global
+ * monolith.
  */
 
 import { StrictMode, useEffect, useState } from 'react';
@@ -15,9 +15,8 @@ import { createServices, type Services } from './services/Services';
 import { ServicesProvider } from './ui/common/ServicesContext';
 import { PairingProvider } from './ui/common/PairingContext';
 import { AuthProvider } from './ui/app/AuthContext';
-import { ToastProvider } from './ui/kit';
-import './styles.css';
-import './ui/theme.css';
+import { ToastProvider } from './ui/components/Toast/Toast';
+import './ui/theme/index.css';
 
 function Root() {
   const [services, setServices] = useState<Services | null>(null);
@@ -27,7 +26,7 @@ function Root() {
   }, []);
 
   if (!services) {
-    return <div className="boot">Starting Café Loyalty…</div>;
+    return <div className="boot">Starting Ckyka Rewards…</div>;
   }
 
   return (
