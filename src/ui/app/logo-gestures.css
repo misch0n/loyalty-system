@@ -1,0 +1,50 @@
+/* GestureLogo — the logo is the gesture surface but must look like the logo, not
+   a button. The wrapper is inline so it sits naturally in any header. */
+
+.logo-gesture-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.logo-gesture {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+.logo-gesture:focus-visible {
+  outline: 3px solid var(--terra);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+/* Guaranteed keyboard path to staff sign-in, visually hidden but focusable. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.sr-only:focus,
+.sr-only:focus-visible {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  clip: auto;
+  background: var(--forest);
+  color: var(--cream);
+  padding: 6px 10px;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+}
