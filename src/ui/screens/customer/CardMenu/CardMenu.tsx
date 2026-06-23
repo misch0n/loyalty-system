@@ -188,7 +188,9 @@ export function CardMenu({ open, onClose, customer, saved, onSavedChange, token 
       )}
 
       {mode === 'remove' && (
-        <div className="card-confirm danger">
+        <div className="card-confirm">
+          <span className="card-confirm-badge">{CARD_ICON}</span>
+          <h2 className="card-confirm-title">Remove from this device?</h2>
           <p className="card-confirm-msg">
             {removeMessage(hasName, hasEmail)}
             {tokenOnly && (
@@ -213,7 +215,9 @@ export function CardMenu({ open, onClose, customer, saved, onSavedChange, token 
       )}
 
       {mode === 'delete' && (
-        <div className="card-confirm danger">
+        <div className="card-confirm">
+          <span className="card-confirm-badge">{TRASH_ICON}</span>
+          <h2 className="card-confirm-title">Delete your card?</h2>
           <p className="card-confirm-msg">
             You are about to PERMANENTLY delete both your card and your data.
             <br />

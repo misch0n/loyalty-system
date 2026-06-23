@@ -11,23 +11,39 @@
   margin-top: 14px;
 }
 
-/* Red-tinted confirmation block (remove / delete). */
+/* Confirmation block (remove / delete) — centred, icon-badge led (option C). */
 .card-confirm {
-  padding: 6px 2px 4px;
+  padding: 4px 2px 6px;
+  text-align: center;
 }
-.card-confirm.danger {
-  --confirm-ink: var(--terra-600);
+.card-confirm-badge {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: var(--blush-200);
+  color: #d92d20;
+  display: grid;
+  place-items: center;
+  margin: 4px auto 14px;
+}
+.card-confirm-badge svg {
+  width: 26px;
+  height: 26px;
+}
+.card-confirm-title {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0 0 8px;
 }
 .card-confirm-msg {
   font-family: var(--sans);
   font-size: 14px;
-  line-height: 1.45;
-  color: var(--terra-600);
-  background: var(--blush-200);
-  border: 1px solid var(--blush-600);
-  border-radius: 14px;
-  padding: 14px;
-  margin: 0 0 16px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  margin: 0 0 18px;
 }
 .card-confirm-fine {
   font-family: var(--mono);
@@ -35,7 +51,7 @@
   letter-spacing: 0.04em;
   color: var(--ink-soft);
   text-align: center;
-  margin: 8px 0 0;
+  margin: 9px 0 0;
 }
 .card-confirm-cancel {
   display: block;
