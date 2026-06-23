@@ -189,7 +189,15 @@ export function CardMenu({ open, onClose, customer, saved, onSavedChange, token 
 
       {mode === 'remove' && (
         <div className="card-confirm danger">
-          <p className="card-confirm-msg">{removeMessage(hasName, hasEmail)}</p>
+          <p className="card-confirm-msg">
+            {removeMessage(hasName, hasEmail)}
+            {tokenOnly && (
+              <>
+                <br />
+                This action cannot be undone.
+              </>
+            )}
+          </p>
           <HoldButton
             holdMs={tokenOnly ? HOLD_MS : 0}
             disabled={busy}
@@ -207,8 +215,9 @@ export function CardMenu({ open, onClose, customer, saved, onSavedChange, token 
       {mode === 'delete' && (
         <div className="card-confirm danger">
           <p className="card-confirm-msg">
-            You are about to PERMANENTLY delete both your card and your data. This action cannot be
-            undone.
+            You are about to PERMANENTLY delete both your card and your data.
+            <br />
+            This action cannot be undone.
           </p>
           <HoldButton holdMs={HOLD_MS} disabled={busy} onConfirm={() => void deleteCard()}>
             DELETE
