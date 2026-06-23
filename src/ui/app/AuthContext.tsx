@@ -30,18 +30,24 @@ import {
   type ReactNode,
 } from 'react';
 import type { Actor } from '../../services/types';
-import type { StaffRole } from '../../domain/models';
 import { useServices } from '../common/ServicesContext';
+import {
+  actorFrom,
+  isIdle,
+  parseSession,
+  reconcile,
+  type AuthStatus,
+  type PersistedSession,
+} from './session';
 
 const DEVICE_KEY = 'cafe-loyalty.staffDevice';
 const SESSION_KEY = 'cafe-loyalty.staffSession';
 
-/** Inactivity window before a session locks (trusted) or ends (ephemeral). */
-export const INACTIVITY_MS = 5 * 60 * 1000;
 /** How often the internal timer checks for expiry. */
 const TICK_MS = 15 * 1000;
 
-export type AuthStatus = 'anon' | 'active' | 'locked';
+export { INACTIVITY_MS } from './session';
+export type { AuthStatus } from './session';
 
 export interface AuthValue {
   /** Signed-in staff/admin (null = customer / anonymous visitor). */
@@ -67,48 +73,7 @@ export interface AuthValue {
   ready: boolean;
 }
 
-/** What we persist to recognize a trusted device and enforce the timeout. */
-interface PersistedSession {
-  actorId: string;
-  username: string;
-  role: StaffRole;
-  epoch: number;
-  lastActivity: number;
-}
-
 const AuthContext = createContext<AuthValue | null>(null);
-
-function isStaffRole(value: unknown): value is StaffRole {
-  return value === 'admin' || value === 'staff';
-}
-
-/** Parse a persisted blob, tolerating any malformed/legacy storage. */
-function parseSession(raw: string | null): PersistedSession | null {
-  if (!raw) return null;
-  try {
-    const data: unknown = JSON.parse(raw);
-    if (!data || typeof data !== 'object') return null;
-    const o = data as Record<string, unknown>;
-    if (
-      typeof o.actorId === 'string' &&
-      typeof o.username === 'string' &&
-      isStaffRole(o.role) &&
-      typeof o.epoch === 'number' &&
-      typeof o.lastActivity === 'number'
-    ) {
-      return {
-        actorId: o.actorId,
-        username: o.username,
-        role: o.role,
-        epoch: o.epoch,
-        lastActivity: o.lastActivity,
-      };
-    }
-  } catch {
-    // malformed JSON → treat as no session
-  }
-  return null;
-}
 
 function readPersisted(): { session: PersistedSession; trusted: boolean } | null {
   try {
@@ -120,10 +85,6 @@ function readPersisted(): { session: PersistedSession; trusted: boolean } | null
     // storage unavailable (private mode, disabled) → behave as anon
   }
   return null;
-}
-
-function actorFrom(session: PersistedSession): Actor {
-  return { id: session.actorId, username: session.username, role: session.role };
 }
 
 function clearStorage(): void {
@@ -192,33 +153,19 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       .then((serverEpoch) => {
         if (cancelled) return;
         const { session, trusted: isTrusted } = restored;
-        // Revoked: admin bumped the epoch past this device's stored one.
-        if (serverEpoch > session.epoch) {
+        const outcome = reconcile(session, serverEpoch, Date.now(), isTrusted);
+        if (outcome.status === 'anon') {
+          // Revoked or idle-ephemeral: nothing to keep.
           clearStorage();
           applyAnon();
           return;
         }
-        const idle = Date.now() - session.lastActivity > INACTIVITY_MS;
-        if (idle) {
-          if (isTrusted) {
-            // Keep the identity so the unlock screen can re-auth, but locked.
-            sessionRef.current = session;
-            trustedRef.current = true;
-            setActor(actorFrom(session));
-            setTrusted(true);
-            setStatus('locked');
-          } else {
-            clearStorage();
-            applyAnon();
-          }
-          return;
-        }
-        // Fresh enough → active.
-        sessionRef.current = session;
+        // 'active' or (trusted) 'locked': keep identity; locked awaits unlock.
+        sessionRef.current = outcome.session;
         trustedRef.current = isTrusted;
-        setActor(actorFrom(session));
+        setActor(outcome.actor);
         setTrusted(isTrusted);
-        setStatus('active');
+        setStatus(outcome.status);
       })
       .catch(() => {
         if (!cancelled) applyAnon();
@@ -246,7 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     const id = window.setInterval(() => {
       const session = sessionRef.current;
       if (!session) return;
-      if (Date.now() - session.lastActivity > INACTIVITY_MS) {
+      if (isIdle(session, Date.now())) {
         if (trustedRef.current) {
           setStatus('locked');
         } else {
