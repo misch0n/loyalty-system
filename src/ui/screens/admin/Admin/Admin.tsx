@@ -120,6 +120,8 @@ function AdminScreen({ actor }: { actor: Actor }) {
   // "Needs a look" is collapsed by default; the flagged alert in detail view.
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState<AlertModel | null>(null);
+  // Program-config popover (reward threshold, max coffees per scan, …).
+  const [configureOpen, setConfigureOpen] = useState(false);
 
   const activityPager = usePager(entries?.length ?? 0, ACTIVITY_PAGE);
   const alertPager = usePager(alerts?.length ?? 0, ALERT_PAGE);
@@ -282,6 +284,58 @@ function AdminScreen({ actor }: { actor: Actor }) {
         </div>
 
         <Eyebrow>Ckyka rewards · admin</Eyebrow>
+
+        {/* Surfaced above the week's stats; hidden when nothing needs review
+            (no flags, or all acknowledged). */}
+        {flaggedCount > 0 && (
+          <>
+            <button
+              type="button"
+              className="admin-collapse"
+              aria-expanded={alertsOpen}
+              onClick={() => setAlertsOpen((o) => !o)}
+            >
+              <span className="section-h">Needs a look</span>
+              <span className="admin-badge">{flaggedCount}</span>
+              <svg
+                className={`admin-chev${alertsOpen ? ' is-open' : ''}`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                aria-hidden="true"
+              >
+                <path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            {alertsOpen && (
+              <>
+                {alerts?.slice(0, alertPager.count).map((alert, i) => (
+                  <Alert
+                    key={`${alert.kind}-${alert.staffId}-${alert.at}-${i}`}
+                    title={names[alert.staffId] ?? alert.staffName ?? alert.staffId}
+                    detail={alert.detail}
+                    time={relativeTime(alert.at)}
+                    onClick={() => setSelectedAlert(alert)}
+                  />
+                ))}
+                {alertPager.canMore && (
+                  <div className="admin-more">
+                    <button type="button" className="admin-more-btn" onClick={alertPager.more}>
+                      Load more
+                    </button>
+                    {alertPager.showLoadAll && (
+                      <button type="button" className="admin-more-all" onClick={alertPager.loadAll}>
+                        Load all {alerts?.length}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
+
         <Title style={{ marginBottom: 14 }}>This week</Title>
 
         <div className="stats">
@@ -303,59 +357,11 @@ function AdminScreen({ actor }: { actor: Actor }) {
             delta="tap for trend"
             onClick={() => setDetailMetric('rewards')}
           />
-
-          <StatWide
-            setLabel="Reward earned at"
-            setVal={config ? `${config.pointsPerReward} coffees` : '—'}
-            onEdit={() => setEdit({ kind: 'pointsPerReward' })}
-          />
-          <StatWide
-            setLabel="Max coffees per scan"
-            setVal={config ? String(config.maxPointsPerTransaction) : '—'}
-            onEdit={() => setEdit({ kind: 'maxPointsPerTransaction' })}
-          />
         </div>
 
-        <button
-          type="button"
-          className="admin-collapse"
-          aria-expanded={alertsOpen}
-          onClick={() => setAlertsOpen((o) => !o)}
-        >
-          <span className="section-h">Needs a look</span>
-          {flaggedCount > 0 && <span className="admin-badge">{flaggedCount}</span>}
-          <span className="admin-collapse-chev" aria-hidden="true">
-            {alertsOpen ? '⌄' : '›'}
-          </span>
-        </button>
-        {alertsOpen && (
-          <>
-            {alerts?.slice(0, alertPager.count).map((alert, i) => (
-              <Alert
-                key={`${alert.kind}-${alert.staffId}-${alert.at}-${i}`}
-                title={names[alert.staffId] ?? alert.staffName ?? alert.staffId}
-                detail={alert.detail}
-                time={relativeTime(alert.at)}
-                onClick={() => setSelectedAlert(alert)}
-              />
-            ))}
-            {alerts && alerts.length === 0 && (
-              <p className="admin-empty">Nothing to review — no patterns have tripped a flag.</p>
-            )}
-            {alertPager.canMore && (
-              <div className="admin-more">
-                <button type="button" className="admin-more-btn" onClick={alertPager.more}>
-                  Load more
-                </button>
-                {alertPager.showLoadAll && (
-                  <button type="button" className="admin-more-all" onClick={alertPager.loadAll}>
-                    Load all {alerts?.length}
-                  </button>
-                )}
-              </div>
-            )}
-          </>
-        )}
+        <Button variant="line" style={{ marginTop: 12 }} onClick={() => setConfigureOpen(true)}>
+          Configure program
+        </Button>
 
         <SectionH>Accounts</SectionH>
         <div className="acct-list">
@@ -477,6 +483,26 @@ function AdminScreen({ actor }: { actor: Actor }) {
         onClose={() => setManageId(null)}
         onChanged={load}
       />
+
+      {/* Program configuration — more fields will be added here over time. The
+          ProgramEdit (value + PIN) sheet opens on top of this one. */}
+      <Sheet open={configureOpen} onClose={() => setConfigureOpen(false)} label="Configure program">
+        <div className="admin-configure">
+          <Title className="admin-create__title">Configure program</Title>
+          <div className="stats">
+            <StatWide
+              setLabel="Reward earned at"
+              setVal={config ? `${config.pointsPerReward} coffees` : '—'}
+              onEdit={() => setEdit({ kind: 'pointsPerReward' })}
+            />
+            <StatWide
+              setLabel="Max coffees per scan"
+              setVal={config ? String(config.maxPointsPerTransaction) : '—'}
+              onEdit={() => setEdit({ kind: 'maxPointsPerTransaction' })}
+            />
+          </div>
+        </div>
+      </Sheet>
 
       <StepUp
         open={edit?.kind === 'revokeAll'}

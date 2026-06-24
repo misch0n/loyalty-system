@@ -136,12 +136,15 @@
   margin: 0 0 12px;
 }
 
-/* Collapsible "Needs a look" header with a red count badge. */
+/* Collapsible "Needs a look" header with a red count badge. The label, badge
+   and chevron all sit on one centred row — the spacing lives on the button, not
+   on `.section-h` (whose own 22px top margin would otherwise offset the text). */
 .screen.admin .admin-collapse {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
+  margin: 6px 0 8px;
   background: none;
   border: 0;
   padding: 0;
@@ -149,7 +152,7 @@
   text-align: left;
 }
 .screen.admin .admin-collapse .section-h {
-  margin-bottom: 0;
+  margin: 0;
 }
 .screen.admin .admin-badge {
   display: inline-flex;
@@ -165,10 +168,15 @@
   font-size: 11px;
   font-weight: 600;
 }
-.screen.admin .admin-collapse-chev {
+.screen.admin .admin-chev {
+  width: 16px;
+  height: 16px;
   margin-left: auto;
   color: var(--ink-soft);
-  font-size: 16px;
+  transition: transform 140ms ease;
+}
+.screen.admin .admin-chev.is-open {
+  transform: rotate(90deg);
 }
 
 /* "Load more" / "Load all" pager. */

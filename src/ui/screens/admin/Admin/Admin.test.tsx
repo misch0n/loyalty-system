@@ -164,8 +164,16 @@ describe('Admin screen', () => {
     expect(container.querySelector('.stats')).toBeNull();
   });
 
-  it('opens the step-up sheet when a program "Change" is tapped', async () => {
+  it('Configure → a program "Change" opens the value+PIN edit sheet', async () => {
     await mountAdmin('admin');
+    // The program rows live behind the Configure popover now.
+    const configure = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent === 'Configure program',
+    ) as HTMLButtonElement | undefined;
+    expect(configure).toBeDefined();
+    await act(async () => {
+      configure!.click();
+    });
     const change = Array.from(container.querySelectorAll('button.edit')).find(
       (b) => b.textContent === 'Change',
     ) as HTMLButtonElement | undefined;
