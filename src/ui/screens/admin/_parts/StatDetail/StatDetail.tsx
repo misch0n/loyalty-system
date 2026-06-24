@@ -21,6 +21,7 @@ const ENTRY_PAGE = 8;
 
 const TITLES: Record<MetricKind, string> = {
   members: 'New members',
+  active: 'Active members',
   coffees: 'Coffees',
   rewards: 'Rewards redeemed',
 };

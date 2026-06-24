@@ -9,14 +9,27 @@
  */
 import type { AuditAction, AuditLogEntry } from './models';
 
-export type MetricKind = 'members' | 'coffees' | 'rewards';
+export type MetricKind = 'members' | 'active' | 'coffees' | 'rewards';
 export type RangeKind = 'today' | 'week' | 'month' | 'all';
 
 /** Audit actions that count toward each metric. */
 const METRIC_ACTIONS: Record<MetricKind, ReadonlyArray<AuditAction>> = {
   members: ['customer.register', 'card.issue', 'card.provision'],
+  // "Active" = a card that was used (any loyalty activity) in the period.
+  active: ['loyalty.accrue', 'loyalty.redeem'],
   coffees: ['loyalty.accrue'],
   rewards: ['loyalty.redeem'],
+};
+
+/**
+ * Metrics counted as UNIQUE customer cards per bucket (not events). For these,
+ * the month range buckets by WEEK (coarser) so "active per week" reads cleanly.
+ */
+const UNIQUE_BY_CUSTOMER: Record<MetricKind, boolean> = {
+  members: false,
+  active: true,
+  coffees: false,
+  rewards: false,
 };
 
 export interface InsightBucket {
@@ -61,8 +74,12 @@ interface Slot {
   label: string;
 }
 
-/** The (non-overlapping, ascending) chart slots for a range, ending at `now`. */
-function slotsFor(range: RangeKind, now: number): Slot[] {
+/**
+ * The (non-overlapping, ascending) chart slots for a range, ending at `now`.
+ * `weeklyMonth` makes the month range bucket by week (used by unique-count
+ * metrics, e.g. active members per week) instead of by day.
+ */
+function slotsFor(range: RangeKind, now: number, weeklyMonth = false): Slot[] {
   const slots: Slot[] = [];
   if (range === 'today') {
     // 12 two-hour slots across the calendar day.
@@ -77,6 +94,14 @@ function slotsFor(range: RangeKind, now: number): Slot[] {
     for (let i = 0; i < 7; i++) {
       const start = base + i * DAY;
       slots.push({ start, end: start + DAY, label: WEEKDAYS[new Date(start).getDay()] });
+    }
+  } else if (range === 'month' && weeklyMonth) {
+    // 5 weekly slots ending this week (≈ a month), unique-per-week.
+    const base = startOfDay(now - 34 * DAY);
+    for (let i = 0; i < 5; i++) {
+      const start = base + i * 7 * DAY;
+      const d = new Date(start);
+      slots.push({ start, end: start + 7 * DAY, label: `${d.getDate()}/${d.getMonth() + 1}` });
     }
   } else if (range === 'month') {
     // 30 daily slots ending today; label every 5th to avoid clutter.
@@ -111,7 +136,8 @@ export function buildInsight(
   now: number,
 ): InsightResult {
   const actions = METRIC_ACTIONS[metric];
-  const slots = slotsFor(range, now);
+  const unique = UNIQUE_BY_CUSTOMER[metric];
+  const slots = slotsFor(range, now, unique);
   const windowStart = slots[0].start;
 
   const matched = entries
@@ -119,12 +145,25 @@ export function buildInsight(
     .sort((a, b) => time(b) - time(a)); // newest first
 
   const buckets: InsightBucket[] = slots.map((s) => ({ label: s.label, value: 0 }));
-  for (const e of matched) {
-    const t = time(e);
-    // Slots are contiguous and ascending; find the one containing this entry.
-    const idx = slots.findIndex((s) => t >= s.start && t < s.end);
-    if (idx >= 0) buckets[idx].value += 1;
+
+  if (unique) {
+    // Count UNIQUE customer cards (by audit targetId) per bucket and overall.
+    const seen = slots.map(() => new Set<string>());
+    for (const e of matched) {
+      if (!e.targetId) continue;
+      const idx = slots.findIndex((s) => time(e) >= s.start && time(e) < s.end);
+      if (idx >= 0) seen[idx].add(e.targetId);
+    }
+    buckets.forEach((b, i) => (b.value = seen[i].size));
+    const total = new Set(matched.map((e) => e.targetId).filter((id): id is string => Boolean(id)))
+      .size;
+    return { total, buckets, entries: matched };
   }
 
+  for (const e of matched) {
+    // Slots are contiguous and ascending; find the one containing this entry.
+    const idx = slots.findIndex((s) => time(e) >= s.start && time(e) < s.end);
+    if (idx >= 0) buckets[idx].value += 1;
+  }
   return { total: matched.length, buckets, entries: matched };
 }

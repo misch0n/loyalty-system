@@ -108,6 +108,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
 
   const [stats, setStats] = useState<Stats | null>(null);
   const [coffeesToday, setCoffeesToday] = useState<number | null>(null);
+  const [activeToday, setActiveToday] = useState<number | null>(null);
   const [config, setConfig] = useState<ProgramConfig | null>(null);
   const [alerts, setAlerts] = useState<AlertModel[] | null>(null);
   const [staff, setStaff] = useState<StaffAccount[] | null>(null);
@@ -153,6 +154,18 @@ function AdminScreen({ actor }: { actor: Actor }) {
       if (cancelled) return;
       setStats(s);
       setCoffeesToday(accruals.filter((a) => isSameDay(a.timestamp)).length);
+      // Active members today = unique customer cards used (any loyalty activity).
+      const activeIds = new Set(
+        log
+          .filter(
+            (e) =>
+              (e.action === 'loyalty.accrue' || e.action === 'loyalty.redeem') &&
+              isSameDay(e.timestamp) &&
+              e.targetId,
+          )
+          .map((e) => e.targetId as string),
+      );
+      setActiveToday(activeIds.size);
       setConfig(cfg);
       setAlerts(alertList);
       setStaff(staffList);
@@ -341,9 +354,15 @@ function AdminScreen({ actor }: { actor: Actor }) {
         <div className="stats">
           <Stat
             n={stats ? stats.activeCustomers : '—'}
-            label="Active members"
+            label="New members"
             delta="tap for trend"
             onClick={() => setDetailMetric('members')}
+          />
+          <Stat
+            n={activeToday ?? '—'}
+            label="Active members"
+            delta="tap for trend"
+            onClick={() => setDetailMetric('active')}
           />
           <Stat
             n={coffeesToday ?? '—'}

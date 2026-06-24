@@ -70,4 +70,29 @@ describe('buildInsight', () => {
     expect(buildInsight('coffees', 'month', none, NOW).buckets).toHaveLength(30);
     expect(buildInsight('coffees', 'all', none, NOW).buckets).toHaveLength(6);
   });
+
+  it('active members counts UNIQUE customer cards (by targetId), not events', () => {
+    const e = (action: AuditAction, msAgo: number, customer: string): AuditLogEntry => ({
+      id: `e-${++seq}`,
+      actorId: 'seed-staff',
+      actorRole: 'staff',
+      action,
+      targetId: customer,
+      timestamp: new Date(NOW - msAgo).toISOString(),
+    });
+    const entries: AuditLogEntry[] = [
+      e('loyalty.accrue', 1 * HOUR, 'c1'),
+      e('loyalty.accrue', 2 * HOUR, 'c1'), // same card again today → still 1 unique
+      e('loyalty.redeem', 3 * HOUR, 'c2'), // a second unique card today
+      e('loyalty.accrue', 2 * DAY, 'c3'), // earlier in the week
+    ];
+    expect(buildInsight('active', 'today', entries, NOW).total).toBe(2); // c1, c2
+    expect(buildInsight('active', 'week', entries, NOW).total).toBe(3); // c1, c2, c3
+  });
+
+  it('active members buckets the month range by WEEK (others stay daily)', () => {
+    const none: AuditLogEntry[] = [];
+    expect(buildInsight('active', 'month', none, NOW).buckets).toHaveLength(5);
+    expect(buildInsight('coffees', 'month', none, NOW).buckets).toHaveLength(30);
+  });
 });
