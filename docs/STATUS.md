@@ -5,7 +5,7 @@
 > [`SPEC.md`](SPEC.md); working rules in [`../CLAUDE.md`](../CLAUDE.md).
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 
-**Last updated:** 2026-06-23 (Email + QR polish: the Register email field gets **inline format validation** (`isValidEmail`; submit disabled until valid); registering with an email now sends a best-effort **"card created" welcome email** (new `card-created` `MailKind`; `CustomerService` gained an optional `Mailer`). Café contact is `ckykacafe@gmail.com`; the **Instagram** button links to `ckykacoffeeshop` (universal link opens the app on mobile). The card **QR tile** dropped the in-tile "tap to enlarge" label and is now a compact cream box sized to the QR (centred, small offset); the enlarge/wallet hint stays below the card. Placeholders: name "Your name", email "Your email address" (register + restore). Prior: Find us + dev-scan polish: the **Find us** section (now a shared `FindUs` component on both Welcome and the card page) sits **below the fold** — each page is one full screen with a "scroll for hours & location" hint, then Find us; Find us gained an **embedded map** centred on the café (keyless `output=embed`) with **Get directions** beneath it and an **Instagram** button beside Contact us (`config/cafe.ts` `cafeMapEmbedUrl`/`cafeInstagramUrl`); the dev-panel **Scan to pair** now pairs **in place** without redirecting (`PairingContext.joinAs(id, { redirect: false })`) so the camera modal isn't yanked away on a successful scan. Prior: Card-menu confirmations + fixed 10-stamp card: the card "⋯" menu now redraws into red-tinted **remove/delete confirmations** with recovery-aware copy and a `HoldButton` (3-second hold, expanding red fill, selection disabled) for unrecoverable actions; single-tap remove for recoverable cards. The loyalty card is a **fixed 10-stamp grid** — welcome + 8 purchases + FREE, with the first and last **pre-stamped**; IndexedDB **upgrade v3** migrates devices still on the legacy 10-coffee threshold down to 8. Prior: Admin/loyalty/popover batch: reward threshold default **8** (card still shows a **10-cup showcase** — welcome sticker + 8 earnable + FREE reward cup; "Gold" badge removed); admin is now a **superset of staff** (counter/scan access + admin view, both with **Sign out**); admin **account management** popover per profile — enable/disable, reset password, reset PIN, **delete** (`StaffService.remove`/`DataStore.deleteStaff`), + that profile's activity history, un-gated; **Add profile** makes staff or admin; popovers lock background scroll, are **drag-to-dismiss** + self-scrolling; dev-panel **Scan to pair** opens an in-window camera modal; card-menu rows are two-line; the recognized-customer card page now has the shared **Find us** below-the-fold section; `Toggle` restyled to a themed pill; login username placeholder "staff". Prior: Auth + dev-panel UX revision: staff/admin sign-in is now **username/password first** with the PIN reserved for quick re-auth on a remembered idle device; staff accounts gained a **display name** (name/username/password/PIN) and admins create accounts from the panel; logo **tap → home** is role-aware (admin→/admin) and long-press → sign-in; the Prototype/developer panel moved to a **hidden top-left `DevTrigger`** and was stripped to **QR / Scan to pair / Reset**; register privacy notice is a tappable accented link opening a sheet; centred Welcome logo; "Add to wallet" pop-up-blocker fix. **Follow-ups:** signed-in logo gestures (tap **and** long-press) go to the role home, not the sign-in page — an *active* (even non-remembered) session routes to its panel via `EntryResolver`; bottom **`Sheet`s are drag-to-dismiss** (pull the grab handle down) and scroll tall content; the dev-panel QR sizing fixed (the shared `.qr` class was clamping it to 84px); viewport set to `maximum-scale=1, user-scalable=no` + 16px form inputs so pages never zoom on focus/navigation) · **Phase:** v1 prototype — feature-complete against SPEC §15 (Appendix A implemented) + Appendix B partially implemented (B1–B3, B6 partial via Welcome, B7 documented; B4 and B5 dropped, B6 remainder deferred).
+**Last updated:** 2026-06-24 (Docs-only: recorded the **storage / device-recognition** model and the **prototype→production switch checklist** as known debt — IndexedDB (the DB) vs localStorage (token/session flags) vs cookies (none); no JS-cookie durability win on iOS (only a server-set HttpOnly cookie survives ITP, needs a backend) so localStorage is kept deliberately; the device-pairing layer is host/client (scanner becomes client; one host, many RPC clients) and is wired through `services.sync` + `PairingProvider` + `dataVersion` screen refs + `/pair`, so switching out is not a single adapter swap — decision: leave as-is until server testing. Details in divergence d + Known gaps. Prior — Email + QR polish: the Register email field gets **inline format validation** (`isValidEmail`; submit disabled until valid); registering with an email now sends a best-effort **"card created" welcome email** (new `card-created` `MailKind`; `CustomerService` gained an optional `Mailer`). Café contact is `ckykacafe@gmail.com`; the **Instagram** button links to `ckykacoffeeshop` (universal link opens the app on mobile). The card **QR tile** dropped the in-tile "tap to enlarge" label and is now a compact cream box sized to the QR (centred, small offset); the enlarge/wallet hint stays below the card. Placeholders: name "Your name", email "Your email address" (register + restore). Prior: Find us + dev-scan polish: the **Find us** section (now a shared `FindUs` component on both Welcome and the card page) sits **below the fold** — each page is one full screen with a "scroll for hours & location" hint, then Find us; Find us gained an **embedded map** centred on the café (keyless `output=embed`) with **Get directions** beneath it and an **Instagram** button beside Contact us (`config/cafe.ts` `cafeMapEmbedUrl`/`cafeInstagramUrl`); the dev-panel **Scan to pair** now pairs **in place** without redirecting (`PairingContext.joinAs(id, { redirect: false })`) so the camera modal isn't yanked away on a successful scan. Prior: Card-menu confirmations + fixed 10-stamp card: the card "⋯" menu now redraws into red-tinted **remove/delete confirmations** with recovery-aware copy and a `HoldButton` (3-second hold, expanding red fill, selection disabled) for unrecoverable actions; single-tap remove for recoverable cards. The loyalty card is a **fixed 10-stamp grid** — welcome + 8 purchases + FREE, with the first and last **pre-stamped**; IndexedDB **upgrade v3** migrates devices still on the legacy 10-coffee threshold down to 8. Prior: Admin/loyalty/popover batch: reward threshold default **8** (card still shows a **10-cup showcase** — welcome sticker + 8 earnable + FREE reward cup; "Gold" badge removed); admin is now a **superset of staff** (counter/scan access + admin view, both with **Sign out**); admin **account management** popover per profile — enable/disable, reset password, reset PIN, **delete** (`StaffService.remove`/`DataStore.deleteStaff`), + that profile's activity history, un-gated; **Add profile** makes staff or admin; popovers lock background scroll, are **drag-to-dismiss** + self-scrolling; dev-panel **Scan to pair** opens an in-window camera modal; card-menu rows are two-line; the recognized-customer card page now has the shared **Find us** below-the-fold section; `Toggle` restyled to a themed pill; login username placeholder "staff". Prior: Auth + dev-panel UX revision: staff/admin sign-in is now **username/password first** with the PIN reserved for quick re-auth on a remembered idle device; staff accounts gained a **display name** (name/username/password/PIN) and admins create accounts from the panel; logo **tap → home** is role-aware (admin→/admin) and long-press → sign-in; the Prototype/developer panel moved to a **hidden top-left `DevTrigger`** and was stripped to **QR / Scan to pair / Reset**; register privacy notice is a tappable accented link opening a sheet; centred Welcome logo; "Add to wallet" pop-up-blocker fix. **Follow-ups:** signed-in logo gestures (tap **and** long-press) go to the role home, not the sign-in page — an *active* (even non-remembered) session routes to its panel via `EntryResolver`; bottom **`Sheet`s are drag-to-dismiss** (pull the grab handle down) and scroll tall content; the dev-panel QR sizing fixed (the shared `.qr` class was clamping it to 84px); viewport set to `maximum-scale=1, user-scalable=no` + 16px form inputs so pages never zoom on focus/navigation) · **Phase:** v1 prototype — feature-complete against SPEC §15 (Appendix A implemented) + Appendix B partially implemented (B1–B3, B6 partial via Welcome, B7 documented; B4 and B5 dropped, B6 remainder deferred).
 
 ---
 
@@ -241,6 +241,25 @@ unit tests cannot.
 - **B5** (own-card photo) — explicitly out of scope per requester.
 - **`cafeContactEmail`** in `config/cafe.ts` is a placeholder; replace with the
   real address before go-live.
+- **Prototype→production switch is not a single adapter swap (sync-layer
+  coupling).** The `Transport` port (`PeerTransport`↔`ServerTransport`) and the
+  raw PeerJS/WebRTC handling (`adapters/sync/PeerJsLink.ts`) are cleanly
+  swappable, but the *device-pairing feature* is wired through several layers and
+  must be carefully unpicked when going server-backed. **Switch checklist:**
+  (1) remove the `adapters/sync/` module; (2) drop `services.sync = { observable,
+  switchable }` from the composition root (`services/Services.ts`) — services can
+  bind directly to the local/HTTP store; (3) stop mounting `PairingProvider`
+  unconditionally in `main.tsx`; (4) remove the `usePairing().dataVersion` refetch
+  refs from the Card, staff Panel, and Scan screens (the host's `changed`→
+  `dataVersion` signal leaks into screen effect-deps; production wants a generic
+  no-op/server-push behind that); (5) remove the `/pair` route. The pairing model
+  itself: **host/client, not a mesh** — every device boots hosting, the device
+  that *scans* becomes a client of the scanned host (`PairingContext.joinAs`); one
+  host serves **many** clients; clients have no local store — every read/write is
+  an RPC (`PeerClientStore`) to the host's `StoreServer`, which runs it on the
+  host's IndexedDB and pushes `changed` pings. Decision (2026-06-24): leave this
+  as-is for the prototype; revisit the de-coupling when we begin server testing.
+  See divergences e, f for the prototype-only rationale.
 - **Recovery after Reset requires pairing.** Self-service recovery resolves
   the customer's card from the store currently active on the device. After a
   Reset, the customer device has a blank local store; recovery will only find
@@ -268,9 +287,29 @@ c. **Build-time secrets in static bundle.** TURN credentials and EmailJS keys ar
    after demos. The production architecture moves these to the server.
 
 d. **No server-side session for identity.** `IdentityStore` uses `localStorage`
-   in the prototype. Clearing browser storage removes the identity link;
-   self-service recovery re-establishes it. Production uses a server-side session
-   or cookie.
+   in the prototype (`adapters/identity/LocalStorageIdentityStore.ts`, key
+   `cafe-loyalty.customer`, opaque token only — no PII). Clearing browser storage
+   removes the identity link; self-service recovery re-establishes it. Production
+   uses a server-side session or cookie.
+
+   *No cookies are used anywhere in the prototype.* Switching prototype
+   recognition from `localStorage` to a JS-set cookie (`document.cookie`) would
+   **not** improve durability: iOS Safari ITP evicts script-writable storage —
+   `localStorage`, IndexedDB, **and** client-set cookies alike — after ~7 idle
+   days. Only a **server-set HttpOnly cookie** survives longer, and that needs the
+   backend the prototype doesn't have. So `localStorage` is retained deliberately;
+   durable iOS recognition is strictly a production (server-cookie) concern, to be
+   revisited once we test on a server.
+
+   Recognition recap (all three storage mechanisms): **IndexedDB** (`cafe-loyalty`
+   DB) is the actual database — `config`/`staff`/`customers`/`transactions`/
+   `audit`/`recoveryCodes`. **localStorage** holds three small flags —
+   `cafe-loyalty.customer` (customer token = `IdentityStore`),
+   `cafe-loyalty.staffDevice` (trusted staff/admin session), `cafe-loyalty.lastUser`
+   (sign-in prefill). **sessionStorage** holds `cafe-loyalty.staffSession`
+   (ephemeral, non-remembered staff session). A device is "recognized" by a
+   token/session in localStorage that points into IndexedDB records; staff-vs-admin
+   role comes from the `StaffAccount` record, not the device.
 
 e. **Device pairing is a prototype-only construct.** `adapters/sync/` uses PeerJS
    to let the till act as a temporary server for many customer devices'
