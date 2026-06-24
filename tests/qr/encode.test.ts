@@ -28,9 +28,13 @@ describe('payloads', () => {
 });
 
 describe('toDataUrl', () => {
-  it('renders a payload to a PNG data URL', async () => {
+  it('renders a payload to a dot-style SVG data URL with finder eyes', async () => {
     const url = await toDataUrl('hello');
-    expect(url.startsWith('data:image/png;base64,')).toBe(true);
-    expect(url.length).toBeGreaterThan('data:image/png;base64,'.length);
+    expect(url.startsWith('data:image/svg+xml,')).toBe(true);
+    const svg = decodeURIComponent(url.slice('data:image/svg+xml,'.length));
+    // Dot modules are circles; the three finder patterns are rounded-square rings.
+    expect(svg).toContain('<circle');
+    expect((svg.match(/<rect/g) ?? []).length).toBe(6); // 3 eyes × (ring + centre)
+    expect(svg).toContain('viewBox');
   });
 });
