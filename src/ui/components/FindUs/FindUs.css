@@ -44,8 +44,9 @@
   font-size: 12.5px;
   color: var(--ink-soft);
 }
-/* Embedded map centred on the café, with a thin border. Tapping it opens Maps:
-   the whole tile is a link and the iframe itself is non-interactive. */
+/* Embedded map centred on the café. Tapping it opens Maps: the whole tile is a
+   link and the iframe itself is non-interactive. The roadmap base (cafe.ts) is
+   warmed with a gentle filter + a card-style frame so it sits with the palette. */
 .findus-map-link {
   display: block;
   margin: 4px 0 22px;
@@ -53,15 +54,19 @@
   overflow: hidden;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 8px 20px -12px rgba(46, 74, 58, 0.35); /* soft forest lift, like cards */
 }
 .findus-map {
   width: 100%;
   height: 200px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--sage-100);
   border-radius: 16px;
   display: block;
   background: var(--sage-100);
   pointer-events: none; /* taps fall through to the wrapping link → open in Maps */
+  /* Warm the (cross-origin) map toward cream/sage without an API key. Kept
+     subtle so the pin + labels stay legible. */
+  filter: sepia(0.18) saturate(0.92) hue-rotate(-8deg) brightness(1.02) contrast(0.96);
 }
 
 /* "Contact us" rendered as a section title, offset from the map and centred. */

@@ -15,9 +15,11 @@ export const cafeMapUrl =
 /**
  * Embeddable map centred on the shop's coordinates. Uses the keyless classic
  * embed (`output=embed`) so no Google Maps API key is needed in the prototype.
+ * Roadmap base (no `t=k` satellite) — a flat base tints cleanly toward the
+ * page's warm palette via the CSS filter on `.findus-map` (FindUs.css).
  */
 export const cafeMapEmbedUrl =
-  'https://maps.google.com/maps?q=42.693861,23.349611&z=16&t=k&hl=en&output=embed';
+  'https://maps.google.com/maps?q=42.693861,23.349611&z=16&hl=en&output=embed';
 
 /** The café's contact address ("Contact us" mailto target). */
 export const cafeContactEmail = 'ckykacafe@gmail.com';
