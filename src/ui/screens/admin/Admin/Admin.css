@@ -119,3 +119,66 @@
   font-size: 12.5px;
   margin: 0 0 12px;
 }
+
+/* Collapsible "Needs a look" header with a red count badge. */
+.screen.admin .admin-collapse {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.screen.admin .admin-collapse .section-h {
+  margin-bottom: 0;
+}
+.screen.admin .admin-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--terra);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+.screen.admin .admin-collapse-chev {
+  margin-left: auto;
+  color: var(--ink-soft);
+  font-size: 16px;
+}
+
+/* "Load more" / "Load all" pager. */
+.screen.admin .admin-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+.screen.admin .admin-more-btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--forest-700);
+  background: var(--sage-100);
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 18px;
+  cursor: pointer;
+}
+.screen.admin .admin-more-all {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--terra-600);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}

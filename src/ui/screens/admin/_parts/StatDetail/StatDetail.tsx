@@ -13,8 +13,11 @@ import type { AuditLogEntry } from '../../../../../domain/models';
 import { buildInsight, type MetricKind, type RangeKind } from '../../../../../domain/insights';
 import { Feed, FeedRow } from '../FeedRow/FeedRow';
 import { feedIcon } from '../feedIcons';
+import { usePager } from '../usePager';
 import { auditTone, auditVerb, relativeTime } from '../../Admin/format';
 import './StatDetail.css';
+
+const ENTRY_PAGE = 8;
 
 const TITLES: Record<MetricKind, string> = {
   members: 'New members',
@@ -70,11 +73,6 @@ export function StatDetail({ metric, names, onClose }: StatDetailProps) {
 
   const max = Math.max(1, ...(insight?.buckets.map((b) => b.value) ?? [1]));
 
-  const actorName = (entry: AuditLogEntry): string => {
-    if (entry.actorRole === 'system') return 'System';
-    return names[entry.actorId] ?? 'Staff';
-  };
-
   if (!metric) return null;
 
   return (
@@ -122,30 +120,63 @@ export function StatDetail({ metric, names, onClose }: StatDetailProps) {
           </div>
         </div>
 
-        <Feed>
-          {insight?.entries.map((entry) => {
-            const tone = auditTone(entry.action);
-            return (
-              <FeedRow
-                key={entry.id}
-                tone={tone}
-                icon={feedIcon(tone)}
-                text={
-                  <>
-                    {actorName(entry)} <span>· {auditVerb(entry.action)}</span>
-                  </>
-                }
-                time={relativeTime(entry.timestamp)}
-              />
-            );
-          })}
-          {insight && insight.entries.length === 0 && (
-            <p className="statdetail-empty">Nothing in this range yet.</p>
-          )}
-          {!insight && <p className="statdetail-empty">Loading…</p>}
-        </Feed>
+        {!insight ? (
+          <p className="statdetail-empty">Loading…</p>
+        ) : insight.entries.length === 0 ? (
+          <p className="statdetail-empty">Nothing in this range yet.</p>
+        ) : (
+          // Keyed by metric+range so the pager resets when the range changes.
+          <EntryList key={`${metric}-${range}`} entries={insight.entries} names={names} />
+        )}
       </div>
     </Sheet>
+  );
+}
+
+/** The paged activity list for the current metric + range. */
+function EntryList({
+  entries,
+  names,
+}: {
+  entries: AuditLogEntry[];
+  names: Record<string, string>;
+}) {
+  const pager = usePager(entries.length, ENTRY_PAGE);
+  const actorName = (entry: AuditLogEntry): string =>
+    entry.actorRole === 'system' ? 'System' : names[entry.actorId] ?? 'Staff';
+  return (
+    <>
+      <Feed>
+        {entries.slice(0, pager.count).map((entry) => {
+          const tone = auditTone(entry.action);
+          return (
+            <FeedRow
+              key={entry.id}
+              tone={tone}
+              icon={feedIcon(tone)}
+              text={
+                <>
+                  {actorName(entry)} <span>· {auditVerb(entry.action)}</span>
+                </>
+              }
+              time={relativeTime(entry.timestamp)}
+            />
+          );
+        })}
+      </Feed>
+      {pager.canMore && (
+        <div className="statdetail-more">
+          <button type="button" className="statdetail-more-btn" onClick={pager.more}>
+            Load more
+          </button>
+          {pager.showLoadAll && (
+            <button type="button" className="statdetail-more-all" onClick={pager.loadAll}>
+              Load all {entries.length}
+            </button>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 

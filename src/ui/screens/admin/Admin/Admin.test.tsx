@@ -144,11 +144,17 @@ describe('Admin screen', () => {
     expect(container.querySelector('.stats')).not.toBeNull();
     expect(container.textContent).toContain('Active members');
     expect(container.textContent).toContain('312'); // from getStats
-    expect(container.textContent).toContain('Flagged actions');
     // Section headers
     const headers = Array.from(container.querySelectorAll('.section-h')).map((h) => h.textContent);
     expect(headers).toEqual(expect.arrayContaining(['Needs a look', 'Accounts', 'Activity']));
-    // Alert from getAlerts
+    // "Needs a look" is collapsed by default — no alert until expanded.
+    expect(container.querySelector('.alert')).toBeNull();
+    const collapse = container.querySelector('.admin-collapse') as HTMLButtonElement;
+    expect(collapse).not.toBeNull();
+    await act(async () => {
+      collapse.click();
+    });
+    // Alert from getAlerts now visible.
     expect(container.querySelector('.alert')).not.toBeNull();
   });
 

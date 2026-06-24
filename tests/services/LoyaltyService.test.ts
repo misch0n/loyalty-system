@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { alertKey } from '../../src/domain/alerts';
 import { freshServices, STAFF } from '../helpers/freshStore';
 import { SpyMailer } from '../helpers/spyMailer';
 import type { LoyaltyService } from '../../src/services/LoyaltyService';
@@ -128,6 +129,19 @@ describe('getAlerts', () => {
     // Raise the cap so the at-cap accrual no longer flags.
     const alerts = await loyalty.getAlerts({ multiAddCap: 10 });
     expect(alerts.some((x) => x.kind === 'oversized-multi-add')).toBe(false);
+  });
+
+  it('dismissing an alert filters it out of future reads (idempotent)', async () => {
+    await loyalty.accrue(STAFF, customerId, 3); // oversized → flag
+    const flag = (await loyalty.getAlerts()).find((x) => x.kind === 'oversized-multi-add');
+    expect(flag).toBeDefined();
+
+    await loyalty.dismissAlert(STAFF, alertKey(flag!));
+    expect((await loyalty.getAlerts()).some((x) => x.kind === 'oversized-multi-add')).toBe(false);
+
+    // Re-dismissing the same key is a no-op (does not throw / duplicate).
+    await loyalty.dismissAlert(STAFF, alertKey(flag!));
+    expect((await loyalty.getAlerts()).some((x) => x.kind === 'oversized-multi-add')).toBe(false);
   });
 });
 

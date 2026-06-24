@@ -31,13 +31,12 @@ export interface InsightResult {
   total: number;
   /** Time-bucketed counts for the chart. */
   buckets: InsightBucket[];
-  /** Matching entries, newest first (capped). */
+  /** Matching entries, newest first (the UI pages them). */
   entries: AuditLogEntry[];
 }
 
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
-const ENTRY_CAP = 60;
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -127,5 +126,5 @@ export function buildInsight(
     if (idx >= 0) buckets[idx].value += 1;
   }
 
-  return { total: matched.length, buckets, entries: matched.slice(0, ENTRY_CAP) };
+  return { total: matched.length, buckets, entries: matched };
 }

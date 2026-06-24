@@ -122,6 +122,17 @@ export function Panel(): JSX.Element {
     <div className="screen bg-cream staff-panel">
       <TopBar role={actor.role === 'admin' ? 'Admin' : 'Counter'} />
       <div className="screen-pad staff-panel__body">
+        {actor.role === 'admin' && (
+          <div className="staff-panel__toadmin-row">
+            <Button
+              variant="forest"
+              className="staff-panel__toadmin"
+              onClick={() => navigate(ROUTES.admin)}
+            >
+              Go to admin
+            </Button>
+          </div>
+        )}
         <OnShift name={actor.name ?? actor.username} />
 
         <Button variant="forest" className="staff-panel__scan" onClick={onScan}>
@@ -151,15 +162,6 @@ export function Panel(): JSX.Element {
         )}
 
         <div className="spacer" />
-        {actor.role === 'admin' && (
-          <Button
-            variant="line"
-            className="staff-panel__admin"
-            onClick={() => navigate(ROUTES.admin)}
-          >
-            Back to admin panel
-          </Button>
-        )}
         <Button variant="ghost" className="staff-panel__signout" onClick={onSignOut}>
           End shift / switch staff
         </Button>

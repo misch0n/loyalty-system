@@ -37,8 +37,11 @@ import { StepUp } from '../_parts/StepUp/StepUp';
 import { ProgramEdit } from '../_parts/ProgramEdit/ProgramEdit';
 import { AccountSheet } from '../_parts/AccountSheet/AccountSheet';
 import { StatDetail } from '../_parts/StatDetail/StatDetail';
+import { AlertDetail } from '../_parts/AlertDetail/AlertDetail';
+import { usePager } from '../_parts/usePager';
 import { PersonIcon, feedIcon } from '../_parts/feedIcons';
 import type { MetricKind } from '../../../../domain/insights';
+import { alertKey } from '../../../../domain/alerts';
 import { auditTone, auditVerb, isSameDay, relativeTime } from './format';
 import './Admin.css';
 
@@ -48,7 +51,8 @@ interface Stats {
   rewardsRedeemed: number;
 }
 
-const FEED_LIMIT = 60;
+const ACTIVITY_PAGE = 8;
+const ALERT_PAGE = 4;
 
 type EditTarget =
   | { kind: 'pointsPerReward' }
@@ -113,6 +117,12 @@ function AdminScreen({ actor }: { actor: Actor }) {
   const [edit, setEdit] = useState<EditTarget | null>(null);
   // Which headline stat's breakdown popover is open (null = closed).
   const [detailMetric, setDetailMetric] = useState<MetricKind | null>(null);
+  // "Needs a look" is collapsed by default; the flagged alert in detail view.
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const [selectedAlert, setSelectedAlert] = useState<AlertModel | null>(null);
+
+  const activityPager = usePager(entries?.length ?? 0, ACTIVITY_PAGE);
+  const alertPager = usePager(alerts?.length ?? 0, ALERT_PAGE);
   // The id of the profile whose management popover is open (null = closed). We
   // derive the live account from `staff` so edits (disable, delete…) reflect
   // immediately and a deleted account closes the sheet.
@@ -136,7 +146,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
       services.config.get(),
       services.loyalty.getAlerts(),
       services.staff.list(),
-      services.audit.list({ limit: FEED_LIMIT }),
+      services.audit.list({}), // all entries; the Activity feed pages client-side
     ]).then(([s, accruals, cfg, alertList, staffList, log]) => {
       if (cancelled) return;
       setStats(s);
@@ -235,6 +245,18 @@ function AdminScreen({ actor }: { actor: Actor }) {
     }
   };
 
+  const dismissAlert = async (alert: AlertModel) => {
+    try {
+      await services.loyalty.dismissAlert(actor, alertKey(alert));
+      toast.show('Flag acknowledged.');
+    } catch {
+      toast.show('Couldn’t dismiss that. Try again.');
+    } finally {
+      setSelectedAlert(null);
+      load(); // re-derive alerts without the dismissed one
+    }
+  };
+
   const actorName = (entry: AuditLogEntry): string => {
     if (entry.actorRole === 'system') return 'System';
     return names[entry.actorId] ?? 'Unknown staff';
@@ -278,7 +300,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
             delta="tap for trend"
             onClick={() => setDetailMetric('rewards')}
           />
-          <Stat n={flaggedCount} label="Flagged actions" delta="needs a look" />
 
           <StatWide
             setLabel="Reward earned at"
@@ -292,17 +313,45 @@ function AdminScreen({ actor }: { actor: Actor }) {
           />
         </div>
 
-        <SectionH>Needs a look</SectionH>
-        {alerts?.map((alert, i) => (
-          <Alert
-            key={`${alert.kind}-${alert.staffId}-${alert.at}-${i}`}
-            title={`${alert.staffName ?? alert.staffId}`}
-            detail={alert.detail}
-            time={relativeTime(alert.at)}
-          />
-        ))}
-        {alerts && alerts.length === 0 && (
-          <p className="admin-empty">Nothing to review — no patterns have tripped a flag.</p>
+        <button
+          type="button"
+          className="admin-collapse"
+          aria-expanded={alertsOpen}
+          onClick={() => setAlertsOpen((o) => !o)}
+        >
+          <span className="section-h">Needs a look</span>
+          {flaggedCount > 0 && <span className="admin-badge">{flaggedCount}</span>}
+          <span className="admin-collapse-chev" aria-hidden="true">
+            {alertsOpen ? '⌄' : '›'}
+          </span>
+        </button>
+        {alertsOpen && (
+          <>
+            {alerts?.slice(0, alertPager.count).map((alert, i) => (
+              <Alert
+                key={`${alert.kind}-${alert.staffId}-${alert.at}-${i}`}
+                title={names[alert.staffId] ?? alert.staffName ?? alert.staffId}
+                detail={alert.detail}
+                time={relativeTime(alert.at)}
+                onClick={() => setSelectedAlert(alert)}
+              />
+            ))}
+            {alerts && alerts.length === 0 && (
+              <p className="admin-empty">Nothing to review — no patterns have tripped a flag.</p>
+            )}
+            {alertPager.canMore && (
+              <div className="admin-more">
+                <button type="button" className="admin-more-btn" onClick={alertPager.more}>
+                  Load more
+                </button>
+                {alertPager.showLoadAll && (
+                  <button type="button" className="admin-more-all" onClick={alertPager.loadAll}>
+                    Load all {alerts?.length}
+                  </button>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         <SectionH>Accounts</SectionH>
@@ -353,7 +402,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
 
         <SectionH>Activity</SectionH>
         <Feed>
-          {entries?.map((entry) => {
+          {entries?.slice(0, activityPager.count).map((entry) => {
             const tone = auditTone(entry.action);
             return (
               <FeedRow
@@ -373,6 +422,18 @@ function AdminScreen({ actor }: { actor: Actor }) {
             <p className="admin-empty">Nothing yet — actions will appear here as staff work.</p>
           )}
         </Feed>
+        {activityPager.canMore && (
+          <div className="admin-more">
+            <button type="button" className="admin-more-btn" onClick={activityPager.more}>
+              Load more
+            </button>
+            {activityPager.showLoadAll && (
+              <button type="button" className="admin-more-all" onClick={activityPager.loadAll}>
+                Load all {entries?.length}
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="admin-footer">
           <Button
@@ -392,6 +453,19 @@ function AdminScreen({ actor }: { actor: Actor }) {
         metric={detailMetric}
         names={names}
         onClose={() => setDetailMetric(null)}
+      />
+
+      <AlertDetail
+        alert={selectedAlert}
+        staffName={
+          selectedAlert
+            ? names[selectedAlert.staffId] ?? selectedAlert.staffName ?? selectedAlert.staffId
+            : ''
+        }
+        onClose={() => setSelectedAlert(null)}
+        onDismiss={() => {
+          if (selectedAlert) void dismissAlert(selectedAlert);
+        }}
       />
 
       <AccountSheet

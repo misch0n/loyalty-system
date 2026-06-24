@@ -27,6 +27,12 @@ export interface ProgramConfig {
    * `undefined` is treated as 0 (no revocation has occurred). Never decreases.
    */
   sessionEpoch?: number;
+  /**
+   * Keys of suspicious-activity alerts an admin has acknowledged/dismissed.
+   * Alerts are derived (not stored), so dismissal is recorded here and filtered
+   * out of `getAlerts`. See `alertKey` in `domain/alerts.ts`.
+   */
+  dismissedAlerts?: string[];
 }
 
 export interface StaffAccount {

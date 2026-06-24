@@ -42,17 +42,17 @@ export function App() {
   const { actor, status } = useAuth();
   const [protoOpen, setProtoOpen] = useState(false);
 
-  // When already signed in, the logo (tap OR long-press) goes to the role home
-  // — never back to the sign-in page. Sign-in is reached manually (long-press)
-  // only while signed out.
+  // When already signed in, the logo (tap OR long-press) goes to the counter —
+  // never back to the sign-in page. Admins reach the admin panel via the
+  // "Go to admin" button on the counter. Sign-in is reached manually
+  // (long-press) only while signed out.
   const signedIn = Boolean(actor) && status === 'active';
-  const roleHome = actor?.role === 'admin' ? ROUTES.admin : ROUTES.staff;
 
   return (
     <LogoGesturesProvider
       value={{
         onHome: () => navigate('/'),
-        onHold: () => navigate(signedIn ? roleHome : ROUTES.login),
+        onHold: () => navigate(signedIn ? ROUTES.staff : ROUTES.login),
       }}
     >
       <Routes>

@@ -70,3 +70,16 @@
   font-size: 10px;
   color: var(--ink-soft);
 }
+
+/* Admin-only "Go to admin" pinned to the top of the counter view. */
+.staff-panel__toadmin-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+.staff-panel__toadmin {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 9px 18px;
+  font-size: 13px;
+}

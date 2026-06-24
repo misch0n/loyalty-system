@@ -119,9 +119,9 @@ describe('Staff Login', () => {
     expect(container.textContent).toContain('STAFF PANEL HOME');
   });
 
-  it('an admin signing in routes to the admin panel', async () => {
+  it('an admin signing in routes to the counter (admin panel reached from there)', async () => {
     await mount(makeServices(vi.fn().mockResolvedValue({ ok: true, actor: ADMIN })));
     await signIn('admin', 'admin');
-    expect(container.textContent).toContain('ADMIN HOME');
+    expect(container.textContent).toContain('STAFF PANEL HOME');
   });
 });

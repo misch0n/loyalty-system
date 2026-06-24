@@ -48,8 +48,8 @@ export function Login(): JSX.Element {
         return;
       }
       recordActivity();
-      const home = result.actor.role === 'admin' ? ROUTES.admin : ROUTES.staff;
-      navigate(home, { replace: true });
+      // Both roles land on the counter; admins open the admin panel from there.
+      navigate(ROUTES.staff, { replace: true });
     } catch {
       setError('Could not sign in. Check your connection and try again.');
     } finally {

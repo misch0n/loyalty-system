@@ -16,6 +16,7 @@ import {
 } from '../domain/loyalty';
 import {
   deriveAlerts,
+  alertKey,
   DEFAULT_THRESHOLDS,
   type Alert,
   type AlertThresholds,
@@ -108,7 +109,23 @@ export class LoyaltyService {
     };
     const staffNames: Record<string, string> = {};
     for (const member of staff) staffNames[member.id] = member.username;
-    return deriveAlerts(transactions, resolved, staffNames);
+    const dismissed = new Set(config.dismissedAlerts ?? []);
+    return deriveAlerts(transactions, resolved, staffNames).filter(
+      (a) => !dismissed.has(alertKey(a)),
+    );
+  }
+
+  /**
+   * Acknowledge/dismiss a suspicious-activity alert so it stops surfacing.
+   * Records the alert's stable key on the program config and audits the action.
+   * Idempotent — re-dismissing the same key is a no-op.
+   */
+  async dismissAlert(actor: Actor, key: string): Promise<void> {
+    const config = await this.store.getConfig();
+    const current = config.dismissedAlerts ?? [];
+    if (current.includes(key)) return;
+    await this.store.updateConfig({ dismissedAlerts: [...current, key] });
+    await this.audit.log(actor, 'config.update', undefined, 'alert.dismiss');
   }
 
   /** Add points (clamped to the per-transaction cap). Staff-initiated. */

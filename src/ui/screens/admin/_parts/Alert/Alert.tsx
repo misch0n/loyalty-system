@@ -14,11 +14,13 @@ export interface AlertProps {
   detail: ReactNode;
   /** Relative age, e.g. "9m". */
   time: ReactNode;
+  /** When set, the card becomes a button that opens its detail popover. */
+  onClick?: () => void;
 }
 
-export function Alert({ title, detail, time }: AlertProps) {
-  return (
-    <div className="alert">
+export function Alert({ title, detail, time, onClick }: AlertProps) {
+  const inner = (
+    <>
       <span style={{ fontSize: 16 }} aria-hidden="true">
         ⚠️
       </span>
@@ -27,6 +29,14 @@ export function Alert({ title, detail, time }: AlertProps) {
         <div className="as">{detail}</div>
       </div>
       <span className="ag">{time}</span>
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button type="button" className="alert alert-btn" onClick={onClick}>
+        {inner}
+      </button>
+    );
+  }
+  return <div className="alert">{inner}</div>;
 }

@@ -25,7 +25,7 @@ import { ROUTES, cardPath } from './routes';
  */
 export function useEntryTarget(): string | null {
   const services = useServices();
-  const { actor, status, trusted, ready } = useAuth();
+  const { status, trusted, ready } = useAuth();
 
   // null = not yet read; '' = read, no remembered card; string = the token.
   const [cardToken, setCardToken] = useState<string | null>(null);
@@ -57,8 +57,9 @@ export function useEntryTarget(): string | null {
 
   // Auth boot not settled yet.
   if (!ready) return null;
-  // Home is role-aware: an admin lands on the admin panel, staff on the counter.
-  if (staffTarget) return actor?.role === 'admin' ? ROUTES.admin : ROUTES.staff;
+  // Both staff and admins land on the counter; admins reach the admin panel via
+  // the "Go to admin" button there.
+  if (staffTarget) return ROUTES.staff;
   if (staffLocked) return ROUTES.staffUnlock;
 
   // Still resolving the remembered card.
