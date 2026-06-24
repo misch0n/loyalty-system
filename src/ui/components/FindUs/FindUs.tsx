@@ -39,7 +39,7 @@ export const FindUs = forwardRef<HTMLDivElement, FindUsProps>(function FindUs({ 
         <div
           className="findus-fade"
           aria-hidden="true"
-          style={{ background: `linear-gradient(to bottom, ${from}, ${from} 32%, var(--cream))` }}
+          style={{ ['--fade-from' as string]: from }}
         />
       )}
       <div className="findus">

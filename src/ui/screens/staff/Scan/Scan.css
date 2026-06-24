@@ -67,8 +67,3 @@
   outline: 3px solid var(--terra);
   outline-offset: 2px;
 }
-
-/* Keep the camera frame mounted (stream stays warm) but hidden off the scan step. */
-.staff-scan__camhide {
-  display: none;
-}

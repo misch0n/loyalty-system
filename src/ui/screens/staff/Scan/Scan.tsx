@@ -117,12 +117,9 @@ export function Scan(): JSX.Element {
     [services, stopCamera, recordActivity],
   );
 
-  // ── camera lifecycle ────────────────────────────────────────────────────
-  // Acquire the camera ONCE on mount and keep it warm across scan→resolve→scan
-  // cycles (pause/resume below) so the browser doesn't re-request it between
-  // customers — on iOS Safari that's what was re-prompting for permission every
-  // time. The stream is only released when the scan screen unmounts.
+  // ── camera lifecycle (only while scanning) ──────────────────────────────
   useEffect(() => {
+    if (phase !== 'scanning') return;
     let cancelled = false;
     setCameraError(null);
     void (async () => {
@@ -145,17 +142,10 @@ export function Scan(): JSX.Element {
       cancelled = true;
       void stopCamera();
     };
-    // `resolve`/`stopCamera` are stable useCallbacks — acquire only once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [phase, resolve, stopCamera]);
 
-  // Pause decoding off the scan step, resume on it — without releasing the stream.
-  useEffect(() => {
-    const handle = scannerRef.current;
-    if (!handle) return;
-    if (phase === 'scanning') handle.resume();
-    else handle.pause();
-  }, [phase]);
+  // Stop the camera if the screen unmounts mid-scan.
+  useEffect(() => () => void stopCamera(), [stopCamera]);
 
   if (guard.redirect) return guard.redirect;
   const actor = guard.actor;
@@ -297,25 +287,13 @@ export function Scan(): JSX.Element {
     <div className="screen bg-cream staff-scan">
       <TopBar role={actor.role === 'admin' ? 'Admin' : 'Counter'} />
       <div className="screen-pad staff-scan__body">
-        <StateLabel>
-          {phase === 'resolved'
-            ? 'state · resolved'
-            : phase === 'notfound'
-              ? 'state · card not registered'
-              : 'state · scanning'}
-        </StateLabel>
-
-        {/* Camera frame stays mounted across phases so the stream isn't
-            re-acquired (no repeat iOS permission prompt). Hidden off the scan step. */}
-        <div className={phase === 'scanning' ? undefined : 'staff-scan__camhide'} aria-hidden={phase !== 'scanning'}>
-          <ScanView
-            caption="Point at the customer’s code"
-            videoSlot={<div id={SCAN_REGION_ID} className="staff-scan__region" />}
-          />
-        </div>
-
         {phase === 'scanning' && (
           <>
+            <StateLabel>state · scanning</StateLabel>
+            <ScanView
+              caption="Point at the customer’s code"
+              videoSlot={<div id={SCAN_REGION_ID} className="staff-scan__region" />}
+            />
             {cameraError && <p className="staff-scan__error">{cameraError}</p>}
             <form className="staff-scan__manual" onSubmit={submitManual}>
               <label>
@@ -342,6 +320,7 @@ export function Scan(): JSX.Element {
 
         {phase === 'notfound' && (
           <>
+            <StateLabel>state · card not registered</StateLabel>
             <div className="cust">
               <span className="av">?</span>
               <div>
@@ -371,6 +350,7 @@ export function Scan(): JSX.Element {
 
         {phase === 'resolved' && state && (
           <>
+            <StateLabel>state · resolved</StateLabel>
             <CustChip
               name={customerName}
               current={filled}

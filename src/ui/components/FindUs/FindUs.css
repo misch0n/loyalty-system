@@ -4,7 +4,19 @@
    cream Find-us surface. Its held top colour also sits behind the iOS toolbar at
    rest, so the next section never peeks through translucent. */
 .findus-fade {
-  height: 150px;
+  height: 200px;
+  /* Fade from the page colour (set inline as --fade-from) into the cream
+     Find-us surface. The mid-point colour hint (62%) eases the blend so the
+     darker page colour releases slowly instead of dropping off in a hard band
+     near the top, then resolves cleanly into cream over the lower third. */
+  background: linear-gradient(to bottom, var(--fade-from, var(--cream)), 62%, var(--cream));
+}
+/* Where supported, interpolate in oklab: perceptually even steps kill the grey
+   "dip" sRGB shows when blending a saturated colour into a light cream. */
+@supports (background: linear-gradient(in oklab, red, blue)) {
+  .findus-fade {
+    background: linear-gradient(to bottom in oklab, var(--fade-from, var(--cream)), 62%, var(--cream));
+  }
 }
 .findus {
   background: var(--cream);

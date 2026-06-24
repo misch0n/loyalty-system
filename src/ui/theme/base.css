@@ -73,7 +73,9 @@ a {
 
 /* background treatments (exact mock gradients) */
 .bg-forest {
-  background: linear-gradient(170deg, #34543f, #223a2c);
+  /* Vertical (180°) so the bottom edge is a uniform #223a2c — lets the continuity
+     fade start from exactly that colour with no seam. */
+  background: linear-gradient(180deg, #34543f, #223a2c);
   color: var(--cream);
 }
 .bg-blush {
