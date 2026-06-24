@@ -42,6 +42,18 @@ import { joinHost, PeerJsHost } from '../../adapters/sync/PeerJsLink';
 import { createStoreServer } from '../../adapters/sync/StoreServer';
 import { createPeerClientStore } from '../../adapters/sync/PeerClientStore';
 import type { PeerLink } from '../../adapters/sync/PeerLink';
+import { DB_NAME } from '../../adapters/storage/schema';
+
+/** Resolve to true if `p` doesn't settle within `ms` (used to detect a wedged store). */
+function didTimeout(p: Promise<unknown>, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(true), ms);
+    void p.finally(() => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
+}
 
 interface PairingValue {
   /** This device's host peer id — encode in the pairing QR while hosting. */
@@ -251,9 +263,26 @@ export function PairingProvider({ children }: { children: ReactNode }) {
     hostRef.current?.unpairAll();
     clearAllStorage();
     auth.logout();
-    await services.reset().catch(() => {
-      // best-effort data wipe; the device-visible reset already happened above
-    });
+    // Graceful in-place wipe (reload-free) — but if the store is WEDGED (a hung
+    // IndexedDB connection makes every op hang, the "card creation stuck / login
+    // stuck / reset does nothing" failure), services.reset() never returns. Race
+    // it against a watchdog and hard-recover: delete the (disposable) DB and
+    // reload into a fresh open(), which self-heals on the next boot.
+    const wedged = await didTimeout(
+      services.reset().catch(() => {
+        // best-effort data wipe; the device-visible reset already happened above
+      }),
+      2500,
+    );
+    if (wedged) {
+      try {
+        indexedDB.deleteDatabase(DB_NAME);
+      } catch {
+        // ignore — the reload + open() watchdog recovers regardless
+      }
+      window.location.reload();
+      return;
+    }
     navigate('/', { replace: true });
   }, [services, auth, navigate]);
 

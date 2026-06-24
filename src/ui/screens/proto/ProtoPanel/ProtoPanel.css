@@ -168,9 +168,25 @@
   text-align: right;
 }
 
-/* Destructive confirm state for Reset (in-app, two-step). */
-.proto .pbtn.pbtn-danger {
+/* Armed Reset: starts danger (terra) and slowly decays back to the normal button
+   colour over 3s, at which point the component auto-disarms. Base colours are the
+   danger ones so it still reads as armed when animation is disabled (reduced
+   motion); the "Tap again to reset" label is the other armed cue. */
+.proto .pbtn.pbtn-arming {
   background: var(--terra);
   border-color: var(--terra);
   color: #fff;
+  animation: pbtn-decay 3s linear forwards;
+}
+@keyframes pbtn-decay {
+  from {
+    background: var(--terra);
+    border-color: var(--terra);
+    color: #fff;
+  }
+  to {
+    background: #222a25;
+    border-color: #38463c;
+    color: #e6efe0;
+  }
 }

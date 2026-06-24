@@ -71,16 +71,18 @@ a {
   margin: 14px 0 0;
 }
 
-/* background treatments (exact mock gradients) */
+/* background treatments — solid section colours. The "Find us" block floats as a
+   rounded cream card on top of these, so the colour runs uninterrupted to the
+   bottom of the page (no gradient handoff needed). */
 .bg-forest {
-  background: linear-gradient(170deg, #34543f, #223a2c);
+  background: #223a2c;
   color: var(--cream);
 }
 .bg-blush {
-  background: linear-gradient(180deg, var(--blush-200), var(--blush));
+  background: var(--blush);
 }
 .bg-sage {
-  background: linear-gradient(180deg, var(--sage-100), #dfe7c4);
+  background: #dfe7c4;
 }
 .bg-cream {
   background: var(--paper);

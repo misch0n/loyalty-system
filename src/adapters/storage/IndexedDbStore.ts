@@ -89,8 +89,35 @@ export class IndexedDbStore implements DataStore {
     await this.seed(db); // re-run the idempotent seed: default config + mock staff
   }
 
+  /** Watchdog timeouts (ms). A blocked/stalled open never settles on its own, so
+   *  we bound it and recover rather than hang every later call forever. */
+  private static readonly OPEN_TIMEOUT_MS = 5_000;
+  private static readonly DELETE_TIMEOUT_MS = 3_000;
+
   private async open(): Promise<IDBPDatabase<LoyaltyDB>> {
-    const db = await openDB<LoyaltyDB>(DB_NAME, DB_VERSION, {
+    let db: IDBPDatabase<LoyaltyDB>;
+    try {
+      db = await this.openOnce();
+    } catch {
+      // A wedged or incompatible database — a half-applied migration, or an open
+      // that never resolves because another browser context is blocking the
+      // upgrade — makes EVERY later call hang (the real cause of "card creation
+      // stuck / dev panel shows no data / reset does nothing"). Prototype data is
+      // disposable and re-seeded just below, so delete and reopen once, fresh.
+      await this.deleteDb();
+      db = await this.openOnce();
+    }
+
+    await this.seed(db);
+    await this.backfillShortCodes(db);
+    return db;
+  }
+
+  /** openDB wrapped in a watchdog + self-release handlers, so a blocked/stalled
+   *  open rejects (letting `open()` delete + retry) instead of hanging. */
+  private openOnce(): Promise<IDBPDatabase<LoyaltyDB>> {
+    let opened: IDBPDatabase<LoyaltyDB> | undefined;
+    const opening = openDB<LoyaltyDB>(DB_NAME, DB_VERSION, {
       async upgrade(database, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
           database.createObjectStore('config', { keyPath: 'id' });
@@ -136,11 +163,57 @@ export class IndexedDbStore implements DataStore {
           });
         }
       },
+      blocked() {
+        // Another open connection is holding back our upgrade. We can't proceed;
+        // the watchdog below times out and open() deletes + retries.
+      },
+      blocking() {
+        // We are blocking ANOTHER context's upgrade — release our connection so
+        // neither side deadlocks (e.g. a second tab / home-screen instance).
+        opened?.close();
+      },
+      terminated() {
+        // Safari can drop the connection out from under us; nothing to do here —
+        // the next call recreates the store on a fresh connection.
+      },
+    }).then((d) => {
+      opened = d;
+      return d;
     });
+    return IndexedDbStore.withTimeout(opening, IndexedDbStore.OPEN_TIMEOUT_MS);
+  }
 
-    await this.seed(db);
-    await this.backfillShortCodes(db);
-    return db;
+  /** Best-effort delete that itself can't hang (Safari can stall deleteDatabase). */
+  private deleteDb(): Promise<void> {
+    const del = new Promise<void>((resolve) => {
+      try {
+        const req = indexedDB.deleteDatabase(DB_NAME);
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+        req.onblocked = () => resolve();
+      } catch {
+        resolve();
+      }
+    });
+    return IndexedDbStore.withTimeout(del, IndexedDbStore.DELETE_TIMEOUT_MS).catch(() => undefined);
+  }
+
+  /** Reject `p` if it hasn't settled within `ms` — turns an infinite hang into a
+   *  recoverable error. */
+  private static withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('IndexedDB operation timed out')), ms);
+      p.then(
+        (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      );
+    });
   }
 
   /**

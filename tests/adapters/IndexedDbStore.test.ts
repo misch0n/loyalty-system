@@ -6,9 +6,10 @@
  */
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
+import { openDB } from 'idb';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { IndexedDbStore } from '../../src/adapters/storage/IndexedDbStore';
-import { DEFAULT_CONFIG } from '../../src/adapters/storage/schema';
+import { DB_NAME, DEFAULT_CONFIG } from '../../src/adapters/storage/schema';
 
 let store: IndexedDbStore;
 
@@ -287,6 +288,71 @@ describe('stats & backup', () => {
     await store.importAll(empty);
     expect(await store.getCustomerByToken('will-be-gone')).toBeNull();
     expect(await store.listStaff()).toEqual([]);
+  });
+});
+
+describe('migration & recovery (regression: the v4 "everything stuck" hang)', () => {
+  /** Build a pre-v4 (v3) database by hand: the old schema with NO byShortCode
+   *  index, holding a legacy customer that has no short code. */
+  async function makeV3DatabaseWithLegacyCustomer(): Promise<void> {
+    const db = await openDB(DB_NAME, 3, {
+      upgrade(database) {
+        database.createObjectStore('config', { keyPath: 'id' });
+        const staff = database.createObjectStore('staff', { keyPath: 'id' });
+        staff.createIndex('byUsername', 'username', { unique: true });
+        const customers = database.createObjectStore('customers', { keyPath: 'id' });
+        customers.createIndex('byToken', 'token', { unique: true });
+        customers.createIndex('byStatus', 'status');
+        const transactions = database.createObjectStore('transactions', { keyPath: 'id' });
+        transactions.createIndex('byCustomer', 'customerId');
+        const audit = database.createObjectStore('audit', { keyPath: 'id' });
+        audit.createIndex('byTimestamp', 'timestamp');
+        audit.createIndex('byAction', 'action');
+        database.createObjectStore('recoveryCodes', { keyPath: 'code' });
+      },
+    });
+    await db.put('customers', {
+      id: 'legacy1',
+      token: 'legacy-tok',
+      status: 'active',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    db.close();
+  }
+
+  it('migrates v3 → v4: adds the short-code index, backfills, stays usable', async () => {
+    globalThis.indexedDB = new IDBFactory(); // discard the beforeEach v4 store's DB
+    await makeV3DatabaseWithLegacyCustomer();
+
+    const migrated = new IndexedDbStore();
+    // The legacy row gets a backfilled short code, resolvable by the new index.
+    const legacy = await migrated.getCustomerByToken('legacy-tok');
+    expect(legacy?.shortCode).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
+    expect(await migrated.getCustomerByShortCode(legacy!.shortCode)).toMatchObject({
+      id: 'legacy1',
+    });
+    // And the store is fully usable — this is the exact path that hung in prod
+    // (card creation / login awaiting an open that never resolved).
+    const created = await migrated.createCustomer({ token: 'after-migration' });
+    expect(await migrated.getCustomerByToken('after-migration')).toMatchObject({ id: created.id });
+  });
+
+  it('self-heals a wedged/incompatible database (deletes + reopens, never hangs)', async () => {
+    globalThis.indexedDB = new IDBFactory(); // discard the beforeEach v4 store's DB
+    // A database left at a HIGHER version (an aborted/future build) makes openDB
+    // reject. The store must delete + reopen fresh rather than hang every call.
+    const future = await openDB(DB_NAME, 99, {
+      upgrade(database) {
+        database.createObjectStore('config', { keyPath: 'id' });
+      },
+    });
+    future.close();
+
+    const healed = new IndexedDbStore();
+    // Fresh seed is back and the store works.
+    expect((await healed.listStaff()).map((s) => s.username)).toEqual(['admin', 'priya', 'staff']);
+    const created = await healed.createCustomer({ token: 'healed' });
+    expect(await healed.getCustomerByToken('healed')).toMatchObject({ id: created.id });
   });
 });
 

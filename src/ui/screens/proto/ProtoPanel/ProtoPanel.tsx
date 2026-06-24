@@ -17,7 +17,7 @@
  * for pairing/reset is reused from `PairingContext` + `services.reset()`.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Sheet } from '../../../components/Sheet/Sheet';
 import { QrDisplay } from '../../../common/QrDisplay';
 import { QrScanner } from '../../../common/QrScanner';
@@ -31,7 +31,8 @@ import './ProtoPanel.css';
 interface StorageDiag {
   standalone: boolean;
   recognized: boolean;
-  customers: number;
+  /** Active customer count, or null when the store didn't respond (DB wedged). */
+  customers: number | null;
   snapshot: boolean;
 }
 
@@ -65,7 +66,10 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
   } = usePairing();
   const services = useServices();
   const [scanning, setScanning] = useState(false);
-  const [confirmingReset, setConfirmingReset] = useState(false);
+  // Reset is a single self-arming button: first tap arms it (turns danger +
+  // "Tap again to reset"), it decays back to normal over 3s and auto-disarms.
+  const [armed, setArmed] = useState(false);
+  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [diag, setDiag] = useState<StorageDiag | null>(null);
 
   // While paired, show the TILL's QR (joinedHostId) so any device can grow the
@@ -78,17 +82,30 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
   useEffect(() => {
     if (!open) return;
     let active = true;
-    void Promise.all([services.identity.get(), services.store.countActiveCustomers()])
-      .then(([token, customers]) => {
-        if (!active) return;
-        setDiag({
-          standalone: isStandalone(),
-          recognized: Boolean(token),
-          customers,
-          snapshot: hasSnapshot(),
-        });
-      })
-      .catch(() => active && setDiag(null));
+    void (async () => {
+      // Recognition is localStorage (can't hang). The customer count is the DB —
+      // if it's wedged, time it out so the panel reports "unavailable" instead of
+      // showing nothing (the symptom that looked like the diagnostic was removed).
+      const token = await services.identity.get().catch(() => null);
+      let customers: number | null = null;
+      try {
+        customers = await Promise.race([
+          services.store.countActiveCustomers(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('store timeout')), 4000),
+          ),
+        ]);
+      } catch {
+        customers = null;
+      }
+      if (!active) return;
+      setDiag({
+        standalone: isStandalone(),
+        recognized: Boolean(token),
+        customers,
+        snapshot: hasSnapshot(),
+      });
+    })();
     return () => {
       active = false;
     };
@@ -105,19 +122,38 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
     if (joined) setScanning(false);
   }, [joined]);
 
-  // Reset to the controls view whenever the panel re-opens / closes.
+  // Reset to the controls view whenever the panel re-opens / closes; closing the
+  // panel also cancels a pending reset (disarms the button).
   useEffect(() => {
     if (!open) {
       setScanning(false);
-      setConfirmingReset(false);
+      disarm();
     }
   }, [open]);
 
+  // Clean up the arm timer on unmount.
+  useEffect(() => () => disarm(), []);
+
+  function disarm(): void {
+    if (armTimer.current) clearTimeout(armTimer.current);
+    armTimer.current = null;
+    setArmed(false);
+  }
+
+  // First tap arms; the button decays back to its normal colour over 3s (CSS) and
+  // auto-disarms here, so an accidental tap quietly reverts.
+  function armReset(): void {
+    setArmed(true);
+    if (armTimer.current) clearTimeout(armTimer.current);
+    armTimer.current = setTimeout(() => disarm(), 3000);
+  }
+
   // In-app two-step confirm (window.confirm is suppressed in iOS standalone).
   async function doReset(): Promise<void> {
-    setConfirmingReset(false);
+    disarm();
     onClose();
-    // Role-aware + reload-free; PairingContext handles client vs host/unpaired.
+    // Role-aware; PairingContext does a graceful in-place wipe, or hard-recovers
+    // (delete + reload) if the store is wedged.
     await pairingReset();
   }
 
@@ -198,31 +234,23 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
               )}
             </div>
 
-            {/* 3 · Reset (in-app two-step confirm) */}
+            {/* 3 · Reset — single self-arming button (tap to arm, tap again to
+                reset; auto-disarms after 3s, and closing the panel cancels it) */}
             <div className="grp">
-              {confirmingReset ? (
-                <>
-                  <p className="proto-status">
-                    {joined
-                      ? 'Clears this device only (card + sign-in). The till keeps its data.'
-                      : 'Wipes all data on this device. Paired devices are disconnected.'}
-                  </p>
-                  <button type="button" className="pbtn pbtn-danger" onClick={() => void doReset()}>
-                    Tap again to reset
-                  </button>
-                  <button
-                    type="button"
-                    className="pbtn"
-                    onClick={() => setConfirmingReset(false)}
-                  >
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <button type="button" className="pbtn" onClick={() => setConfirmingReset(true)}>
-                  Reset
-                </button>
+              {armed && (
+                <p className="proto-status">
+                  {joined
+                    ? 'Clears this device only (card + sign-in). The till keeps its data.'
+                    : 'Wipes all data on this device. Paired devices are disconnected.'}
+                </p>
               )}
+              <button
+                type="button"
+                className={`pbtn${armed ? ' pbtn-arming' : ''}`}
+                onClick={() => (armed ? void doReset() : armReset())}
+              >
+                {armed ? 'Tap again to reset' : 'Reset'}
+              </button>
             </div>
 
             {/* Storage diagnostic — reload (esp. iOS home-screen) and read what
@@ -239,7 +267,11 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
                 </div>
                 <div>
                   <dt>card data · IndexedDB</dt>
-                  <dd>{diag.customers} customer{diag.customers === 1 ? '' : 's'}</dd>
+                  <dd>
+                    {diag.customers === null
+                      ? 'unavailable — store not responding'
+                      : `${diag.customers} customer${diag.customers === 1 ? '' : 's'}`}
+                  </dd>
                 </div>
                 <div>
                   <dt>pairing snapshot</dt>
