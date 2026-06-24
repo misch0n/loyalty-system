@@ -25,6 +25,7 @@ import { TopBar, ScanView, CustChip, StateLabel } from '../_parts';
 import { useStaffGuard } from '../useStaffGuard';
 import { startScanner, type ScannerHandle } from '../../../../qr/scan';
 import { tokenFromCardScan } from '../../../../qr/encode';
+import { normalizeShortCode } from '../../../../domain/tokens';
 import type { CustomerState } from '../../../../services/LoyaltyService';
 import './Scan.css';
 
@@ -51,6 +52,7 @@ export function Scan(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [manual, setManual] = useState('');
 
   const scannerRef = useRef<ScannerHandle | null>(null);
   const resolvingRef = useRef(false);
@@ -88,6 +90,33 @@ export function Scan(): JSX.Element {
     [services, stopCamera, recordActivity],
   );
 
+  // ── resolve a typed SHORT CODE (camera-fail fallback) ───────────────────
+  const resolveCode = useCallback(
+    async (raw: string) => {
+      const code = normalizeShortCode(raw);
+      if (!code || resolvingRef.current) return;
+      resolvingRef.current = true;
+      recordActivity();
+      await stopCamera();
+      setActionError(null);
+      try {
+        const next = await services.loyalty.getStateByShortCode(code);
+        if (next) {
+          setState(next);
+          setPoints(1);
+          setPhase('resolved');
+        } else {
+          setPhase('notfound');
+        }
+      } catch {
+        setPhase('notfound');
+      } finally {
+        resolvingRef.current = false;
+      }
+    },
+    [services, stopCamera, recordActivity],
+  );
+
   // ── camera lifecycle (only while scanning) ──────────────────────────────
   useEffect(() => {
     if (phase !== 'scanning') return;
@@ -106,7 +135,7 @@ export function Scan(): JSX.Element {
       } catch {
         if (!cancelled) {
           setCameraError(
-            'Camera unavailable. On a phone, allow camera access, then try again.',
+            'Camera unavailable. On a phone, allow camera access, or type the customer’s card code below.',
           );
         }
       }
@@ -143,7 +172,13 @@ export function Scan(): JSX.Element {
     recordActivity();
     setState(null);
     setActionError(null);
+    setManual('');
     setPhase('scanning');
+  };
+
+  const submitManual = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (manual.trim()) void resolveCode(manual);
   };
 
   // ── best-effort wallet push (never blocks the UI) ───────────────────────
@@ -262,6 +297,22 @@ export function Scan(): JSX.Element {
               videoSlot={<div id={SCAN_REGION_ID} className="staff-scan__region" />}
             />
             {cameraError && <p className="staff-scan__error">{cameraError}</p>}
+            <form className="staff-scan__manual" onSubmit={submitManual}>
+              <label>
+                Card code
+                <input
+                  value={manual}
+                  onChange={(e) => setManual(e.target.value)}
+                  placeholder="e.g. K39X-Q4T7"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  inputMode="text"
+                />
+              </label>
+              <Button variant="line" type="submit" disabled={!manual.trim()}>
+                Look up
+              </Button>
+            </form>
             <div className="spacer" />
             <Button variant="ghost" className="staff-scan__ghost" onClick={backToPanel}>
               Back

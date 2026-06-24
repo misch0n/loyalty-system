@@ -68,6 +68,12 @@ export interface Customer {
   id: string;
   /** Random, opaque 128-bit token. This is what the QR/pass carries. */
   token: string;
+  /**
+   * Human-shareable Crockford-base32 handle (8 chars), unique per active card.
+   * A camera-fail fallback (read aloud / typed) — NOT the identity (that's the
+   * token). Assigned by the store on create.
+   */
+  shortCode: string;
   displayName?: string;
   email?: string;
   phone?: string;

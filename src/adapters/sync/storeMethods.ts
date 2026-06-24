@@ -14,6 +14,7 @@ export const STORE_METHODS = [
   'createCustomer',
   'getCustomerById',
   'getCustomerByToken',
+  'getCustomerByShortCode',
   'findCustomers',
   'updateCustomer',
   'recordConsent',

@@ -86,6 +86,8 @@ export interface DataStore {
   createCustomer(input: CreateCustomerInput): Promise<Customer>;
   getCustomerById(id: string): Promise<Customer | null>;
   getCustomerByToken(token: string): Promise<Customer | null>;
+  /** Look up by the human-shareable short code (camera-fail fallback). */
+  getCustomerByShortCode(shortCode: string): Promise<Customer | null>;
   findCustomers(query: CustomerQuery): Promise<Customer[]>;
   /** Staff-mediated correction only — never customer self-edit. */
   updateCustomer(id: string, patch: CustomerPatch): Promise<Customer>;

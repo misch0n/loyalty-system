@@ -12,6 +12,7 @@ function customer(over: Partial<Customer>): Customer {
   return {
     id: over.id ?? 'c1',
     token: 'tok0000000000000000000',
+    shortCode: 'ABCD1234',
     status: 'active',
     createdAt: '2024-01-01T00:00:00.000Z',
     ...over,

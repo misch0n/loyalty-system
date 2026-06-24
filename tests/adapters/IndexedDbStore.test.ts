@@ -60,6 +60,16 @@ describe('customers', () => {
     expect(await store.getCustomerByToken('nope')).toBeNull();
   });
 
+  it('assigns a unique short code on create and resolves by it', async () => {
+    const a = await store.createCustomer({ token: 'tok-a' });
+    const b = await store.createCustomer({ token: 'tok-b' });
+    expect(a.shortCode).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
+    expect(a.shortCode).not.toBe(b.shortCode);
+    expect(await store.getCustomerByShortCode(a.shortCode)).toMatchObject({ id: a.id });
+    expect(await store.getCustomerByShortCode('00000000')).toBeNull();
+    expect(await store.getCustomerByShortCode('')).toBeNull();
+  });
+
   it('finds active customers by name, email or phone and ignores deleted ones', async () => {
     await store.createCustomer({ token: 't1', displayName: 'Maria', email: 'maria@cafe.test' });
     await store.createCustomer({ token: 't2', phone: '+1 (555) 123-4567' });

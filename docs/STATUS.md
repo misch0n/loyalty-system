@@ -14,7 +14,7 @@
 - React + TypeScript + Vite SPA, IndexedDB storage, deployed to GitHub Pages.
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
-- **360 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
+- **365 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
 - **Puppeteer e2e suite** (`e2e/`, run with `npm run e2e`) drives the built app in headless Chrome: welcome, register→card, staff PIN, prototype panel, and the reference bug-list regressions (13 checks).
 - CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`,
   `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets) → deploys on push to `main`.
@@ -133,7 +133,7 @@
 
 ## Test coverage
 
-`npm test` runs **360 Vitest unit/component tests** (includes co-located
+`npm test` runs **365 Vitest unit/component tests** (includes co-located
 `src/ui/**/*.test.tsx` via the extended `test.include` in `vite.config.ts`):
 
 - **domain/** — `loyalty`, `tokens`, `validation` (pure logic), `alerts`
@@ -232,9 +232,8 @@ unit tests cannot.
 - No backend, money handling, gifting/suspended-coffee, marketing, advanced
   analytics, native apps, multi-tenant (out of scope — SPEC §2).
 - `cardInactivityDays` is configurable but no expiry job runs (prototype).
-- Camera scanning needs HTTPS/localhost. The **manual code-entry fallback was
-  removed** (the ~20-char token is unrealistic to read aloud) — see "Known gaps"
-  for the open question of a short, shareable recovery code.
+- Camera scanning needs HTTPS/localhost. Manual entry accepts the short
+  **card code** (Crockford base32) as a camera-fail fallback.
 - **Reward-notification opt-out** is not yet surfaced in the UI. Email is sent
   whenever the customer has an address on file.
 - **Two-device TURN-relayed verification on cellular** is implemented but can only
@@ -300,12 +299,15 @@ unit tests cannot.
   `IdentityStore` with a device-local IndexedDB (woven into the pairing
   snapshot/reset lifecycle); the durable production answer remains the server
   cookie (divergence d).
-- **Short shareable recovery code (open design question).** The card token is a
-  128-bit opaque random (~20+ chars) — fine for a QR, impractical to read aloud
-  if the camera fails. Manual scan-entry was removed for that reason. A future
-  camera-fail fallback wants a short, human-shareable code (e.g. a 6–8 char
-  base32 short-code mapping to the token, server-side in production / a derived
-  lookup in the prototype). Not yet built — discussed, deferred.
+- **Short shareable recovery code — DONE.** Cards now carry a **`shortCode`**: an
+  8-char **Crockford base32** handle (no I/L/O/U), unique per card, assigned by
+  the store on create (`domain/tokens.ts` `generateShortCode`/`normalizeShortCode`/
+  `formatShortCode`; `DataStore.getCustomerByShortCode` + a `byShortCode` index,
+  schema v4 with backfill). The **token stays the identity** (QR/wallet/recovery);
+  the short code is a camera-fail lookup handle. It's shown on the card (`CKY ·
+  K39X-Q4T7`) and the scan view's **manual entry is back**, accepting the short
+  code (`LoyaltyService.getStateByShortCode`). Production note: the lookup should
+  be rate-limited server-side.
 - **Recovery after Reset requires pairing.** Self-service recovery resolves
   the customer's card from the store currently active on the device. After a
   Reset, the customer device has a blank local store; recovery will only find

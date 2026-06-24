@@ -15,7 +15,7 @@ import type {
 } from '../../domain/models';
 
 export const DB_NAME = 'cafe-loyalty';
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 
 /** The legacy reward threshold, superseded by the 8-coffee default (see seed). */
 export const LEGACY_POINTS_PER_REWARD = 10;
@@ -46,7 +46,7 @@ export interface LoyaltyDB extends DBSchema {
   customers: {
     key: string;
     value: Customer;
-    indexes: { byToken: string; byStatus: string };
+    indexes: { byToken: string; byStatus: string; byShortCode: string };
   };
   transactions: {
     key: string;

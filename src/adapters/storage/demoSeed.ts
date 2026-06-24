@@ -39,6 +39,18 @@ export interface DemoSeed {
   audit: AuditLogEntry[];
 }
 
+/** Deterministic unique Crockford short code for demo member `n` (e.g. DM00000C). */
+function demoShortCode(n: number): string {
+  const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  let s = '';
+  let v = n;
+  for (let k = 0; k < 6; k++) {
+    s = CROCKFORD[v % 32] + s;
+    v = Math.floor(v / 32);
+  }
+  return `DM${s}`;
+}
+
 /** Accrual ("coffee") event offsets, in hours before `now`, spread over ~7 weeks. */
 function accrualOffsetsHours(): number[] {
   const out: number[] = [];
@@ -75,6 +87,7 @@ export function buildDemoSeed(now: number): DemoSeed {
     customers.push({
       id,
       token: `DEMOcard${String(i + 1).padStart(4, '0')}aaaaaaaaaa`,
+      shortCode: demoShortCode(i + 1),
       displayName: name,
       email: i % 3 === 0 ? undefined : `${name.toLowerCase()}@example.com`,
       status: 'active',

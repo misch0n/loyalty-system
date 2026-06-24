@@ -55,6 +55,13 @@ export class LoyaltyService {
     return this.buildState(customer);
   }
 
+  /** Resolve a customer by their human-shareable short code (camera-fail entry). */
+  async getStateByShortCode(shortCode: string): Promise<CustomerState | null> {
+    const customer = await this.store.getCustomerByShortCode(shortCode);
+    if (!customer) return null;
+    return this.buildState(customer);
+  }
+
   private async buildState(customer: Customer): Promise<CustomerState> {
     const [config, transactions] = await Promise.all([
       this.store.getConfig(),

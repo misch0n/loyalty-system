@@ -35,6 +35,7 @@ afterEach(() => {
 const customer: Customer = {
   id: 'c1',
   token: 'tok-card-1',
+  shortCode: 'ABCD1234',
   displayName: 'Maria',
   status: 'active',
   createdAt: new Date().toISOString(),

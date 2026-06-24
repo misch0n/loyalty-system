@@ -74,6 +74,9 @@ export class ApiStore implements DataStore {
   getCustomerByToken(token: string): Promise<Customer | null> {
     return this.request('GET', `/customers/by-token/${token}`);
   }
+  getCustomerByShortCode(shortCode: string): Promise<Customer | null> {
+    return this.request('GET', `/customers/by-code/${shortCode}`);
+  }
   findCustomers(query: CustomerQuery): Promise<Customer[]> {
     return this.request('GET', `/customers?term=${encodeURIComponent(query.term)}`);
   }

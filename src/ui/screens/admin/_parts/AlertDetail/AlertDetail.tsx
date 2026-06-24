@@ -12,6 +12,7 @@ import { Sheet } from '../../../../components/Sheet/Sheet';
 import { useServices } from '../../../../common/ServicesContext';
 import type { Customer } from '../../../../../domain/models';
 import type { Alert, AlertKind } from '../../../../../domain/alerts';
+import { formatShortCode } from '../../../../../domain/tokens';
 import './AlertDetail.css';
 
 const KIND_LABEL: Record<AlertKind, string> = {
@@ -35,10 +36,6 @@ function exactTime(iso: string): string {
   });
 }
 
-/** Short, PII-free card code from the opaque token (never the whole token). */
-function cardCode(token: string): string {
-  return `CKY · ${token.slice(-6)}`;
-}
 
 export interface AlertDetailProps {
   alert: Alert | null;
@@ -101,7 +98,7 @@ export function AlertDetail({ alert, staffName, onClose, onDismiss }: AlertDetai
                 customer ? (
                   <>
                     {customer.displayName ?? 'Token-only card'}
-                    <span className="alertdetail-code">{cardCode(customer.token)}</span>
+                    <span className="alertdetail-code">CKY · {formatShortCode(customer.shortCode)}</span>
                     {customer.status !== 'active' && (
                       <span className="alertdetail-muted"> · {customer.status}</span>
                     )}

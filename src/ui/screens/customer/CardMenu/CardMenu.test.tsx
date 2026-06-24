@@ -28,6 +28,7 @@ afterEach(() => {
 const withRecovery: Customer = {
   id: 'c1',
   token: 'tok-abc',
+  shortCode: 'ABCD1234',
   displayName: 'Maria',
   email: 'maria@example.com',
   status: 'active',
@@ -37,6 +38,7 @@ const withRecovery: Customer = {
 const tokenOnly: Customer = {
   id: 'c2',
   token: 'tok-xyz',
+  shortCode: 'EFGH5678',
   status: 'active',
   createdAt: new Date().toISOString(),
 };

@@ -31,7 +31,7 @@ import type {
   Snapshot,
   StaffAccount,
 } from '../../domain/models';
-import { generateId } from '../../domain/tokens';
+import { generateId, generateShortCode } from '../../domain/tokens';
 import { balance, checkRedemption } from '../../domain/loyalty';
 import { normalizeEmail, normalizePhone } from '../../domain/validation';
 import {
@@ -101,6 +101,7 @@ export class IndexedDbStore implements DataStore {
           const customers = database.createObjectStore('customers', { keyPath: 'id' });
           customers.createIndex('byToken', 'token', { unique: true });
           customers.createIndex('byStatus', 'status');
+          customers.createIndex('byShortCode', 'shortCode', { unique: true });
 
           const transactions = database.createObjectStore('transactions', { keyPath: 'id' });
           transactions.createIndex('byCustomer', 'customerId');
@@ -122,6 +123,26 @@ export class IndexedDbStore implements DataStore {
           const cfg = await store.get(CONFIG_KEY);
           if (cfg && cfg.pointsPerReward === LEGACY_POINTS_PER_REWARD) {
             await store.put({ ...cfg, pointsPerReward: DEFAULT_CONFIG.pointsPerReward });
+          }
+        }
+        if (oldVersion < 4 && oldVersion >= 1) {
+          // Add the human-shareable short code: new `byShortCode` index, and
+          // backfill a unique code onto every existing customer.
+          const customers = transaction.objectStore('customers');
+          customers.createIndex('byShortCode', 'shortCode', { unique: true });
+          const used = new Set<string>();
+          let cursor = await customers.openCursor();
+          while (cursor) {
+            const c = cursor.value as Customer & { shortCode?: string };
+            if (!c.shortCode) {
+              let code = generateShortCode();
+              while (used.has(code)) code = generateShortCode();
+              used.add(code);
+              await cursor.update({ ...c, shortCode: code });
+            } else {
+              used.add(c.shortCode);
+            }
+            cursor = await cursor.continue();
           }
         }
       },
@@ -169,6 +190,7 @@ export class IndexedDbStore implements DataStore {
     const customer: Customer = {
       id: generateId(),
       token: input.token,
+      shortCode: await this.allocateShortCode(db),
       displayName: input.displayName,
       email: input.email,
       phone: input.phone,
@@ -180,6 +202,15 @@ export class IndexedDbStore implements DataStore {
     return customer;
   }
 
+  /** A short code not already taken by another card (collisions are vanishingly rare). */
+  private async allocateShortCode(db: IDBPDatabase<LoyaltyDB>): Promise<string> {
+    for (let i = 0; i < 12; i++) {
+      const code = generateShortCode();
+      if (!(await db.getFromIndex('customers', 'byShortCode', code))) return code;
+    }
+    throw new Error('Could not allocate a card code.');
+  }
+
   async getCustomerById(id: string): Promise<Customer | null> {
     const db = await this.dbPromise;
     return (await db.get('customers', id)) ?? null;
@@ -188,6 +219,12 @@ export class IndexedDbStore implements DataStore {
   async getCustomerByToken(token: string): Promise<Customer | null> {
     const db = await this.dbPromise;
     return (await db.getFromIndex('customers', 'byToken', token)) ?? null;
+  }
+
+  async getCustomerByShortCode(shortCode: string): Promise<Customer | null> {
+    if (!shortCode) return null;
+    const db = await this.dbPromise;
+    return (await db.getFromIndex('customers', 'byShortCode', shortCode)) ?? null;
   }
 
   async findCustomers(query: CustomerQuery): Promise<Customer[]> {

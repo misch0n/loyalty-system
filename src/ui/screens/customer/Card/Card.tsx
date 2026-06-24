@@ -21,6 +21,7 @@ import { LoyaltyCard } from '../../../components/LoyaltyCard/LoyaltyCard';
 import { ContextBanner } from '../../../components/ContextBanner/ContextBanner';
 import { FindUs } from '../../../components/FindUs/FindUs';
 import { useContinuityTheme } from '../../../app/useContinuityTheme';
+import { formatShortCode } from '../../../../domain/tokens';
 import { LogoMark } from '../../../components/Logo/Logo';
 import { GestureLogo } from '../../../app/LogoGestures';
 import { ROUTES, cardPath } from '../../../app/routes';
@@ -34,10 +35,6 @@ import './Card.css';
 type Phase = 'loading' | 'ready' | 'missing';
 
 /** Short human code shown beside the QR, e.g. "CKY · 5YUrTHtx". */
-function shortCode(token: string): string {
-  return `CKY · ${token.slice(0, 8)}`;
-}
-
 // Continuity colours: the card background bottoms → the cream Find-us surface.
 const SAGE_BOTTOM = '#dfe7c4'; // bg-sage (reward ready)
 const BLUSH_BOTTOM = '#f1ccd5'; // bg-blush (collecting)
@@ -148,7 +145,7 @@ export function Card() {
   const { customer, progress, rewardAvailable } = state;
   const name = customer.displayName || 'Your card';
   const owned = savedToken === routeToken;
-  const code = shortCode(routeToken);
+  const code = `CKY · ${formatShortCode(customer.shortCode)}`;
 
   return (
     <div className={`screen ${rewardAvailable ? 'bg-sage' : 'bg-blush'}`}>
