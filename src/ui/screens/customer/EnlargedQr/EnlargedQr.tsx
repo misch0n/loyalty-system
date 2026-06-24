@@ -31,6 +31,9 @@ export interface EnlargedQrProps {
   name: string;
   /** Short human code shown under the name, e.g. "CKY · 5YUrTHtx". */
   code: string;
+  /** Special "redeem your free coffee" presentation (same QR, celebratory feel,
+   *  gold-trimmed on a forest panel; no wallet button). */
+  redeem?: boolean;
 }
 
 type WalletPhase = 'idle' | 'error';
@@ -47,7 +50,15 @@ function isMobileSurface(): boolean {
   return (coarse || touch) && narrow;
 }
 
-export function EnlargedQr({ open, onClose, customerId, token, name, code }: EnlargedQrProps) {
+export function EnlargedQr({
+  open,
+  onClose,
+  customerId,
+  token,
+  name,
+  code,
+  redeem = false,
+}: EnlargedQrProps) {
   const { wallet } = useServices();
   const [qr, setQr] = useState<string | null>(null);
   const [phase, setPhase] = useState<WalletPhase>('idle');
@@ -93,15 +104,38 @@ export function EnlargedQr({ open, onClose, customerId, token, name, code }: Enl
     window.open(passUrl, '_blank', 'noopener');
   }
 
+  const qrImg = qr ? (
+    <img className="enlarged-qr-img" src={qr} alt="Your card code" />
+  ) : (
+    <div className="enlarged-qr-img enlarged-qr-placeholder" aria-hidden="true" />
+  );
+
+  if (redeem) {
+    // Special redeem presentation: a forest panel with a gold-trimmed, shimmering
+    // QR — the same code, dressed up so claiming a free coffee feels like an event.
+    return (
+      <Overlay open={open} onClose={onClose} label="Redeem your free coffee">
+        <div className="redeem-panel">
+          <span className="redeem-star" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2l2.4 6.3L21 9l-5 4.2L17.6 20 12 16.4 6.4 20 8 13.2 3 9l6.6-.7z" />
+            </svg>
+          </span>
+          <h2 className="redeem-title">Your free coffee</h2>
+          <p className="redeem-sub">Show this at the counter to redeem.</p>
+          <div className="redeem-qrbox">
+            <span className="redeem-shine" aria-hidden="true" />
+            {qrImg}
+          </div>
+          <div className="cd redeem-cd">{code}</div>
+        </div>
+      </Overlay>
+    );
+  }
+
   return (
     <Overlay open={open} onClose={onClose} label="Your card code, enlarged">
-      <div className="enlarged-qr-box">
-        {qr ? (
-          <img className="enlarged-qr-img" src={qr} alt="Your card code" />
-        ) : (
-          <div className="enlarged-qr-img enlarged-qr-placeholder" aria-hidden="true" />
-        )}
-      </div>
+      <div className="enlarged-qr-box">{qrImg}</div>
       <div className="nm">{name}</div>
       <div className="cd">{code}</div>
 

@@ -44,6 +44,9 @@ export function Card() {
   const [offline, setOffline] = useState(false);
   const [savedToken, setSavedToken] = useState<string | null>(null);
   const [enlarged, setEnlarged] = useState(false);
+  // The enlarged QR opens in two modes: the plain card view (tap the QR) and a
+  // special "redeem" view (tap the unlocked-reward banner).
+  const [redeemMode, setRedeemMode] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const resolvingRef = useRef(false);
@@ -171,7 +174,15 @@ export function Card() {
           token={routeToken}
           code={code}
           rewardReady={rewardAvailable}
-          onEnlarge={() => setEnlarged(true)}
+          rewardsAvailable={progress.rewardsAvailable}
+          onEnlarge={() => {
+            setRedeemMode(false);
+            setEnlarged(true);
+          }}
+          onRedeem={() => {
+            setRedeemMode(true);
+            setEnlarged(true);
+          }}
           onMenu={() => setMenuOpen(true)}
         />
 
@@ -193,6 +204,7 @@ export function Card() {
         token={routeToken}
         name={name}
         code={code}
+        redeem={redeemMode}
       />
 
       <CardMenu

@@ -70,12 +70,44 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
+  border: 0;
+  text-align: left;
+  font: inherit;
   background: var(--sage);
   color: var(--forest-700);
   border-radius: 16px;
   padding: 13px 15px;
   position: relative;
   overflow: hidden;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease;
+}
+.ready-banner:active {
+  transform: translateY(1px);
+}
+/* Multiple free coffees unlocked: cup glyph + count, right-aligned. Shown only
+   for 2+ (a single reward shows no badge). */
+.ready-banner .ready-badge {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(36, 60, 46, 0.16);
+  color: var(--forest-700);
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+  position: relative;
+}
+.ready-banner .ready-badge svg {
+  width: 15px;
+  height: 15px;
 }
 .ready-banner .spark {
   position: absolute;

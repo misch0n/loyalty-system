@@ -55,6 +55,44 @@ describe('LoyaltyCard', () => {
     expect(container.querySelector('.stamp.free.on')).not.toBeNull();
   });
 
+  it('shows the multi-reward badge only for 2+, and fires onRedeem when the banner is tapped', async () => {
+    const onRedeem = vi.fn();
+    // One reward unlocked → no badge.
+    await render(
+      <LoyaltyCard
+        name="Maria"
+        filled={8}
+        total={8}
+        token="tok0000000000000000001"
+        code="c"
+        rewardReady
+        rewardsAvailable={1}
+        onRedeem={onRedeem}
+      />,
+    );
+    expect(container.querySelector('.ready-badge')).toBeNull();
+
+    // Tapping the banner redeems.
+    const banner = container.querySelector<HTMLButtonElement>('.ready-banner');
+    act(() => banner!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(onRedeem).toHaveBeenCalledTimes(1);
+
+    // Two or more → badge shows the count.
+    await act(async () => root.unmount());
+    await render(
+      <LoyaltyCard
+        name="Maria"
+        filled={24}
+        total={8}
+        token="tok0000000000000000001"
+        code="c"
+        rewardReady
+        rewardsAvailable={3}
+      />,
+    );
+    expect(container.querySelector('.ready-badge')?.textContent).toContain('3');
+  });
+
   it('has no decorative tier badge', async () => {
     await render(
       <LoyaltyCard name="Maria" filled={3} total={8} token="tok0000000000000000001" code="c" />,

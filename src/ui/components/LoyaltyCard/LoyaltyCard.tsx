@@ -27,8 +27,13 @@ export interface LoyaltyCardProps {
   code: string;
   /** Reward-ready state (derived balance ≥ threshold). */
   rewardReady?: boolean;
+  /** Number of free coffees currently unlocked (floor(balance / threshold)). A
+   *  count of 2+ shows a badge on the unlocked banner; 1 shows none. */
+  rewardsAvailable?: number;
   /** Tap the QR → enlarged overlay. */
   onEnlarge?: () => void;
+  /** Tap the unlocked-reward banner → special "redeem" overlay. */
+  onRedeem?: () => void;
   /** Tap the "⋯" → card menu. */
   onMenu?: () => void;
 }
@@ -40,7 +45,9 @@ export function LoyaltyCard({
   token,
   code,
   rewardReady = false,
+  rewardsAvailable = 0,
   onEnlarge,
+  onRedeem,
   onMenu,
 }: LoyaltyCardProps) {
   const remaining = Math.max(total - filled, 0);
@@ -67,7 +74,12 @@ export function LoyaltyCard({
       {rewardReady ? (
         <>
           <div style={{ height: 14 }} />
-          <div className="ready-banner">
+          <button
+            type="button"
+            className="ready-banner"
+            onClick={onRedeem}
+            aria-label="Redeem your free coffee"
+          >
             <span className="spark" />
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M12 2l2.4 6.3L21 9l-5 4.2L17.6 20 12 16.4 6.4 20 8 13.2 3 9l6.6-.7z" />
@@ -76,7 +88,16 @@ export function LoyaltyCard({
               <div className="b1">Free coffee unlocked</div>
               <div className="b2">Show this at the counter to redeem</div>
             </div>
-          </div>
+            {rewardsAvailable >= 2 && (
+              <span className="ready-badge" aria-label={`${rewardsAvailable} free coffees unlocked`}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 8h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z" />
+                  <path d="M16 9h2.5a2.5 2.5 0 0 1 0 5H16" />
+                </svg>
+                <b>{rewardsAvailable}</b>
+              </span>
+            )}
+          </button>
         </>
       ) : (
         <div className="progress-note">
