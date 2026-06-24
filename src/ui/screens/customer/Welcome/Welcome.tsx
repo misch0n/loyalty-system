@@ -28,7 +28,7 @@ export function Welcome() {
 
   return (
     <div className="screen bg-forest">
-      <div className="screen-pad center welcome-hero">
+      <div className="screen-pad center welcome-hero bg-forest">
         <GestureLogo className="welcome-logo">
           <Lockup word="ckyka" sub="specialty coffee shop" />
         </GestureLogo>
