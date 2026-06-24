@@ -14,11 +14,17 @@ import { Lockup } from '../../../components/Logo/Logo';
 import { Button } from '../../../components/Button/Button';
 import { FindUs } from '../../../components/FindUs/FindUs';
 import { GestureLogo } from '../../../app/LogoGestures';
+import { useContinuityTheme } from '../../../app/useContinuityTheme';
 import { ROUTES } from '../../../app/routes';
 import './Welcome.css';
 
+// Hero gradient bottom (forest) → cream Find-us surface.
+const HERO_BOTTOM = '#223a2c';
+const FINDUS_CREAM = '#f8f3e8';
+
 export function Welcome() {
   const navigate = useNavigate();
+  const findUsRef = useContinuityTheme<HTMLDivElement>(HERO_BOTTOM, FINDUS_CREAM);
 
   return (
     <div className="screen bg-forest">
@@ -53,7 +59,7 @@ export function Welcome() {
         <div className="welcome-scroll-hint">scroll for hours &amp; location ↓</div>
       </div>
 
-      <FindUs />
+      <FindUs ref={findUsRef} from={HERO_BOTTOM} />
     </div>
   );
 }

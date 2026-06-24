@@ -5,6 +5,7 @@
  * scroll down to the same hours/location continuity. Static café details come
  * from `config/cafe`; no data dependency.
  */
+import { forwardRef } from 'react';
 import {
   cafeName,
   cafeAddress,
@@ -21,9 +22,27 @@ const HOURS: ReadonlyArray<{ days: string; time: string }> = [
   { days: 'Sat – Sun', time: '9:00 – 18:00' },
 ];
 
-export function FindUs() {
+export interface FindUsProps {
+  /**
+   * Continuity lead-in colour: renders a gradient that fades from this colour
+   * (the page the customer is scrolling from) into the cream Find-us surface, so
+   * the handoff is smooth and the colour held at the top sits behind the iOS
+   * toolbar at rest. Omit for no transition.
+   */
+  from?: string;
+}
+
+export const FindUs = forwardRef<HTMLDivElement, FindUsProps>(function FindUs({ from }, ref) {
   return (
-    <div className="findus">
+    <div className="findus-wrap" ref={ref}>
+      {from && (
+        <div
+          className="findus-fade"
+          aria-hidden="true"
+          style={{ background: `linear-gradient(to bottom, ${from}, ${from} 32%, var(--cream))` }}
+        />
+      )}
+      <div className="findus">
       <div className="ey">Find us</div>
       <h2>{cafeName}</h2>
       <p className="addr">{cafeAddress}</p>
@@ -80,8 +99,9 @@ export function FindUs() {
           </svg>
         </a>
       </div>
+      </div>
     </div>
   );
-}
+});
 
 export default FindUs;

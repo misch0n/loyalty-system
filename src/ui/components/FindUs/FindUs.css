@@ -1,4 +1,11 @@
 /* Find us — café profile section (hours + location). Shared by Welcome + Card. */
+
+/* Continuity transition: a gradient that fades from the page's colour into the
+   cream Find-us surface. Its held top colour also sits behind the iOS toolbar at
+   rest, so the next section never peeks through translucent. */
+.findus-fade {
+  height: 150px;
+}
 .findus {
   background: var(--cream);
   color: var(--ink);
