@@ -126,30 +126,42 @@ export class IndexedDbStore implements DataStore {
           }
         }
         if (oldVersion < 4 && oldVersion >= 1) {
-          // Add the human-shareable short code: new `byShortCode` index, and
-          // backfill a unique code onto every existing customer.
-          const customers = transaction.objectStore('customers');
-          customers.createIndex('byShortCode', 'shortCode', { unique: true });
-          const used = new Set<string>();
-          let cursor = await customers.openCursor();
-          while (cursor) {
-            const c = cursor.value as Customer & { shortCode?: string };
-            if (!c.shortCode) {
-              let code = generateShortCode();
-              while (used.has(code)) code = generateShortCode();
-              used.add(code);
-              await cursor.update({ ...c, shortCode: code });
-            } else {
-              used.add(c.shortCode);
-            }
-            cursor = await cursor.continue();
-          }
+          // Add the human-shareable short code index. Existing rows have no
+          // `shortCode` (so they're simply absent from this unique index until
+          // backfilled). Backfill runs AFTER open in a normal transaction —
+          // never here: awaiting a cursor loop inside a versionchange upgrade can
+          // hang the transaction on Safari, which then blocks every DB op.
+          transaction.objectStore('customers').createIndex('byShortCode', 'shortCode', {
+            unique: true,
+          });
         }
       },
     });
 
     await this.seed(db);
+    await this.backfillShortCodes(db);
     return db;
+  }
+
+  /**
+   * Assign a unique short code to any customer missing one (e.g. cards created
+   * before schema v4). Runs in a NORMAL transaction after open — safe, unlike a
+   * backfill inside the versionchange upgrade. Idempotent: a no-op once all
+   * customers have codes.
+   */
+  private async backfillShortCodes(db: IDBPDatabase<LoyaltyDB>): Promise<void> {
+    const all = await db.getAll('customers');
+    const missing = all.filter((c) => !c.shortCode);
+    if (missing.length === 0) return;
+    const used = new Set(all.map((c) => c.shortCode).filter(Boolean));
+    const tx = db.transaction('customers', 'readwrite');
+    for (const c of missing) {
+      let code = generateShortCode();
+      while (used.has(code)) code = generateShortCode();
+      used.add(code);
+      await tx.store.put({ ...c, shortCode: code });
+    }
+    await tx.done;
   }
 
   /** Idempotent first-run seed: default config + mock staff accounts. */
@@ -206,9 +218,15 @@ export class IndexedDbStore implements DataStore {
   private async allocateShortCode(db: IDBPDatabase<LoyaltyDB>): Promise<string> {
     for (let i = 0; i < 12; i++) {
       const code = generateShortCode();
-      if (!(await db.getFromIndex('customers', 'byShortCode', code))) return code;
+      try {
+        if (!(await db.getFromIndex('customers', 'byShortCode', code))) return code;
+      } catch {
+        // Index unavailable for some reason — accept the code (collision odds are
+        // ~1 in 10^12). Never let card creation hang/fail on the lookup.
+        return code;
+      }
     }
-    throw new Error('Could not allocate a card code.');
+    return generateShortCode();
   }
 
   async getCustomerById(id: string): Promise<Customer | null> {

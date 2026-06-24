@@ -70,6 +70,18 @@ describe('customers', () => {
     expect(await store.getCustomerByShortCode('')).toBeNull();
   });
 
+  it('backfills a short code onto a pre-v4 customer on open', async () => {
+    const c = await store.createCustomer({ token: 'tok-bf' });
+    // Simulate a legacy row with no shortCode.
+    const snap = await store.exportAll();
+    snap.customers = snap.customers.map((x) => ({ ...x, shortCode: undefined as unknown as string }));
+    await store.importAll(snap);
+    expect((await store.getCustomerById(c.id))?.shortCode).toBeUndefined();
+    // Reopening runs the post-open backfill (not the versionchange upgrade).
+    const reopened = new IndexedDbStore();
+    expect((await reopened.getCustomerById(c.id))?.shortCode).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
+  });
+
   it('finds active customers by name, email or phone and ignores deleted ones', async () => {
     await store.createCustomer({ token: 't1', displayName: 'Maria', email: 'maria@cafe.test' });
     await store.createCustomer({ token: 't2', phone: '+1 (555) 123-4567' });

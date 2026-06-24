@@ -76,7 +76,8 @@ export function isValidShortCode(code: string): boolean {
   return new RegExp(`^[${CROCKFORD}]{${SHORT_CODE_LEN}}$`).test(code);
 }
 
-/** Display form: grouped 4-4 for readability, e.g. "K39X-Q4T7". */
-export function formatShortCode(code: string): string {
+/** Display form: grouped 4-4 for readability, e.g. "K39X-Q4T7". Safe on missing. */
+export function formatShortCode(code: string | undefined | null): string {
+  if (!code) return '';
   return code.length === SHORT_CODE_LEN ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
 }

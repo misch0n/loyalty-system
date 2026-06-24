@@ -102,11 +102,16 @@ describe('ProtoPanel', () => {
     expect(findButton('Card')).toBeUndefined();
   });
 
-  it('reset delegates to the role-aware pairing reset (no reload)', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  it('reset is a two-step in-app confirm → role-aware pairing reset (no window.confirm)', async () => {
     await mount();
+    // First tap arms the confirm (no reset yet, no window.confirm dependency).
     await act(async () => {
       findButton('Reset')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(pairingResetMock).not.toHaveBeenCalled();
+    // Second tap (the danger confirm) runs the reset.
+    await act(async () => {
+      findButton('Tap again to reset')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     expect(pairingResetMock).toHaveBeenCalledTimes(1);
   });

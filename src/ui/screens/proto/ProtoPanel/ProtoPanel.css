@@ -167,3 +167,10 @@
   color: #e6efe0;
   text-align: right;
 }
+
+/* Destructive confirm state for Reset (in-app, two-step). */
+.proto .pbtn.pbtn-danger {
+  background: var(--terra);
+  border-color: var(--terra);
+  color: #fff;
+}

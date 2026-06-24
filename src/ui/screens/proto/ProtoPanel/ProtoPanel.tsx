@@ -65,6 +65,7 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
   } = usePairing();
   const services = useServices();
   const [scanning, setScanning] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
   const [diag, setDiag] = useState<StorageDiag | null>(null);
 
   // While paired, show the TILL's QR (joinedHostId) so any device can grow the
@@ -104,20 +105,17 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
     if (joined) setScanning(false);
   }, [joined]);
 
-  // Reset to the controls view whenever the panel re-opens.
+  // Reset to the controls view whenever the panel re-opens / closes.
   useEffect(() => {
-    if (!open) setScanning(false);
+    if (!open) {
+      setScanning(false);
+      setConfirmingReset(false);
+    }
   }, [open]);
 
-  async function reset(): Promise<void> {
-    const ok = window.confirm(
-      joined
-        ? 'Reset this device? Clears this device only (card + sign-in) so you can ' +
-            'test as a brand-new customer. The till keeps all of its data.'
-        : 'Reset the demo? Wipes all data on this device (cards, points, sign-in) ' +
-            'and starts clean. Any devices paired to this one are disconnected.',
-    );
-    if (!ok) return;
+  // In-app two-step confirm (window.confirm is suppressed in iOS standalone).
+  async function doReset(): Promise<void> {
+    setConfirmingReset(false);
     onClose();
     // Role-aware + reload-free; PairingContext handles client vs host/unpaired.
     await pairingReset();
@@ -200,11 +198,31 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
               )}
             </div>
 
-            {/* 3 · Reset */}
+            {/* 3 · Reset (in-app two-step confirm) */}
             <div className="grp">
-              <button type="button" className="pbtn" onClick={reset}>
-                Reset
-              </button>
+              {confirmingReset ? (
+                <>
+                  <p className="proto-status">
+                    {joined
+                      ? 'Clears this device only (card + sign-in). The till keeps its data.'
+                      : 'Wipes all data on this device. Paired devices are disconnected.'}
+                  </p>
+                  <button type="button" className="pbtn pbtn-danger" onClick={() => void doReset()}>
+                    Tap again to reset
+                  </button>
+                  <button
+                    type="button"
+                    className="pbtn"
+                    onClick={() => setConfirmingReset(false)}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button type="button" className="pbtn" onClick={() => setConfirmingReset(true)}>
+                  Reset
+                </button>
+              )}
             </div>
 
             {/* Storage diagnostic — reload (esp. iOS home-screen) and read what
