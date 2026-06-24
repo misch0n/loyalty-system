@@ -47,12 +47,10 @@ export function Scan(): JSX.Element {
 
   const [phase, setPhase] = useState<Phase>('scanning');
   const [state, setState] = useState<CustomerState | null>(null);
-  const [pendingToken, setPendingToken] = useState<string | null>(null);
   const [points, setPoints] = useState(1);
   const [busy, setBusy] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [manual, setManual] = useState('');
 
   const scannerRef = useRef<ScannerHandle | null>(null);
   const resolvingRef = useRef(false);
@@ -79,11 +77,9 @@ export function Scan(): JSX.Element {
           setPoints(1);
           setPhase('resolved');
         } else {
-          setPendingToken(token);
           setPhase('notfound');
         }
       } catch {
-        setPendingToken(token);
         setPhase('notfound');
       } finally {
         resolvingRef.current = false;
@@ -110,7 +106,7 @@ export function Scan(): JSX.Element {
       } catch {
         if (!cancelled) {
           setCameraError(
-            'Camera unavailable. On a phone, allow camera access; otherwise type the code below.',
+            'Camera unavailable. On a phone, allow camera access, then try again.',
           );
         }
       }
@@ -147,8 +143,6 @@ export function Scan(): JSX.Element {
     recordActivity();
     setState(null);
     setActionError(null);
-    setPendingToken(null);
-    setManual('');
     setPhase('scanning');
   };
 
@@ -250,36 +244,6 @@ export function Scan(): JSX.Element {
     }
   };
 
-  // ── staff-registration escape hatch (not found) ─────────────────────────
-  const onProvision = async () => {
-    if (!pendingToken || busy) return;
-    setBusy(true);
-    setActionError(null);
-    recordActivity();
-    try {
-      const customer = await services.customers.provisionFromToken(actor, pendingToken);
-      const next = await services.loyalty.getStateById(customer.id);
-      if (next) {
-        setState(next);
-        setPoints(1);
-        setPhase('resolved');
-        setPendingToken(null);
-      } else {
-        setActionError('Created the card, but could not load it. Scan it again.');
-      }
-    } catch {
-      setActionError('Could not create a card for that code. It may not be a valid card code.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const submitManual = (e: React.FormEvent) => {
-    e.preventDefault();
-    const value = manual.trim();
-    if (value) void resolve(value);
-  };
-
   const backToPanel = () => {
     recordActivity();
     void stopCamera();
@@ -298,21 +262,6 @@ export function Scan(): JSX.Element {
               videoSlot={<div id={SCAN_REGION_ID} className="staff-scan__region" />}
             />
             {cameraError && <p className="staff-scan__error">{cameraError}</p>}
-            <form className="staff-scan__manual" onSubmit={submitManual}>
-              <label>
-                Customer code
-                <input
-                  value={manual}
-                  onChange={(e) => setManual(e.target.value)}
-                  placeholder="Paste or type the card code"
-                  autoComplete="off"
-                  inputMode="text"
-                />
-              </label>
-              <Button variant="line" type="submit" disabled={!manual.trim()}>
-                Look up
-              </Button>
-            </form>
             <div className="spacer" />
             <Button variant="ghost" className="staff-scan__ghost" onClick={backToPanel}>
               Back
@@ -322,29 +271,29 @@ export function Scan(): JSX.Element {
 
         {phase === 'notfound' && (
           <>
-            <StateLabel>state · card not found</StateLabel>
+            <StateLabel>state · card not registered</StateLabel>
             <div className="cust">
               <span className="av">?</span>
               <div>
-                <div className="cn">Card not found</div>
-                <div className="cs">No card matches that code yet</div>
+                <div className="cn">Not a registered card</div>
+                <div className="cs">No card matches that code</div>
               </div>
             </div>
             <p className="staff-scan__hint">
-              You can create a card for the customer now and add their coffees.
+              Ask the customer to join on their own phone first — tap “Join the club” on the
+              welcome screen — then scan their card.
             </p>
-            {actionError && <p className="staff-scan__error">{actionError}</p>}
             <div className="stack-sm staff-scan__actions">
-              <Button variant="forest" onClick={() => void onProvision()} disabled={busy}>
-                Create a card and continue
+              <Button variant="forest" onClick={scanNext} disabled={busy}>
+                Scan next
               </Button>
               <Button
                 variant="ghost"
                 className="staff-scan__ghost"
-                onClick={scanNext}
+                onClick={backToPanel}
                 disabled={busy}
               >
-                Scan next
+                Back
               </Button>
             </div>
           </>

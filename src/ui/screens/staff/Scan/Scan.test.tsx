@@ -10,9 +10,14 @@ import { LogoGesturesProvider } from '../../../app/LogoGestures';
 import { ToastProvider } from '../../../components/Toast/Toast';
 import { Scan } from './Scan';
 
-// Camera unavailable in jsdom → the manual-entry fallback drives resolution.
+// jsdom has no camera; capture the scanner's decode callback so tests can inject
+// a scanned code directly (manual entry was removed).
+const scanMock = vi.hoisted(() => ({ cb: null as ((text: string) => void) | null }));
 vi.mock('../../../../qr/scan', () => ({
-  startScanner: vi.fn().mockRejectedValue(new Error('no camera')),
+  startScanner: vi.fn(async (_id: string, cb: (text: string) => void) => {
+    scanMock.cb = cb;
+    return { stop: vi.fn().mockResolvedValue(undefined) };
+  }),
 }));
 vi.mock('../../../../qr/encode', () => ({
   tokenFromCardScan: (text: string) => text,
@@ -51,6 +56,7 @@ beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
+  scanMock.cb = null;
 });
 
 afterEach(() => {
@@ -120,15 +126,9 @@ async function mountScan() {
 }
 
 async function resolveCard() {
-  const input = container.querySelector('.staff-scan__manual input') as HTMLInputElement;
-  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+  // Drive the camera path: fire the captured decode callback with a code.
   await act(async () => {
-    setValue?.call(input, 'PROTOcard0000000000001');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-  const form = container.querySelector('.staff-scan__manual') as HTMLFormElement;
-  await act(async () => {
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    scanMock.cb?.('PROTOcard0000000000001');
   });
   await act(async () => {
     await Promise.resolve();

@@ -102,16 +102,12 @@ export function LostCard() {
           </>
         )}
 
-        <div className="lost-or">
-          <span className="lost-or-rule" />
-          <span className="lost-or-label">or</span>
-          <span className="lost-or-rule" />
-        </div>
-
-        <ContextBanner tone="sage">
+        <ContextBanner tone="blush">
           <b>No email on your card?</b>
           <br />
-          Pop in and a member of staff can move your cups onto a fresh card.
+          Email is the only way to bring a card back. A card with no email lives only on the
+          device it was made on — if that device is lost, the cups can’t be recovered. Add an
+          email from your card’s menu to protect it.
         </ContextBanner>
 
         <div className="spacer" />
