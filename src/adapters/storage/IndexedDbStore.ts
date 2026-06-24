@@ -59,23 +59,30 @@ export class IndexedDbStore implements DataStore {
   }
 
   /**
-   * Prototype reset: drop the database and rebuild it clean + seeded, reusing
-   * THIS instance so the live store stays usable afterwards (no page reload).
-   * The old reset deleted the DB and relied on a reload to re-open it, which left
-   * the in-memory store pointing at a deleted connection — the cause of
-   * "create a card fails until a hard refresh". Re-opening in place fixes that.
+   * Prototype reset: empty every store on the LIVE connection and re-seed —
+   * deliberately NOT `deleteDatabase` + reopen. `deleteDatabase` can hang
+   * silently in Safari (no success/error/blocked event ever fires), leaving the
+   * store on a dead connection until a page reload — the real cause of "after a
+   * reset the dev panel shows nothing and card creation fails until a reload".
+   * Clearing in place keeps the same open connection, so the store is usable the
+   * instant this resolves; no close, no delete, no reopen, nothing that can hang.
    */
   async reset(): Promise<void> {
     const db = await this.dbPromise;
-    db.close();
-    await new Promise<void>((resolve) => {
-      const req = indexedDB.deleteDatabase(DB_NAME);
-      req.onsuccess = () => resolve();
-      req.onerror = () => resolve();
-      req.onblocked = () => resolve();
-    });
-    this.dbPromise = this.open(); // re-create schema + re-run the idempotent seed
-    await this.dbPromise;
+    const tx = db.transaction(
+      ['config', 'staff', 'customers', 'transactions', 'audit', 'recoveryCodes'],
+      'readwrite',
+    );
+    await Promise.all([
+      tx.objectStore('config').clear(),
+      tx.objectStore('staff').clear(),
+      tx.objectStore('customers').clear(),
+      tx.objectStore('transactions').clear(),
+      tx.objectStore('audit').clear(),
+      tx.objectStore('recoveryCodes').clear(),
+    ]);
+    await tx.done;
+    await this.seed(db); // re-run the idempotent seed: default config + mock staff
   }
 
   private async open(): Promise<IDBPDatabase<LoyaltyDB>> {
