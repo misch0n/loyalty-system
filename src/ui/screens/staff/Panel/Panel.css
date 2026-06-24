@@ -71,15 +71,50 @@
   color: var(--ink-soft);
 }
 
-/* Admin-only "Go to admin" pinned to the top of the counter view. */
-.staff-panel__toadmin-row {
+/* Collapsible "Today on this terminal" header. */
+.staff-panel__recent-h {
   display: flex;
-  justify-content: flex-end;
-  margin-bottom: 10px;
+  align-items: center;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
 }
-.staff-panel__toadmin {
-  width: auto;
-  flex: 0 0 auto;
+.staff-panel__recent-h .section-h {
+  margin-bottom: 0;
+}
+.staff-panel__chev {
+  margin-left: auto;
+  color: var(--ink-soft);
+  font-size: 16px;
+}
+
+/* "Load more" / "Load all" pager (mirrors the admin lists). */
+.staff-panel__more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 2px;
+}
+.staff-panel__more-btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--forest-700);
+  background: var(--sage-100);
+  border: 0;
+  border-radius: 10px;
   padding: 9px 18px;
-  font-size: 13px;
+  cursor: pointer;
+}
+.staff-panel__more-all {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--terra-600);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
 }

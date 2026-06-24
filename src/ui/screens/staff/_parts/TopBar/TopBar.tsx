@@ -11,6 +11,7 @@
  */
 import { GestureLogo } from '../../../../app/LogoGestures';
 import { LogoMark } from '../../../../components/Logo/Logo';
+import type { ReactNode } from 'react';
 import './TopBar.css';
 
 export interface TopBarProps {
@@ -18,17 +19,22 @@ export interface TopBarProps {
   role?: string;
   /** When set, renders an `.onshift` line below the bar with this name. */
   onShift?: string;
+  /** Optional control rendered on the right of the bar (e.g. "Go to admin"). */
+  action?: ReactNode;
 }
 
-export function TopBar({ role = 'Counter', onShift }: TopBarProps): JSX.Element {
+export function TopBar({ role = 'Counter', onShift, action }: TopBarProps): JSX.Element {
   return (
     <>
       <div className="topbar">
-        <GestureLogo className="tl">
-          <LogoMark />
-          <span className="tt">Ckyka</span>
-        </GestureLogo>
-        <span className="role">{role}</span>
+        <div className="topbar-left">
+          <GestureLogo className="tl">
+            <LogoMark />
+            <span className="tt">Ckyka</span>
+          </GestureLogo>
+          <span className="role">{role}</span>
+        </div>
+        {action != null && <div className="topbar-action">{action}</div>}
       </div>
       {onShift != null && <OnShift name={onShift} />}
     </>

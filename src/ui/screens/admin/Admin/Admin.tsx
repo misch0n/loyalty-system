@@ -38,7 +38,7 @@ import { ProgramEdit } from '../_parts/ProgramEdit/ProgramEdit';
 import { AccountSheet } from '../_parts/AccountSheet/AccountSheet';
 import { StatDetail } from '../_parts/StatDetail/StatDetail';
 import { AlertDetail } from '../_parts/AlertDetail/AlertDetail';
-import { usePager } from '../_parts/usePager';
+import { usePager } from '../../../common/usePager';
 import { PersonIcon, feedIcon } from '../_parts/feedIcons';
 import type { MetricKind } from '../../../../domain/insights';
 import { alertKey } from '../../../../domain/alerts';
@@ -266,9 +266,12 @@ function AdminScreen({ actor }: { actor: Actor }) {
     <div className="screen admin bg-cream">
       <div className="screen-pad">
         <div className="admin-head">
-          <GestureLogo>
-            <LogoMark size="sm" />
-          </GestureLogo>
+          <div className="admin-head-left">
+            <GestureLogo>
+              <LogoMark size="sm" />
+            </GestureLogo>
+            <span className="admin-role">Admin</span>
+          </div>
           <Button
             variant="forest"
             className="admin-tocounter"

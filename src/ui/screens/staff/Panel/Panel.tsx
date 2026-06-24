@@ -20,12 +20,26 @@ import { useAuth } from '../../../app/AuthContext';
 import { ROUTES } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
 import { usePairing } from '../../../common/PairingContext';
+import { usePager } from '../../../common/usePager';
 import { TopBar, OnShift } from '../_parts';
 import { useStaffGuard } from '../useStaffGuard';
 import { actionLabel, isLoyaltyAction, relativeTime } from '../activity';
 import './Panel.css';
 
-const ACTIVITY_LIMIT = 8;
+/** Initial number of "Today on this terminal" rows before "Load more". */
+const RECENT_PAGE = 5;
+
+/** True when an ISO timestamp falls on the same calendar day as now. */
+function isToday(iso: string): boolean {
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return false;
+  const now = new Date();
+  return (
+    then.getFullYear() === now.getFullYear() &&
+    then.getMonth() === now.getMonth() &&
+    then.getDate() === now.getDate()
+  );
+}
 
 interface ActivityItem {
   id: string;
@@ -56,16 +70,15 @@ export function Panel(): JSX.Element {
 
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(true);
+  const recentPager = usePager(items.length, RECENT_PAGE);
 
   const actorId = guard.actor?.id;
 
   const loadActivity = useCallback(async () => {
-    const [entries, staff] = await Promise.all([
-      services.audit.list({ limit: ACTIVITY_LIMIT * 3 }),
-      services.staff.list(),
-    ]);
-    void staff; // staff attribution is implicit on this terminal
-    const loyalty = entries.filter((e) => isLoyaltyAction(e.action)).slice(0, ACTIVITY_LIMIT);
+    // All audit (newest first); keep only TODAY's loyalty activity on this terminal.
+    const entries = await services.audit.list({});
+    const loyalty = entries.filter((e) => isLoyaltyAction(e.action) && isToday(e.timestamp));
 
     // Resolve customer names for targets (read-only; never written to the log).
     const customerNames = new Map<string, string>();
@@ -120,46 +133,79 @@ export function Panel(): JSX.Element {
 
   return (
     <div className="screen bg-cream staff-panel">
-      <TopBar role={actor.role === 'admin' ? 'Admin' : 'Counter'} />
-      <div className="screen-pad staff-panel__body">
-        {actor.role === 'admin' && (
-          <div className="staff-panel__toadmin-row">
-            <Button
-              variant="forest"
-              className="staff-panel__toadmin"
-              onClick={() => navigate(ROUTES.admin)}
-            >
+      <TopBar
+        role={actor.role === 'admin' ? 'Admin' : 'Counter'}
+        action={
+          actor.role === 'admin' ? (
+            <button type="button" className="topbar-go" onClick={() => navigate(ROUTES.admin)}>
               Go to admin
-            </Button>
-          </div>
-        )}
+            </button>
+          ) : undefined
+        }
+      />
+      <div className="screen-pad staff-panel__body">
         <OnShift name={actor.name ?? actor.username} />
 
         <Button variant="forest" className="staff-panel__scan" onClick={onScan}>
           Scan a customer’s code
         </Button>
 
-        <div className="section-h">Recent on this terminal</div>
-        {!loaded ? (
-          <p className="staff-panel__empty">Loading…</p>
-        ) : items.length === 0 ? (
-          <p className="staff-panel__empty">
-            No activity yet. Scan a customer’s code to add their first coffee.
-          </p>
-        ) : (
-          <div className="feed">
-            {items.map((item) => (
-              <div key={item.id} className={`row ${item.kind}`}>
-                <span className="ri">{item.kind === 'red' ? <StarIcon /> : <PlusIcon />}</span>
-                <div className="rt">
-                  {capitalize(item.action)}
-                  {item.customerName ? <span> · {item.customerName}</span> : null}
-                </div>
-                <span className="rtime">{relativeTime(item.timestamp)}</span>
+        <button
+          type="button"
+          className="staff-panel__recent-h"
+          aria-expanded={recentOpen}
+          onClick={() => setRecentOpen((o) => !o)}
+        >
+          <span className="section-h">Today on this terminal</span>
+          <span className="staff-panel__chev" aria-hidden="true">
+            {recentOpen ? '⌄' : '›'}
+          </span>
+        </button>
+        {recentOpen &&
+          (!loaded ? (
+            <p className="staff-panel__empty">Loading…</p>
+          ) : items.length === 0 ? (
+            <p className="staff-panel__empty">
+              Nothing today yet. Scan a customer’s code to add their first coffee.
+            </p>
+          ) : (
+            <>
+              <div className="feed">
+                {items.slice(0, recentPager.count).map((item) => (
+                  <div key={item.id} className={`row ${item.kind}`}>
+                    <span className="ri">
+                      {item.kind === 'red' ? <StarIcon /> : <PlusIcon />}
+                    </span>
+                    <div className="rt">
+                      {capitalize(item.action)}
+                      {item.customerName ? <span> · {item.customerName}</span> : null}
+                    </div>
+                    <span className="rtime">{relativeTime(item.timestamp)}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+              {recentPager.canMore && (
+                <div className="staff-panel__more">
+                  <button
+                    type="button"
+                    className="staff-panel__more-btn"
+                    onClick={recentPager.more}
+                  >
+                    Load more
+                  </button>
+                  {recentPager.showLoadAll && (
+                    <button
+                      type="button"
+                      className="staff-panel__more-all"
+                      onClick={recentPager.loadAll}
+                    >
+                      Load all {items.length}
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
+          ))}
 
         <div className="spacer" />
         <Button variant="ghost" className="staff-panel__signout" onClick={onSignOut}>

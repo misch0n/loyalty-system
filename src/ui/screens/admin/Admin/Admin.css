@@ -7,6 +7,22 @@
   color: var(--forest-700);
   margin-bottom: 10px;
 }
+/* Logo + "Admin" badge grouped on the left (mirrors the counter's TopBar). */
+.screen.admin .admin-head-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.screen.admin .admin-role {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--forest-700);
+  background: var(--sage-100);
+  padding: 5px 9px;
+  border-radius: 99px;
+}
 /* Quick counter access pinned to the top of the admin screen. */
 .screen.admin .admin-tocounter {
   width: auto;

@@ -13,7 +13,7 @@ import type { AuditLogEntry } from '../../../../../domain/models';
 import { buildInsight, type MetricKind, type RangeKind } from '../../../../../domain/insights';
 import { Feed, FeedRow } from '../FeedRow/FeedRow';
 import { feedIcon } from '../feedIcons';
-import { usePager } from '../usePager';
+import { usePager } from '../../../../common/usePager';
 import { auditTone, auditVerb, relativeTime } from '../../Admin/format';
 import './StatDetail.css';
 

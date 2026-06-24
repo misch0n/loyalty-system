@@ -8,6 +8,28 @@
   justify-content: space-between;
   flex: 0 0 auto;
 }
+/* Logo + role pill grouped together on the left. */
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+/* Right-side control (e.g. "Go to admin") — a light pill on the forest bar. */
+.topbar-action {
+  display: flex;
+}
+.topbar-action .topbar-go {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--forest-700);
+  background: var(--cream);
+  border: 0;
+  border-radius: 99px;
+  padding: 7px 13px;
+  cursor: pointer;
+}
 .topbar .tl {
   display: flex;
   align-items: center;
