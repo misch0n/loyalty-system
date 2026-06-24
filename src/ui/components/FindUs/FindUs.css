@@ -69,37 +69,38 @@
   filter: sepia(0.18) saturate(0.92) hue-rotate(-8deg) brightness(1.02) contrast(0.96);
 }
 
-/* "Contact us" rendered as a section title, offset from the map and centred. */
+/* "Contact us" rendered as a section title, left-aligned with the rest. */
 .findus-contact-title {
-  margin-bottom: 10px;
-  text-align: center;
+  margin-bottom: 12px;
+  text-align: left;
 }
 
-/* Email + Instagram mirrored around the centre of the "Contact us" label:
-   each takes half the width — email right-aligned to the centre, Instagram
-   left-aligned from it — with a small gap at the centre line. */
+/* Email + Instagram as left-aligned icon buttons matching the line-icon style. */
 .findus-links {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  gap: 14px;
 }
-.findus-link {
-  flex: 1 1 0;
-  font-family: var(--sans);
-  font-size: 14px;
-  font-weight: 600;
+.findus-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
   color: var(--forest);
-  text-decoration: underline;
-  text-underline-offset: 4px;
+  background: transparent;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
 }
-.findus-link:first-child {
-  text-align: right;
-  padding-right: 11px;
+.findus-icon svg {
+  width: 21px;
+  height: 21px;
 }
-.findus-link:last-child {
-  text-align: left;
-  padding-left: 11px;
-}
-.findus-link:hover {
+.findus-icon:hover {
   color: var(--terra);
+  border-color: var(--sage-600);
+  background: var(--sage-100);
 }

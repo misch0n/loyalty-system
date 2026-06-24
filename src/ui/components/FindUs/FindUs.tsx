@@ -48,7 +48,7 @@ export function FindUs() {
           className="findus-map"
           title={`Map showing ${cafeName}`}
           src={cafeMapEmbedUrl}
-          loading="lazy"
+          loading="eager" /* start loading with the page so a scroll shows it ready */
           referrerPolicy="no-referrer-when-downgrade"
           tabIndex={-1}
         />
@@ -56,16 +56,28 @@ export function FindUs() {
 
       <div className="ey findus-contact-title">Contact us</div>
       <div className="findus-links">
-        <a className="findus-link" href={`mailto:${cafeContactEmail}`}>
-          email
+        <a
+          className="findus-icon"
+          href={`mailto:${cafeContactEmail}`}
+          aria-label={`Email ${cafeName}`}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <rect x="3" y="5" width="18" height="14" rx="2.5" />
+            <path d="m3.5 7.5 8.5 6 8.5-6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </a>
         <a
-          className="findus-link"
+          className="findus-icon"
           href={cafeInstagramUrl}
           target="_blank"
           rel="noreferrer"
+          aria-label={`${cafeName} on Instagram`}
         >
-          instagram
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="5" />
+            <circle cx="12" cy="12" r="4" />
+            <circle cx="17.2" cy="6.8" r="1.1" fill="currentColor" stroke="none" />
+          </svg>
         </a>
       </div>
     </div>

@@ -39,7 +39,12 @@ vi.mock('../../../common/QrScanner', () => ({
 }));
 
 const resetMock = vi.fn(async () => {});
-const services = { reset: resetMock } as unknown as Services;
+const services = {
+  reset: resetMock,
+  // Used by the storage-diagnostic readout.
+  identity: { get: async () => null },
+  store: { countActiveCustomers: async () => 0 },
+} as unknown as Services;
 
 let container: HTMLDivElement;
 let root: Root;

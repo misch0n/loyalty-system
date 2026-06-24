@@ -95,11 +95,13 @@ export function EnlargedQr({ open, onClose, customerId, token, name, code }: Enl
 
   return (
     <Overlay open={open} onClose={onClose} label="Your card code, enlarged">
-      {qr ? (
-        <img className="enlarged-qr-img" src={qr} alt="Your card code" />
-      ) : (
-        <div className="enlarged-qr-img enlarged-qr-placeholder" aria-hidden="true" />
-      )}
+      <div className="enlarged-qr-box">
+        {qr ? (
+          <img className="enlarged-qr-img" src={qr} alt="Your card code" />
+        ) : (
+          <div className="enlarged-qr-img enlarged-qr-placeholder" aria-hidden="true" />
+        )}
+      </div>
       <div className="nm">{name}</div>
       <div className="cd">{code}</div>
 

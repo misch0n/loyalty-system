@@ -22,8 +22,23 @@ import { Sheet } from '../../../components/Sheet/Sheet';
 import { QrDisplay } from '../../../common/QrDisplay';
 import { QrScanner } from '../../../common/QrScanner';
 import { usePairing } from '../../../common/PairingContext';
+import { useServices } from '../../../common/ServicesContext';
+import { hasSnapshot } from '../../../common/storageSnapshot';
 import { appUrl } from '../../../../config/links';
 import './ProtoPanel.css';
+
+/** Prototype storage diagnostic — what actually survived on this device. */
+interface StorageDiag {
+  standalone: boolean;
+  recognized: boolean;
+  customers: number;
+  snapshot: boolean;
+}
+
+function isStandalone(): boolean {
+  const nav = window.navigator as Navigator & { standalone?: boolean };
+  return nav.standalone === true || window.matchMedia?.('(display-mode: standalone)')?.matches === true;
+}
 
 /** Accept either a bare peer id or a full pairing URL carrying `?host=`. */
 function hostIdFrom(text: string): string {
@@ -48,11 +63,35 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
     unpair,
     reset: pairingReset,
   } = usePairing();
+  const services = useServices();
   const [scanning, setScanning] = useState(false);
+  const [diag, setDiag] = useState<StorageDiag | null>(null);
 
   // While paired, show the TILL's QR (joinedHostId) so any device can grow the
   // network by scanning this screen; otherwise show our own host QR.
   const displayId = joined ? joinedHostId : peerId;
+
+  // Storage diagnostic: read what's actually persisted whenever the panel opens.
+  // Lets a tester reload (esp. iOS home-screen) and SEE whether recognition
+  // (localStorage) and/or card data (IndexedDB) survived.
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    void Promise.all([services.identity.get(), services.store.countActiveCustomers()])
+      .then(([token, customers]) => {
+        if (!active) return;
+        setDiag({
+          standalone: isStandalone(),
+          recognized: Boolean(token),
+          customers,
+          snapshot: hasSnapshot(),
+        });
+      })
+      .catch(() => active && setDiag(null));
+    return () => {
+      active = false;
+    };
+  }, [open, services]);
 
   // Start hosting (so a pairing QR exists) whenever the panel opens, unless we're
   // already a client of another till.
@@ -167,6 +206,29 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
                 Reset
               </button>
             </div>
+
+            {/* Storage diagnostic — reload (esp. iOS home-screen) and read what
+                survived: recognition (localStorage) vs card data (IndexedDB). */}
+            {diag && (
+              <dl className="proto-diag" aria-label="Storage diagnostic">
+                <div>
+                  <dt>display</dt>
+                  <dd>{diag.standalone ? 'home-screen (standalone)' : 'browser tab'}</dd>
+                </div>
+                <div>
+                  <dt>recognition · localStorage</dt>
+                  <dd>{diag.recognized ? 'present' : 'none'}</dd>
+                </div>
+                <div>
+                  <dt>card data · IndexedDB</dt>
+                  <dd>{diag.customers} customer{diag.customers === 1 ? '' : 's'}</dd>
+                </div>
+                <div>
+                  <dt>pairing snapshot</dt>
+                  <dd>{diag.snapshot ? 'present' : 'none'}</dd>
+                </div>
+              </dl>
+            )}
           </>
         )}
       </div>

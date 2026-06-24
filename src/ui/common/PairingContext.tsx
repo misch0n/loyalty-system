@@ -244,13 +244,22 @@ export function PairingProvider({ children }: { children: ReactNode }) {
       navigate('/', { replace: true });
       return;
     }
-    // Host or unpaired device: full reset. Drop any clients (the "server" is gone),
-    // wipe + reseed the local store in place, clear all storage, then re-resolve.
+    // Host or unpaired device: full reset. Clear the device-visible state FIRST
+    // and re-resolve — so a slow or blocked IndexedDB delete (Safari can hang
+    // `deleteDatabase`) can NEVER leave the recognition token behind. The data
+    // wipe is best-effort + time-bounded afterwards.
     hostRef.current?.unpairAll();
-    await services.reset();
     clearAllStorage();
     auth.logout();
     navigate('/', { replace: true });
+    try {
+      await Promise.race([
+        services.reset(),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    } catch {
+      // Visible reset already happened above; the data wipe is best-effort.
+    }
   }, [services, auth, navigate]);
 
   // Tear everything down on unmount.

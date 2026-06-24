@@ -1,9 +1,22 @@
 /* EnlargedQr — screen-specific layout (Ckyka reference view 06). */
 
+/* The QR sits in a cream, round-cornered square so it reads as a contained tile
+   on the white overlay — matching the compact QR box on the card. */
+.qr-enlarge .enlarged-qr-box {
+  display: inline-flex;
+  padding: 18px;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  box-shadow: 0 14px 34px -18px rgba(46, 74, 58, 0.5);
+}
+
 .qr-enlarge .enlarged-qr-img {
-  width: min(74vw, 260px);
+  width: min(68vw, 244px);
   height: auto;
   aspect-ratio: 1;
+  display: block;
+  border-radius: 8px;
 }
 
 .qr-enlarge .enlarged-qr-placeholder {

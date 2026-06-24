@@ -141,3 +141,29 @@
 .proto-scan-sub + .proto-status {
   color: var(--ink-soft);
 }
+
+/* Storage diagnostic — dim mono key/value rows under the controls. */
+.proto .proto-diag {
+  margin: 4px 0 0;
+  padding: 12px 14px;
+  border: 1px dashed #3a463f;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11.5px;
+}
+.proto .proto-diag > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.proto .proto-diag dt {
+  color: #8aa080;
+  letter-spacing: 0.04em;
+}
+.proto .proto-diag dd {
+  margin: 0;
+  color: #e6efe0;
+  text-align: right;
+}
