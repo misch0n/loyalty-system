@@ -16,7 +16,7 @@ const scanMock = vi.hoisted(() => ({ cb: null as ((text: string) => void) | null
 vi.mock('../../../../qr/scan', () => ({
   startScanner: vi.fn(async (_id: string, cb: (text: string) => void) => {
     scanMock.cb = cb;
-    return { stop: vi.fn().mockResolvedValue(undefined) };
+    return { stop: vi.fn().mockResolvedValue(undefined), pause: vi.fn(), resume: vi.fn() };
   }),
 }));
 vi.mock('../../../../qr/encode', () => ({
