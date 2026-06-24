@@ -8,6 +8,7 @@ import { ServicesProvider } from '../../../common/ServicesContext';
 import { AuthProvider } from '../../../app/AuthContext';
 import { LogoGesturesProvider } from '../../../app/LogoGestures';
 import { PairingProvider } from '../../../common/PairingContext';
+import { ToastProvider } from '../../../components/Toast/Toast';
 import { Panel } from './Panel';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -75,17 +76,19 @@ async function mountPanel() {
     root.render(
       <MemoryRouter initialEntries={['/staff']}>
         <ServicesProvider value={services}>
-          <AuthProvider>
-            <PairingProvider>
-              <LogoGesturesProvider value={{}}>
-                <Routes>
-                  <Route path="/staff" element={<Panel />} />
-                  <Route path="/staff/scan" element={<div>SCAN ROUTE</div>} />
-                  <Route path="/login" element={<div>LOGIN ROUTE</div>} />
-                </Routes>
-              </LogoGesturesProvider>
-            </PairingProvider>
-          </AuthProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <PairingProvider>
+                <LogoGesturesProvider value={{}}>
+                  <Routes>
+                    <Route path="/staff" element={<Panel />} />
+                    <Route path="/staff/scan" element={<div>SCAN ROUTE</div>} />
+                    <Route path="/login" element={<div>LOGIN ROUTE</div>} />
+                  </Routes>
+                </LogoGesturesProvider>
+              </PairingProvider>
+            </AuthProvider>
+          </ToastProvider>
         </ServicesProvider>
       </MemoryRouter>,
     );

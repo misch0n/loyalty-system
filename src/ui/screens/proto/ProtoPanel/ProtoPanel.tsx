@@ -21,7 +21,6 @@ import { useEffect, useState } from 'react';
 import { Sheet } from '../../../components/Sheet/Sheet';
 import { QrDisplay } from '../../../common/QrDisplay';
 import { QrScanner } from '../../../common/QrScanner';
-import { useServices } from '../../../common/ServicesContext';
 import { usePairing } from '../../../common/PairingContext';
 import { appUrl } from '../../../../config/links';
 import './ProtoPanel.css';
@@ -38,9 +37,22 @@ export interface ProtoPanelProps {
 }
 
 export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | null {
-  const services = useServices();
-  const { peerId, clientCount, joined, connecting, ensureHosting, joinAs, unpair } = usePairing();
+  const {
+    peerId,
+    joinedHostId,
+    clientCount,
+    joined,
+    connecting,
+    ensureHosting,
+    joinAs,
+    unpair,
+    reset: pairingReset,
+  } = usePairing();
   const [scanning, setScanning] = useState(false);
+
+  // While paired, show the TILL's QR (joinedHostId) so any device can grow the
+  // network by scanning this screen; otherwise show our own host QR.
+  const displayId = joined ? joinedHostId : peerId;
 
   // Start hosting (so a pairing QR exists) whenever the panel opens, unless we're
   // already a client of another till.
@@ -60,16 +72,16 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
 
   async function reset(): Promise<void> {
     const ok = window.confirm(
-      'Reset the demo? Clears all local demo data on this device ' +
-        '(card, sign-in, points) so you can run a workflow from scratch.',
+      joined
+        ? 'Reset this device? Clears this device only (card + sign-in) so you can ' +
+            'test as a brand-new customer. The till keeps all of its data.'
+        : 'Reset the demo? Wipes all data on this device (cards, points, sign-in) ' +
+            'and starts clean. Any devices paired to this one are disconnected.',
     );
     if (!ok) return;
     onClose();
-    await services.reset();
-    localStorage.clear();
-    sessionStorage.clear();
-    window.location.hash = '#/';
-    window.location.reload();
+    // Role-aware + reload-free; PairingContext handles client vs host/unpaired.
+    await pairingReset();
   }
 
   if (!open) return null;
@@ -106,24 +118,26 @@ export function ProtoPanel({ open, onClose }: ProtoPanelProps): JSX.Element | nu
           </>
         ) : (
           <>
-            {/* 1 · QR */}
+            {/* 1 · QR — our own till QR, or the till's QR while we're a client */}
             <div className="grp">
-              {joined ? (
-                <p className="proto-status">● Paired to the till</p>
-              ) : peerId ? (
+              {displayId ? (
                 <div className="proto-qr">
                   <QrDisplay
-                    payload={appUrl(`/pair?host=${encodeURIComponent(peerId)}`)}
+                    payload={appUrl(`/pair?host=${encodeURIComponent(displayId)}`)}
                     label="Pairing QR"
                     caption={
-                      clientCount > 0
-                        ? `${clientCount} device${clientCount === 1 ? '' : 's'} paired · scan to add more`
-                        : 'Scan this on another device to pair'
+                      joined
+                        ? 'Paired to the till · scan to add another device'
+                        : clientCount > 0
+                          ? `${clientCount} device${clientCount === 1 ? '' : 's'} paired · scan to add more`
+                          : 'Scan this on another device to pair'
                     }
                   />
                 </div>
               ) : (
-                <p className="proto-status">Preparing pairing code…</p>
+                <p className="proto-status">
+                  {joined ? 'Paired to the till' : 'Preparing pairing code…'}
+                </p>
               )}
             </div>
 

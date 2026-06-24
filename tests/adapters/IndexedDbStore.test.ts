@@ -260,3 +260,23 @@ describe('stats & backup', () => {
     expect(await store.listStaff()).toEqual([]);
   });
 });
+
+describe('reset', () => {
+  it('wipes all data, re-seeds, and leaves the SAME instance usable (no reload)', async () => {
+    await store.createCustomer({ token: 'gone' });
+    await store.updateConfig({ pointsPerReward: 5 });
+
+    await store.reset();
+
+    // Data is gone and the seed is back, on the same instance.
+    expect(await store.getCustomerByToken('gone')).toBeNull();
+    expect(await store.getConfig()).toEqual(DEFAULT_CONFIG);
+    expect((await store.listStaff()).map((s) => s.username)).toEqual(['admin', 'staff']);
+
+    // Crucially, the store still works after reset — the bug this fixes was the
+    // in-memory store pointing at a deleted DB ("create a card fails until a hard
+    // refresh").
+    const created = await store.createCustomer({ token: 'fresh' });
+    expect(await store.getCustomerByToken('fresh')).toMatchObject({ id: created.id });
+  });
+});

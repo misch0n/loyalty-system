@@ -32,7 +32,6 @@ import { StaticWalletProvider } from '../adapters/wallet/StaticWalletProvider';
 import { ServerWalletProvider } from '../adapters/wallet/ServerWalletProvider';
 import { createObservableStore } from '../adapters/sync/ObservableStore';
 import { createSwitchableStore } from '../adapters/sync/SwitchableStore';
-import { DB_NAME } from '../adapters/storage/schema';
 
 import { AuditService } from './AuditService';
 import { ConfigService } from './ConfigService';
@@ -136,14 +135,11 @@ export async function createServices(): Promise<Services> {
     loyalty: new LoyaltyService(store, audit, mailer),
     recovery: new RecoveryService(store, mailer, audit),
     reset: async () => {
-      // Close our connection first so deleteDatabase isn't blocked, then drop it.
-      await (local as { close?: () => Promise<void> }).close?.();
-      await new Promise<void>((resolve) => {
-        const req = indexedDB.deleteDatabase(DB_NAME);
-        req.onsuccess = () => resolve();
-        req.onerror = () => resolve();
-        req.onblocked = () => resolve();
-      });
+      // Full DATA reset: wipe + reseed the store IN PLACE so the live store stays
+      // usable without a page reload. Storage keys, the snapshot and pairing are
+      // the caller's concern (PairingContext.reset). ApiStore has no reset (it's
+      // the server's job) — the optional call is a no-op there.
+      await (local as { reset?: () => Promise<void> }).reset?.();
     },
   };
 }

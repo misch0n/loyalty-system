@@ -5,7 +5,7 @@
 > [`SPEC.md`](SPEC.md); working rules in [`../CLAUDE.md`](../CLAUDE.md).
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 
-**Last updated:** 2026-06-24 (Docs-only: recorded the **storage / device-recognition** model and the **prototype→production switch checklist** as known debt — IndexedDB (the DB) vs localStorage (token/session flags) vs cookies (none); no JS-cookie durability win on iOS (only a server-set HttpOnly cookie survives ITP, needs a backend) so localStorage is kept deliberately; the device-pairing layer is host/client (scanner becomes client; one host, many RPC clients) and is wired through `services.sync` + `PairingProvider` + `dataVersion` screen refs + `/pair`, so switching out is not a single adapter swap — decision: leave as-is until server testing. Details in divergence d + Known gaps. Prior — Email + QR polish: the Register email field gets **inline format validation** (`isValidEmail`; submit disabled until valid); registering with an email now sends a best-effort **"card created" welcome email** (new `card-created` `MailKind`; `CustomerService` gained an optional `Mailer`). Café contact is `ckykacafe@gmail.com`; the **Instagram** button links to `ckykacoffeeshop` (universal link opens the app on mobile). The card **QR tile** dropped the in-tile "tap to enlarge" label and is now a compact cream box sized to the QR (centred, small offset); the enlarge/wallet hint stays below the card. Placeholders: name "Your name", email "Your email address" (register + restore). Prior: Find us + dev-scan polish: the **Find us** section (now a shared `FindUs` component on both Welcome and the card page) sits **below the fold** — each page is one full screen with a "scroll for hours & location" hint, then Find us; Find us gained an **embedded map** centred on the café (keyless `output=embed`) with **Get directions** beneath it and an **Instagram** button beside Contact us (`config/cafe.ts` `cafeMapEmbedUrl`/`cafeInstagramUrl`); the dev-panel **Scan to pair** now pairs **in place** without redirecting (`PairingContext.joinAs(id, { redirect: false })`) so the camera modal isn't yanked away on a successful scan. Prior: Card-menu confirmations + fixed 10-stamp card: the card "⋯" menu now redraws into red-tinted **remove/delete confirmations** with recovery-aware copy and a `HoldButton` (3-second hold, expanding red fill, selection disabled) for unrecoverable actions; single-tap remove for recoverable cards. The loyalty card is a **fixed 10-stamp grid** — welcome + 8 purchases + FREE, with the first and last **pre-stamped**; IndexedDB **upgrade v3** migrates devices still on the legacy 10-coffee threshold down to 8. Prior: Admin/loyalty/popover batch: reward threshold default **8** (card still shows a **10-cup showcase** — welcome sticker + 8 earnable + FREE reward cup; "Gold" badge removed); admin is now a **superset of staff** (counter/scan access + admin view, both with **Sign out**); admin **account management** popover per profile — enable/disable, reset password, reset PIN, **delete** (`StaffService.remove`/`DataStore.deleteStaff`), + that profile's activity history, un-gated; **Add profile** makes staff or admin; popovers lock background scroll, are **drag-to-dismiss** + self-scrolling; dev-panel **Scan to pair** opens an in-window camera modal; card-menu rows are two-line; the recognized-customer card page now has the shared **Find us** below-the-fold section; `Toggle` restyled to a themed pill; login username placeholder "staff". Prior: Auth + dev-panel UX revision: staff/admin sign-in is now **username/password first** with the PIN reserved for quick re-auth on a remembered idle device; staff accounts gained a **display name** (name/username/password/PIN) and admins create accounts from the panel; logo **tap → home** is role-aware (admin→/admin) and long-press → sign-in; the Prototype/developer panel moved to a **hidden top-left `DevTrigger`** and was stripped to **QR / Scan to pair / Reset**; register privacy notice is a tappable accented link opening a sheet; centred Welcome logo; "Add to wallet" pop-up-blocker fix. **Follow-ups:** signed-in logo gestures (tap **and** long-press) go to the role home, not the sign-in page — an *active* (even non-remembered) session routes to its panel via `EntryResolver`; bottom **`Sheet`s are drag-to-dismiss** (pull the grab handle down) and scroll tall content; the dev-panel QR sizing fixed (the shared `.qr` class was clamping it to 84px); viewport set to `maximum-scale=1, user-scalable=no` + 16px form inputs so pages never zoom on focus/navigation) · **Phase:** v1 prototype — feature-complete against SPEC §15 (Appendix A implemented) + Appendix B partially implemented (B1–B3, B6 partial via Welcome, B7 documented; B4 and B5 dropped, B6 remainder deferred).
+**Last updated:** 2026-06-24 (Pairing/reset rework: **role-aware, reload-free Reset** + a **reversible pairing overlay**. `IndexedDbStore.reset()` now deletes **and re-opens + re-seeds the DB in place** so the live store stays usable (fixes "create a card fails until a hard refresh"); `PairingContext.reset()` branches — host/unpaired fully wipes (DB + all storage), a paired client clears only its own storage (keeping data on the till) — and both **re-resolve via `navigate('/')`, no page reload**. Pairing is now a push/pop overlay (`ui/common/storageSnapshot.ts`): join **snapshots** the device's storage into one reserved key + starts fresh; unpair (voluntary or host-forced) **restores** it; a leftover snapshot at boot self-heals in `main.tsx`. **No device is auto-routed to staff** on pairing (every joiner → `/welcome`); a client exposes the till's id (`joinedHostId`) so the dev panel shows the **host's QR** (grow the network from any device); a host reset forces unpair + a **"till disconnected" toast** on clients. +8 tests (`storageSnapshot`, `IndexedDbStore.reset`). Prior — Docs-only: recorded the **storage / device-recognition** model and the **prototype→production switch checklist** as known debt — IndexedDB (the DB) vs localStorage (token/session flags) vs cookies (none); no JS-cookie durability win on iOS (only a server-set HttpOnly cookie survives ITP, needs a backend) so localStorage is kept deliberately; the device-pairing layer is host/client (scanner becomes client; one host, many RPC clients) and is wired through `services.sync` + `PairingProvider` + `dataVersion` screen refs + `/pair`, so switching out is not a single adapter swap — decision: leave as-is until server testing. Details in divergence d + Known gaps. Prior — Email + QR polish: the Register email field gets **inline format validation** (`isValidEmail`; submit disabled until valid); registering with an email now sends a best-effort **"card created" welcome email** (new `card-created` `MailKind`; `CustomerService` gained an optional `Mailer`). Café contact is `ckykacafe@gmail.com`; the **Instagram** button links to `ckykacoffeeshop` (universal link opens the app on mobile). The card **QR tile** dropped the in-tile "tap to enlarge" label and is now a compact cream box sized to the QR (centred, small offset); the enlarge/wallet hint stays below the card. Placeholders: name "Your name", email "Your email address" (register + restore). Prior: Find us + dev-scan polish: the **Find us** section (now a shared `FindUs` component on both Welcome and the card page) sits **below the fold** — each page is one full screen with a "scroll for hours & location" hint, then Find us; Find us gained an **embedded map** centred on the café (keyless `output=embed`) with **Get directions** beneath it and an **Instagram** button beside Contact us (`config/cafe.ts` `cafeMapEmbedUrl`/`cafeInstagramUrl`); the dev-panel **Scan to pair** now pairs **in place** without redirecting (`PairingContext.joinAs(id, { redirect: false })`) so the camera modal isn't yanked away on a successful scan. Prior: Card-menu confirmations + fixed 10-stamp card: the card "⋯" menu now redraws into red-tinted **remove/delete confirmations** with recovery-aware copy and a `HoldButton` (3-second hold, expanding red fill, selection disabled) for unrecoverable actions; single-tap remove for recoverable cards. The loyalty card is a **fixed 10-stamp grid** — welcome + 8 purchases + FREE, with the first and last **pre-stamped**; IndexedDB **upgrade v3** migrates devices still on the legacy 10-coffee threshold down to 8. Prior: Admin/loyalty/popover batch: reward threshold default **8** (card still shows a **10-cup showcase** — welcome sticker + 8 earnable + FREE reward cup; "Gold" badge removed); admin is now a **superset of staff** (counter/scan access + admin view, both with **Sign out**); admin **account management** popover per profile — enable/disable, reset password, reset PIN, **delete** (`StaffService.remove`/`DataStore.deleteStaff`), + that profile's activity history, un-gated; **Add profile** makes staff or admin; popovers lock background scroll, are **drag-to-dismiss** + self-scrolling; dev-panel **Scan to pair** opens an in-window camera modal; card-menu rows are two-line; the recognized-customer card page now has the shared **Find us** below-the-fold section; `Toggle` restyled to a themed pill; login username placeholder "staff". Prior: Auth + dev-panel UX revision: staff/admin sign-in is now **username/password first** with the PIN reserved for quick re-auth on a remembered idle device; staff accounts gained a **display name** (name/username/password/PIN) and admins create accounts from the panel; logo **tap → home** is role-aware (admin→/admin) and long-press → sign-in; the Prototype/developer panel moved to a **hidden top-left `DevTrigger`** and was stripped to **QR / Scan to pair / Reset**; register privacy notice is a tappable accented link opening a sheet; centred Welcome logo; "Add to wallet" pop-up-blocker fix. **Follow-ups:** signed-in logo gestures (tap **and** long-press) go to the role home, not the sign-in page — an *active* (even non-remembered) session routes to its panel via `EntryResolver`; bottom **`Sheet`s are drag-to-dismiss** (pull the grab handle down) and scroll tall content; the dev-panel QR sizing fixed (the shared `.qr` class was clamping it to 84px); viewport set to `maximum-scale=1, user-scalable=no` + 16px form inputs so pages never zoom on focus/navigation) · **Phase:** v1 prototype — feature-complete against SPEC §15 (Appendix A implemented) + Appendix B partially implemented (B1–B3, B6 partial via Welcome, B7 documented; B4 and B5 dropped, B6 remainder deferred).
 
 ---
 
@@ -14,7 +14,7 @@
 - React + TypeScript + Vite SPA, IndexedDB storage, deployed to GitHub Pages.
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
-- **344 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
+- **352 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
 - **Puppeteer e2e suite** (`e2e/`, run with `npm run e2e`) drives the built app in headless Chrome: welcome, register→card, staff PIN, prototype panel, and the reference bug-list regressions (13 checks).
 - CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`,
   `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets) → deploys on push to `main`.
@@ -47,7 +47,7 @@
 | WalletProvider seam; OS-detected wallet button inside enlarged-QR overlay; links to walletwallet.dev pre-generated passes | ✅ | `ports/WalletProvider.ts`, `adapters/wallet/StaticWalletProvider.ts`, `ui/screens/customer/EnlargedQr/EnlargedQr.tsx`, `wallet/passes.ts` |
 | Storage behind `DataStore`; Transport behind `Transport`; Email behind `Mailer`; Identity behind `IdentityStore`; Wallet behind `WalletProvider` — swap = no UI/service change | ✅ | `ports/`, `adapters/`, `services/Services.ts` |
 | Two-device demo over PeerJS + TURN (real cross-device, not simulated) | ✅ impl; cellular verification = manual live-demo step | `adapters/transport/PeerTransport.ts`, `config/env.ts` |
-| Device pairing — one till hosts many customers; live DataStore sync across all devices | ✅ prototype-only (see divergences e, f) | `adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` — all devices host by default; scanning a till's QR (from Prototype panel, logo tap) makes the scanning device a customer; first pair routes till → `/staff`, customer → `/welcome`; unpair signals all peers and each resumes hosting |
+| Device pairing — one till hosts many customers; live DataStore sync across all devices | ✅ prototype-only (see divergences e, f) | `adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` — all devices host by default; scanning a till's QR makes the scanning device a customer (**no device is auto-routed to staff** — every joiner lands on `/welcome`); a paired client also exposes the till's id (`joinedHostId`) so it can show the **host's QR** and the network can grow from any device; pairing is a reversible overlay — join **snapshots** the device's storage and starts fresh, unpair (voluntary **or** host-forced, with a "till disconnected" toast) **restores** it; unpair signals all peers and each resumes hosting |
 | Domain unit-tested; file tree matches SPEC §12 | ✅ (new UI layout diverges from SPEC §12 — see divergences g, k) | `tests/`, domain + services match |
 | Adapters/transports/services unit-tested (regression cover) | ✅ | `tests/adapters/*`, `tests/services/*`, `tests/qr/*`, `tests/domain/alerts.test.ts`, `tests/adapters/wallet/*` |
 | Co-located component/screen tests (Vitest, jsdom) | ✅ | `src/ui/components/**/*.test.tsx`, `src/ui/screens/**/*.test.tsx` — included via `vite.config.ts` `test.include` |
@@ -82,9 +82,17 @@
   buttons and sign-in shortcut were removed — every prototype card starts at zero
   and registration rotates which preset token is handed out. Prototype-only;
   dropped from a real server-backed build.
-- **Reset device** (`Services.reset()` → `IndexedDbStore.close()`) closes and
-  deletes the `cafe-loyalty` IndexedDB database, clears storage keys, and reloads.
-  Lets a tester rerun a flow from a clean device. Prototype-only.
+- **Reset device** is **role-aware and reload-free** (`PairingContext.reset()`).
+  A **host / unpaired** device fully wipes: `Services.reset()` →
+  `IndexedDbStore.reset()` deletes **and re-opens + re-seeds the DB in place** (the
+  live store stays usable — this fixes the old "create a card fails until a hard
+  refresh", which was the in-memory store pointing at a just-deleted DB), then all
+  `localStorage`/`sessionStorage` is cleared and the app re-resolves via
+  `navigate('/')` — no `window.location.reload()`. A **paired client** does a
+  **light** reset: it clears only its own storage (preserving the pairing snapshot
+  and the live RPC link) so it behaves like a brand-new customer while the till
+  keeps all data. A host reset additionally sends an unpair signal to its clients
+  (the "server" is gone). Prototype-only.
 - **`ApiStore`** is a production skeleton — each method maps to an HTTP call but
   throws in the prototype (no backend). Shows the contract; one-line swap.
 - **`ServerTransport`** is a production placeholder — every method throws. The
@@ -121,7 +129,7 @@
 
 ## Test coverage
 
-`npm test` runs **344 Vitest unit/component tests** (includes co-located
+`npm test` runs **352 Vitest unit/component tests** (includes co-located
 `src/ui/**/*.test.tsx` via the extended `test.include` in `vite.config.ts`):
 
 - **domain/** — `loyalty`, `tokens`, `validation` (pure logic), `alerts`
@@ -138,7 +146,11 @@
   stub), `PeerTransport` (peerjs mocked), `EmailJsMailer`, `NoopMailer`,
   `LocalStorageIdentityStore`.
 - **adapters/sync/** — sync round-trip via in-memory `FakeLink`; `ConnLink` /
-  `joinHost` / `PeerJsHost` (PeerJS mocked).
+  `joinHost` / `PeerJsHost` (PeerJS mocked). `IndexedDbStore.reset()` (wipe +
+  re-seed in place, store still usable) in `tests/adapters/IndexedDbStore.test.ts`.
+- **ui/common/** — `storageSnapshot` (`tests/ui/common/storageSnapshot.test.ts`):
+  the pairing push/pop — snapshot-and-clear on join, clear-except-snapshot (light
+  reset), restore-on-unpair, full clear, and the unclean-exit boot self-heal.
 - **adapters/wallet/** — `StaticWalletProvider` (ensurePass returns URL, pushUpdate
   no-op, OS detection).
 - **ui/app/** — `session` (`tests/ui/app/session.test.ts`): the pure session
@@ -257,8 +269,11 @@ unit tests cannot.
   that *scans* becomes a client of the scanned host (`PairingContext.joinAs`); one
   host serves **many** clients; clients have no local store — every read/write is
   an RPC (`PeerClientStore`) to the host's `StoreServer`, which runs it on the
-  host's IndexedDB and pushes `changed` pings. Decision (2026-06-24): leave this
-  as-is for the prototype; revisit the de-coupling when we begin server testing.
+  host's IndexedDB and pushes `changed` pings. Decision (2026-06-24): the pairing
+  *behaviour* was refined (reversible snapshot overlay, role-aware reload-free
+  reset, no staff auto-redirect, clients show the host's QR — see divergence e),
+  but the **production de-coupling itself is still deferred**; the 5-step checklist
+  above stands and is revisited when we begin server testing.
   See divergences e, f for the prototype-only rationale.
 - **Recovery after Reset requires pairing.** Self-service recovery resolves
   the customer's card from the store currently active on the device. After a
@@ -322,6 +337,20 @@ e. **Device pairing is a prototype-only construct.** `adapters/sync/` uses PeerJ
    the no-backend stand-in for server-mediated state coordination. In production the
    server handles this and the entire sync layer (`adapters/sync/`, `PairingProvider`,
    `/pair` screen) is removed — it is not a path toward the production sync architecture.
+
+   *Pairing UX (2026-06-24):* pairing is a **reversible, non-destructive overlay**.
+   On join, `snapshotAndClear()` (`ui/common/storageSnapshot.ts`) captures the
+   device's `localStorage` + `sessionStorage` into one reserved key
+   (`cafe-loyalty.__pairSnapshot`) and clears the rest, so a paired device starts
+   fresh as a new customer; unpair (voluntary **or** host-forced) calls
+   `restoreSnapshot()` to pop it back. A leftover snapshot at boot can only mean an
+   unclean exit (a PeerJS link never survives a reload), so `main.tsx` runs
+   `restoreSnapshot()` before any provider reads storage to self-heal. **No device
+   is auto-routed to staff** on pairing (every joiner → `/welcome`), and a client
+   surfaces the till's id (`joinedHostId`) so the dev panel shows the **host's QR**
+   — a third device can join by scanning a client's screen and connects straight to
+   the host. A host reset forces unpair on its clients (they restore their snapshot
+   and see a "till disconnected" toast).
 
 f. **Prototype UX scaffolding (DevTrigger, ProtoPanel, Reset, pairing, QR-in-panel).**
    The spec does not define demo-management UI. The prototype surfaces it in

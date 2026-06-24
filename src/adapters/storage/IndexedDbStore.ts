@@ -58,6 +58,26 @@ export class IndexedDbStore implements DataStore {
     db.close();
   }
 
+  /**
+   * Prototype reset: drop the database and rebuild it clean + seeded, reusing
+   * THIS instance so the live store stays usable afterwards (no page reload).
+   * The old reset deleted the DB and relied on a reload to re-open it, which left
+   * the in-memory store pointing at a deleted connection — the cause of
+   * "create a card fails until a hard refresh". Re-opening in place fixes that.
+   */
+  async reset(): Promise<void> {
+    const db = await this.dbPromise;
+    db.close();
+    await new Promise<void>((resolve) => {
+      const req = indexedDB.deleteDatabase(DB_NAME);
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    });
+    this.dbPromise = this.open(); // re-create schema + re-run the idempotent seed
+    await this.dbPromise;
+  }
+
   private async open(): Promise<IDBPDatabase<LoyaltyDB>> {
     const db = await openDB<LoyaltyDB>(DB_NAME, DB_VERSION, {
       async upgrade(database, oldVersion, _newVersion, transaction) {

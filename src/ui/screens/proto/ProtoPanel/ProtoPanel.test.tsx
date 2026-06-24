@@ -18,15 +18,18 @@ vi.mock('react-router-dom', async () => {
 
 // Pairing is external wiring (PeerJS / sessionStorage) — stub it.
 const joinAsMock = vi.fn();
+const pairingResetMock = vi.fn(async () => {});
 vi.mock('../../../common/PairingContext', () => ({
   usePairing: () => ({
     peerId: null,
+    joinedHostId: null,
     clientCount: 0,
     joined: false,
     connecting: false,
     ensureHosting: vi.fn(),
     joinAs: joinAsMock,
     unpair: vi.fn(),
+    reset: pairingResetMock,
   }),
 }));
 
@@ -44,6 +47,7 @@ let root: Root;
 beforeEach(() => {
   navigateMock.mockReset();
   resetMock.mockReset();
+  pairingResetMock.mockReset();
 });
 
 afterEach(() => {
@@ -93,24 +97,13 @@ describe('ProtoPanel', () => {
     expect(findButton('Card')).toBeUndefined();
   });
 
-  it('reset calls services.reset', async () => {
+  it('reset delegates to the role-aware pairing reset (no reload)', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    // jsdom's location is non-configurable; swap in a stub so reset()'s
-    // hash-set + reload don't blow up the test.
-    const realLocation = window.location;
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: { ...realLocation, hash: '', reload: vi.fn() },
-    });
     await mount();
     await act(async () => {
       findButton('Reset')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
-    expect(resetMock).toHaveBeenCalledTimes(1);
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: realLocation,
-    });
+    expect(pairingResetMock).toHaveBeenCalledTimes(1);
   });
 
   it('"Scan to pair" opens the in-window camera modal (no navigation)', async () => {
