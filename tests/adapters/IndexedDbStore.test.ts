@@ -21,10 +21,15 @@ beforeEach(() => {
 const tick = () => new Promise((r) => setTimeout(r, 5));
 
 describe('seed', () => {
-  it('seeds the default config and the two mock staff accounts', async () => {
+  it('seeds the default config and the mock staff accounts', async () => {
     expect(await store.getConfig()).toEqual(DEFAULT_CONFIG);
     const staff = await store.listStaff();
-    expect(staff.map((s) => s.username)).toEqual(['admin', 'staff']);
+    expect(staff.map((s) => s.username)).toEqual(['admin', 'priya', 'staff']);
+  });
+
+  it('does not seed demo customers unless asked (off by default in tests)', async () => {
+    expect(await store.countActiveCustomers()).toBe(0);
+    expect(await store.listAllTransactions()).toEqual([]);
   });
 
   it('is idempotent — reopening does not overwrite edited config or duplicate staff', async () => {
@@ -37,6 +42,7 @@ describe('seed', () => {
     expect((await reopened.listStaff()).map((s) => s.username)).toEqual([
       'admin',
       'extra',
+      'priya',
       'staff',
     ]);
   });
@@ -186,6 +192,7 @@ describe('staff & config', () => {
     expect((await store.listStaff()).map((s) => s.username)).toEqual([
       'admin',
       'bea',
+      'priya',
       'staff',
       'zara',
     ]);
@@ -271,7 +278,7 @@ describe('reset', () => {
     // Data is gone and the seed is back, on the same instance.
     expect(await store.getCustomerByToken('gone')).toBeNull();
     expect(await store.getConfig()).toEqual(DEFAULT_CONFIG);
-    expect((await store.listStaff()).map((s) => s.username)).toEqual(['admin', 'staff']);
+    expect((await store.listStaff()).map((s) => s.username)).toEqual(['admin', 'priya', 'staff']);
 
     // Crucially, the store still works after reset — the bug this fixes was the
     // in-memory store pointing at a deleted DB ("create a card fails until a hard

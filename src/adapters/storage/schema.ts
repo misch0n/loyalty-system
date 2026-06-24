@@ -98,4 +98,14 @@ export const SEED_STAFF: StaffAccount[] = [
     active: true,
     createdAt: '2024-01-01T00:00:00.000Z',
   },
+  {
+    id: 'seed-staff-2',
+    username: 'priya',
+    name: 'Priya',
+    passwordHash: 'priya',
+    pin: '2468',
+    role: 'staff',
+    active: true,
+    createdAt: '2024-01-02T00:00:00.000Z',
+  },
 ];

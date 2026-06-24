@@ -17,16 +17,26 @@ export interface StatProps {
   label: ReactNode;
   /** Optional mono delta line (e.g. "+18 new"). */
   delta?: ReactNode;
+  /** When set, the tile becomes a button that opens its breakdown popover. */
+  onClick?: () => void;
 }
 
-export function Stat({ n, label, delta }: StatProps) {
-  return (
-    <div className="stat">
+export function Stat({ n, label, delta, onClick }: StatProps) {
+  const body = (
+    <>
       <div className="n">{n}</div>
       <div className="l">{label}</div>
       {delta != null && <div className="delta">{delta}</div>}
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button type="button" className="stat tappable" onClick={onClick}>
+        {body}
+      </button>
+    );
+  }
+  return <div className="stat">{body}</div>;
 }
 
 export interface StatWideProps {

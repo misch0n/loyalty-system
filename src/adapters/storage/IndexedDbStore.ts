@@ -44,11 +44,15 @@ import {
   type LoyaltyDB,
   type RecoveryCodeRecord,
 } from './schema';
+import { buildDemoSeed } from './demoSeed';
 
 export class IndexedDbStore implements DataStore {
   private dbPromise: Promise<IDBPDatabase<LoyaltyDB>>;
+  /** Seed demo customers/ledger/audit on a fresh DB (prototype only — off in tests). */
+  private readonly withDemoData: boolean;
 
-  constructor() {
+  constructor(opts: { seedDemo?: boolean } = {}) {
+    this.withDemoData = opts.seedDemo ?? false;
     this.dbPromise = this.open();
   }
 
@@ -138,7 +142,20 @@ export class IndexedDbStore implements DataStore {
       const tx = db.transaction('staff', 'readwrite');
       for (const member of SEED_STAFF) await tx.store.put(member);
       await tx.done;
+      // First run (or post-Reset): seed demo data so the admin stat breakdowns
+      // have content across ranges. Prototype-only (off in tests).
+      if (this.withDemoData) await this.seedDemo(db);
     }
+  }
+
+  /** Write the prototype demo members/ledger/audit (see demoSeed.ts). */
+  private async seedDemo(db: IDBPDatabase<LoyaltyDB>): Promise<void> {
+    const { customers, transactions, audit } = buildDemoSeed(Date.now());
+    const tx = db.transaction(['customers', 'transactions', 'audit'], 'readwrite');
+    for (const c of customers) await tx.objectStore('customers').put(c);
+    for (const t of transactions) await tx.objectStore('transactions').put(t);
+    for (const a of audit) await tx.objectStore('audit').put(a);
+    await tx.done;
   }
 
   private now(): string {

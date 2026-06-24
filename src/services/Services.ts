@@ -74,7 +74,9 @@ function createStore(): DataStore {
     // Production wiring. The base URL would come from build-time env.
     return new ApiStore({ baseUrl: import.meta.env.VITE_API_BASE ?? '/api' });
   }
-  return new IndexedDbStore();
+  // Prototype: seed demo members/ledger/audit on a fresh DB so the admin stat
+  // breakdowns have data across ranges.
+  return new IndexedDbStore({ seedDemo: true });
 }
 
 async function createTransport(): Promise<Transport> {

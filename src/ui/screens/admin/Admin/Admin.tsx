@@ -34,7 +34,11 @@ import { Stat, StatWide } from '../_parts/Stat/Stat';
 import { Feed, FeedRow, SectionH } from '../_parts/FeedRow/FeedRow';
 import { Alert } from '../_parts/Alert/Alert';
 import { StepUp } from '../_parts/StepUp/StepUp';
+import { ProgramEdit } from '../_parts/ProgramEdit/ProgramEdit';
 import { AccountSheet } from '../_parts/AccountSheet/AccountSheet';
+import { StatDetail } from '../_parts/StatDetail/StatDetail';
+import { PersonIcon, feedIcon } from '../_parts/feedIcons';
+import type { MetricKind } from '../../../../domain/insights';
 import { auditTone, auditVerb, isSameDay, relativeTime } from './format';
 import './Admin.css';
 
@@ -45,42 +49,6 @@ interface Stats {
 }
 
 const FEED_LIMIT = 60;
-
-const PersonIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-    <circle cx="12" cy="8" r="3.4" />
-    <path d="M5 20c1.2-3.6 4-5 7-5s5.8 1.4 7 5" strokeLinecap="round" />
-  </svg>
-);
-const PlusIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-    <path d="M12 5v14M5 12h14" strokeLinecap="round" />
-  </svg>
-);
-const StarIcon = () => (
-  <svg viewBox="0 0 24 24" fill="currentColor">
-    <path d="M12 2l2.4 6.3L21 9l-5 4.2L17.6 20 12 16.4 6.4 20 8 13.2 3 9l6.6-.7z" />
-  </svg>
-);
-const WarnIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-    <path d="M12 4l9 16H3z" strokeLinejoin="round" />
-    <path d="M12 10v4" strokeLinecap="round" />
-  </svg>
-);
-
-function feedIcon(tone: ReturnType<typeof auditTone>) {
-  switch (tone) {
-    case 'add':
-      return <PlusIcon />;
-    case 'red':
-      return <StarIcon />;
-    case 'warn':
-      return <WarnIcon />;
-    default:
-      return <PersonIcon />;
-  }
-}
 
 type EditTarget =
   | { kind: 'pointsPerReward' }
@@ -143,6 +111,8 @@ function AdminScreen({ actor }: { actor: Actor }) {
   const [names, setNames] = useState<Record<string, string>>({});
 
   const [edit, setEdit] = useState<EditTarget | null>(null);
+  // Which headline stat's breakdown popover is open (null = closed).
+  const [detailMetric, setDetailMetric] = useState<MetricKind | null>(null);
   // The id of the profile whose management popover is open (null = closed). We
   // derive the live account from `staff` so edits (disable, delete…) reflect
   // immediately and a deleted account closes the sheet.
@@ -189,36 +159,40 @@ function AdminScreen({ actor }: { actor: Actor }) {
   const flaggedCount = alerts?.length ?? 0;
   const manageAccount = staff?.find((a) => a.id === manageId) ?? null;
 
-  const confirmEdit = async () => {
-    if (!edit) return;
+  // "Sign out all devices" — PIN-gated via StepUp (PIN only, no value).
+  const confirmRevokeAll = async () => {
+    if (edit?.kind !== 'revokeAll') return;
     try {
-      if (edit.kind === 'pointsPerReward' || edit.kind === 'maxPointsPerTransaction') {
-        if (!config) return;
-        const next = window.prompt(
-          edit.kind === 'pointsPerReward'
-            ? 'Reward earned at how many coffees?'
-            : 'Most coffees per scan?',
-          String(config[edit.kind]),
-        );
-        const value = next == null ? NaN : Number(next.trim());
-        if (!Number.isFinite(value) || value < 1) {
-          setEdit(null);
-          toast.show('That number didn’t look right. No change made.');
-          return;
-        }
-        const saved = await services.config.update(actor, { [edit.kind]: value });
-        setConfig(saved);
-        toast.show('Program updated.');
-      } else if (edit.kind === 'revokeAll') {
-        const count = await services.staff.revokeAllSessions(actor);
-        toast.show(`Signed out all devices (epoch ${count}).`);
-      }
+      const count = await services.staff.revokeAllSessions(actor);
+      toast.show(`Signed out all devices (epoch ${count}).`);
     } catch {
       toast.show('Couldn’t make that change. Try again.');
     } finally {
       setEdit(null);
     }
   };
+
+  // Program config save — value + PIN are collected in-app by ProgramEdit (no
+  // more window.prompt, which mobile Safari suppressed); this just persists it.
+  const saveProgram = async (value: number) => {
+    if (edit?.kind !== 'pointsPerReward' && edit?.kind !== 'maxPointsPerTransaction') return;
+    try {
+      const saved = await services.config.update(actor, { [edit.kind]: value });
+      setConfig(saved);
+      toast.show('Program updated.');
+    } catch {
+      toast.show('Couldn’t make that change. Try again.');
+    } finally {
+      setEdit(null);
+    }
+  };
+
+  const isProgramEdit =
+    edit?.kind === 'pointsPerReward' || edit?.kind === 'maxPointsPerTransaction';
+  const programEditCopy =
+    edit?.kind === 'pointsPerReward'
+      ? { title: 'Reward threshold', fieldLabel: 'Reward earned at how many coffees?' }
+      : { title: 'Max coffees per scan', fieldLabel: 'Most coffees per scan?' };
 
   const resetCreateForm = () => {
     setNewName('');
@@ -261,24 +235,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
     }
   };
 
-  const stepUpCopy = (() => {
-    switch (edit?.kind) {
-      case 'pointsPerReward':
-      case 'maxPointsPerTransaction':
-        return {
-          title: 'Confirm program change',
-          message: 'Re-enter your PIN to update the loyalty program.',
-        };
-      case 'revokeAll':
-        return {
-          title: 'Sign out all devices',
-          message: 'Re-enter your PIN to revoke every trusted session.',
-        };
-      default:
-        return { title: 'Confirm it’s you', message: 'Re-enter your PIN to make this change.' };
-    }
-  })();
-
   const actorName = (entry: AuditLogEntry): string => {
     if (entry.actorRole === 'system') return 'System';
     return names[entry.actorId] ?? 'Unknown staff';
@@ -291,22 +247,36 @@ function AdminScreen({ actor }: { actor: Actor }) {
           <GestureLogo>
             <LogoMark size="sm" />
           </GestureLogo>
+          <Button
+            variant="forest"
+            className="admin-tocounter"
+            onClick={() => navigate(ROUTES.staff)}
+          >
+            Go to counter
+          </Button>
         </div>
 
         <Eyebrow>Ckyka rewards · admin</Eyebrow>
         <Title style={{ marginBottom: 14 }}>This week</Title>
 
         <div className="stats">
-          <Stat n={stats ? stats.activeCustomers : '—'} label="Active members" delta="all time" />
+          <Stat
+            n={stats ? stats.activeCustomers : '—'}
+            label="Active members"
+            delta="tap for trend"
+            onClick={() => setDetailMetric('members')}
+          />
           <Stat
             n={coffeesToday ?? '—'}
             label="Coffees today"
-            delta="credits logged today"
+            delta="tap for trend"
+            onClick={() => setDetailMetric('coffees')}
           />
           <Stat
             n={stats ? stats.rewardsRedeemed : '—'}
             label="Rewards redeemed"
-            delta="all time"
+            delta="tap for trend"
+            onClick={() => setDetailMetric('rewards')}
           />
           <Stat n={flaggedCount} label="Flagged actions" delta="needs a look" />
 
@@ -405,9 +375,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
         </Feed>
 
         <div className="admin-footer">
-          <Button variant="forest" onClick={() => navigate(ROUTES.staff)}>
-            Go to counter (scan)
-          </Button>
           <Button
             variant="ghost"
             className="admin-signout"
@@ -421,6 +388,12 @@ function AdminScreen({ actor }: { actor: Actor }) {
         </div>
       </div>
 
+      <StatDetail
+        metric={detailMetric}
+        names={names}
+        onClose={() => setDetailMetric(null)}
+      />
+
       <AccountSheet
         account={manageAccount}
         actor={actor}
@@ -429,11 +402,20 @@ function AdminScreen({ actor }: { actor: Actor }) {
       />
 
       <StepUp
-        open={edit !== null}
+        open={edit?.kind === 'revokeAll'}
         onClose={() => setEdit(null)}
-        onConfirm={confirmEdit}
-        title={stepUpCopy.title}
-        message={stepUpCopy.message}
+        onConfirm={confirmRevokeAll}
+        title="Sign out all devices"
+        message="Re-enter your PIN to revoke every trusted session."
+      />
+
+      <ProgramEdit
+        open={isProgramEdit}
+        onClose={() => setEdit(null)}
+        title={programEditCopy.title}
+        fieldLabel={programEditCopy.fieldLabel}
+        current={config && isProgramEdit ? config[(edit as { kind: 'pointsPerReward' | 'maxPointsPerTransaction' }).kind] : 1}
+        onConfirm={saveProgram}
       />
 
       <Sheet open={createOpen} onClose={() => setCreateOpen(false)} label="Add a profile">

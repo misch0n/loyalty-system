@@ -2,9 +2,17 @@
    alongside their _parts components. */
 .screen.admin .admin-head {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   color: var(--forest-700);
-  margin-bottom: 6px;
+  margin-bottom: 10px;
+}
+/* Quick counter access pinned to the top of the admin screen. */
+.screen.admin .admin-tocounter {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 9px 18px;
+  font-size: 13px;
 }
 .screen.admin .admin-empty {
   font-size: 12.5px;
