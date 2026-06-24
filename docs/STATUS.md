@@ -275,6 +275,14 @@ unit tests cannot.
   but the **production de-coupling itself is still deferred**; the 5-step checklist
   above stands and is revisited when we begin server testing.
   See divergences e, f for the prototype-only rationale.
+- **Custom map styling deferred to a Maps JS migration (planned).** The Find-us
+  map uses the keyless `output=embed` iframe (roadmap base + a warm CSS filter +
+  card-style frame). Feature-filtering (show only street names + bus/transit
+  stops) and a custom **loyalty-token pin** aren't possible with the keyless
+  embed — they need the **Google Maps JavaScript API** (a referrer-restricted key
+  + a `styles` array + a custom marker rendering the `LogoMark`). Decision
+  (2026-06-24): keep the keyless embed for now; do the custom style + token pin
+  when we migrate to Maps JS.
 - **iOS home-screen `localStorage` durability (under investigation).** On a
   device that "Add to Home Screen"s the app, recognition (the customer token in
   `localStorage`) appears to not survive a reload, while a normal Safari tab keeps
