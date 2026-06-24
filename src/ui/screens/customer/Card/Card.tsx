@@ -20,7 +20,6 @@ import { Button } from '../../../components/Button/Button';
 import { LoyaltyCard } from '../../../components/LoyaltyCard/LoyaltyCard';
 import { ContextBanner } from '../../../components/ContextBanner/ContextBanner';
 import { FindUs } from '../../../components/FindUs/FindUs';
-import { useContinuityTheme } from '../../../app/useContinuityTheme';
 import { formatShortCode } from '../../../../domain/tokens';
 import { LogoMark } from '../../../components/Logo/Logo';
 import { GestureLogo } from '../../../app/LogoGestures';
@@ -33,12 +32,6 @@ import { CardMenu } from '../CardMenu/CardMenu';
 import './Card.css';
 
 type Phase = 'loading' | 'ready' | 'missing';
-
-/** Short human code shown beside the QR, e.g. "CKY · 5YUrTHtx". */
-// Continuity colours: the card background bottoms → the cream Find-us surface.
-const SAGE_BOTTOM = '#dfe7c4'; // bg-sage (reward ready)
-const BLUSH_BOTTOM = '#f1ccd5'; // bg-blush (collecting)
-const FINDUS_CREAM = '#f8f3e8';
 
 export function Card() {
   const { token: routeToken } = useParams<{ token: string }>();
@@ -101,12 +94,6 @@ export function Card() {
     };
   }, [routeToken, loyalty, dataVersion]);
 
-  // Continuity scroll: tint the iOS toolbar to the card's colour, switching to
-  // cream once Find-us scrolls into view. Derived from the (possibly still
-  // loading) state so the hook stays unconditional, before the early returns.
-  const activeColor = state?.rewardAvailable ? SAGE_BOTTOM : BLUSH_BOTTOM;
-  const findUsRef = useContinuityTheme<HTMLDivElement>(activeColor, FINDUS_CREAM);
-
   if (!routeToken || phase === 'loading') {
     return (
       <div className="screen bg-blush" aria-busy="true">
@@ -149,7 +136,7 @@ export function Card() {
 
   return (
     <div className={`screen ${rewardAvailable ? 'bg-sage' : 'bg-blush'}`}>
-      <div className={`screen-pad card-main ${rewardAvailable ? 'bg-sage' : 'bg-blush'}`}>
+      <div className="screen-pad card-main">
         <div className="card-topline">
           <Eyebrow className="center card-eyebrow">Your Ckyka card</Eyebrow>
           <GestureLogo className="card-gesture">
@@ -197,7 +184,7 @@ export function Card() {
         <div className="card-scroll-hint">scroll for hours &amp; location ↓</div>
       </div>
 
-      <FindUs ref={findUsRef} from={activeColor} />
+      <FindUs />
 
       <EnlargedQr
         open={enlarged}
