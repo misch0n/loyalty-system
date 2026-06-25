@@ -6,13 +6,36 @@
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 >
 > **▶ Active initiative:** the rewards-as-objects rework (Appendices C+D + multi-reward) is
-> in progress — Phases 0–4 are done; **Phase 5 (scan parser + staff Scan UI) is next**.
+> in progress — Phases 0–5 are done; **Phase 6 (customer card UI) is next**.
 > Phase-by-phase plan + resume protocol in [`REWARDS-PLAN.md`](REWARDS-PLAN.md), the
 > reasoning behind every decision in [`REWARDS-DECISIONS.md`](REWARDS-DECISIONS.md).
 > Maintainer preferences, assistant conventions, and iOS/deploy/IndexedDB gotchas are in
 > [`COLLAB-NOTES.md`](COLLAB-NOTES.md). New session continuing that work: start from those files.
 
-**Last updated:** 2026-06-25 (**Rewards-as-objects — Phase 4 (sync / RPC allow-list).** Opened the
+**Last updated:** 2026-06-25 (**Rewards-as-objects — Phase 5 (scan parser + staff Scan UI).** Reworked
+the staff counter onto the unified rewards-as-objects commit (REWARDS-PLAN Phase 5). New **`parseScan`**
+(`qr/encode.ts`) collapses every scanned code into one uniform shape
+`{kind:'card'|'reward', customerToken, rewardTokens[], source:'a'|'w'}`: a card QR
+(`…/#/c/<token>?s=a|w`), a composite reward QR (`…/#/r?ids=<tok,…>&c=<token>&s=a`, 1..N reward tokens =
+a 1-element-or-more composite), and — backward-compatibly so old baked wallet passes never hard-fail —
+legacy `…/#/status/<token>` URLs and bare tokens (→ card, source `'a'`). New `cardScanPayload` /
+`rewardScanPayload` builders emit those shapes (used by the card/wallet QR in Phases 6–7);
+`ui/app/routes.ts` documents the two **scan-payload-only** paths (`SCAN_PAYLOADS`) — deliberately NOT
+mounted as react-router routes (`/c` and `/r` are staff-scan URLs, never customer-facing). The **staff
+Scan screen** (`ui/screens/staff/Scan/`) drops the old two-call accrue/redeem/reverse flow for a single
+**unified counter panel**: a points slider (now `min=0` so redeem-only is valid) **and** a reward
+checklist built from the customer's unspent rewards and **pre-checked from the scanned reward tokens**
+(scanned tokens that no longer match an unspent reward surface as "already used"). One **`loyalty.commit`**
+call (accrue + mint-on-cross + redeem-N, atomic + idempotent — a fresh `idempotencyKey` per attempt)
+replaces the separate buttons; the success result's `state` refreshes the card in place, and an
+`over_cap` rejection shows the per-scan-limit error. A new **committed** sub-state shows what happened
+(added · redeemed · minted) with a **5-second Undo** affordance (`loyalty.undo` → reverse points, void
+fresh mint, re-mint a replacement per spent reward) before "Scan next". State resolves via
+`getStateByToken`/`getStateByShortCode` (token→id) → `getState(id)` for the reward-aware view. **+8 tests**
+(parseScan card/reward/composite/legacy/source matrix; Scan resolve + slider-tracked commit, reward
+pre-check + redeem, Undo affordance, over_cap error) — **430 Vitest tests**, tsc + build all green. The
+Phase-8 docs pass will record the new scan-URL/reward-QR formats and the undo model as acceptance rows +
+any divergences. Prior — **Rewards-as-objects — Phase 4 (sync / RPC allow-list).** Opened the
 unified-commit contract over the prototype device-pairing seam (REWARDS-PLAN Phase 4). The sync
 allow-list (`adapters/sync/storeMethods.ts`) — the single source of truth both `PeerClientStore`
 (client proxy) and `StoreServer` (host dispatch) read from — gains **`commitCounterTransaction`**,

@@ -33,6 +33,13 @@ import type { Actor } from './types';
 export type { CustomerState } from '../domain/models';
 
 /**
+ * Re-exported so UI/screens consume the unified-commit result shape from the
+ * service layer (never reaching into `ports/`), mirroring the `CustomerState`
+ * re-export above.
+ */
+export type { CommitResult } from '../ports/DataStore';
+
+/**
  * What the counter submits for the unified commit (rewards-as-objects,
  * REWARDS-PLAN §3.3). The service stamps the `staffId` from the actor; the
  * caller supplies the customer, the points to add, the reward ids to redeem,

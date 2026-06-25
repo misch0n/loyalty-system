@@ -1,17 +1,19 @@
 /**
  * Staff scan workflow (Ckyka view 10) — one screen, sequenced states (not
- * separate routes):
- *   scanning  — live camera inside the `<ScanView>` frame; decode → resolve
- *   resolved  — camera collapses; `<CustChip>` confirms WHO, then the credit
- *               controls (add slider, redeem gated ≥ threshold, undo, scan next)
- *   notfound  — unknown code → staff-registration escape hatch
+ * separate routes), reworked for rewards-as-objects (REWARDS-PLAN Phase 5):
+ *   scanning   — live camera inside the `<ScanView>` frame; decode → resolve
+ *   resolved   — camera collapses; `<CustChip>` confirms WHO, then the UNIFIED
+ *                counter: a points slider AND a reward checklist (pre-checked
+ *                from the scan), committed together in ONE atomic call
+ *   committed  — confirmation + a 5-second Undo affordance, then "Scan next"
+ *   notfound   — unknown code → "have them join on their phone" hint
  *
- * Every credit/redeem/undo is staff-initiated, passes the authenticated `actor`
- * to the loyalty service, and stays append-only (undo is a `reverse`, never a
- * destructive edit). After a write we re-derive from the ledger, refresh the
- * chip, toast a confirmation, and best-effort push a wallet update (no-op on the
- * prototype Free tier). UI → services only; reuses the old ScanWorkflow wiring,
- * restyled to the reference markup. Guarded like the panel via `useStaffGuard`.
+ * Every commit/undo is staff-initiated, passes the authenticated `actor`, and is
+ * append-only (undo reverses points, voids a fresh mint, and re-mints a
+ * replacement per spent reward — never a destructive edit). A scan resolves a
+ * uniform `{customerToken, rewardTokens, source}` (`parseScan`); the customer's
+ * unspent rewards drive the checklist and any scanned reward token that no longer
+ * matches an unspent reward is surfaced as "already used". UI → services only.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -24,19 +26,36 @@ import { useServices } from '../../../common/ServicesContext';
 import { TopBar, ScanView, CustChip, StateLabel } from '../_parts';
 import { useStaffGuard } from '../useStaffGuard';
 import { startScanner, type ScannerHandle } from '../../../../qr/scan';
-import { tokenFromCardScan } from '../../../../qr/encode';
-import { normalizeShortCode } from '../../../../domain/tokens';
-import type { CustomerState } from '../../../../services/LoyaltyService';
+import { parseScan, type ScanResult } from '../../../../qr/encode';
+import { generateId, normalizeShortCode, formatShortCode } from '../../../../domain/tokens';
+import type { CustomerState, CommitResult } from '../../../../services/LoyaltyService';
 import './Scan.css';
 
 const SCAN_REGION_ID = 'staff-scan-region';
 /** Hard ceiling on the multi-add slider regardless of config (Ckyka view 10). */
 const SLIDER_HARD_CAP = 3;
+/** How long the Undo affordance stays live after a commit (REWARDS-PLAN §2). */
+const UNDO_WINDOW_MS = 5000;
 
-type Phase = 'scanning' | 'resolved' | 'notfound';
+type Phase = 'scanning' | 'resolved' | 'committed' | 'notfound';
 
-function coffeeLabel(n: number): string {
-  return `Add ${n} ${n === 1 ? 'coffee' : 'coffees'}`;
+/** A successful commit kept around for the confirmation + undo step. */
+interface Committed {
+  idempotencyKey: string;
+  pointsAdded: number;
+  result: Extract<CommitResult, { ok: true }>;
+}
+
+function plural(n: number, one: string, many: string): string {
+  return n === 1 ? one : many;
+}
+
+/** Context-aware label for the single commit button. */
+function commitLabel(points: number, redeemCount: number): string {
+  const add = points > 0 ? `Add ${points} ${plural(points, 'coffee', 'coffees')}` : '';
+  const redeem = redeemCount > 0 ? `Redeem ${redeemCount}` : '';
+  if (add && redeem) return `${add} · ${redeem}`;
+  return add || redeem || 'Add coffees';
 }
 
 export function Scan(): JSX.Element {
@@ -48,14 +67,20 @@ export function Scan(): JSX.Element {
 
   const [phase, setPhase] = useState<Phase>('scanning');
   const [state, setState] = useState<CustomerState | null>(null);
+  const [scan, setScan] = useState<ScanResult | null>(null);
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [invalidRewards, setInvalidRewards] = useState<string[]>([]);
   const [points, setPoints] = useState(1);
   const [busy, setBusy] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [manual, setManual] = useState('');
+  const [committed, setCommitted] = useState<Committed | null>(null);
+  const [canUndo, setCanUndo] = useState(false);
 
   const scannerRef = useRef<ScannerHandle | null>(null);
   const resolvingRef = useRef(false);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stopCamera = useCallback(async () => {
     const handle = scannerRef.current;
@@ -63,31 +88,54 @@ export function Scan(): JSX.Element {
     if (handle) await handle.stop();
   }, []);
 
-  // ── resolve a scanned/typed code ────────────────────────────────────────
+  const clearUndoTimer = useCallback(() => {
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+  }, []);
+
+  /** Move into the resolved state for a freshly-fetched customer + scan. */
+  const enterResolved = useCallback((next: CustomerState, parsed: ScanResult) => {
+    const unspent = next.rewards ?? [];
+    const scannedTokens = new Set(parsed.rewardTokens);
+    const ownedTokens = new Set(unspent.map((r) => r.token));
+    const preChecked: Record<string, boolean> = {};
+    for (const reward of unspent) preChecked[reward.id] = scannedTokens.has(reward.token);
+    setState(next);
+    setScan(parsed);
+    setChecked(preChecked);
+    setInvalidRewards(parsed.rewardTokens.filter((t) => !ownedTokens.has(t)));
+    // A reward scan is redeem-focused (default 0 points); a plain card scan
+    // defaults to one coffee for the current purchase.
+    setPoints(parsed.kind === 'reward' && parsed.rewardTokens.length > 0 ? 0 : 1);
+    setPhase('resolved');
+  }, []);
+
+  // ── resolve a scanned code (card or reward QR) ──────────────────────────
   const resolve = useCallback(
     async (text: string) => {
       if (resolvingRef.current) return;
       resolvingRef.current = true;
       recordActivity();
-      const token = tokenFromCardScan(text);
+      const parsed = parseScan(text);
       await stopCamera();
       setActionError(null);
       try {
-        const next = await services.loyalty.getStateByToken(token);
-        if (next) {
-          setState(next);
-          setPoints(1);
-          setPhase('resolved');
-        } else {
+        const found = await services.loyalty.getStateByToken(parsed.customerToken);
+        if (!found) {
           setPhase('notfound');
+          return;
         }
+        const fresh = await services.loyalty.getState(found.customer.id);
+        enterResolved(fresh, parsed);
       } catch {
         setPhase('notfound');
       } finally {
         resolvingRef.current = false;
       }
     },
-    [services, stopCamera, recordActivity],
+    [services, stopCamera, recordActivity, enterResolved],
   );
 
   // ── resolve a typed SHORT CODE (camera-fail fallback) ───────────────────
@@ -100,21 +148,26 @@ export function Scan(): JSX.Element {
       await stopCamera();
       setActionError(null);
       try {
-        const next = await services.loyalty.getStateByShortCode(code);
-        if (next) {
-          setState(next);
-          setPoints(1);
-          setPhase('resolved');
-        } else {
+        const found = await services.loyalty.getStateByShortCode(code);
+        if (!found) {
           setPhase('notfound');
+          return;
         }
+        const fresh = await services.loyalty.getState(found.customer.id);
+        // Manual entry carries no reward tokens — the staffer ticks the list.
+        enterResolved(fresh, {
+          kind: 'card',
+          customerToken: found.customer.token,
+          rewardTokens: [],
+          source: 'a',
+        });
       } catch {
         setPhase('notfound');
       } finally {
         resolvingRef.current = false;
       }
     },
-    [services, stopCamera, recordActivity],
+    [services, stopCamera, recordActivity, enterResolved],
   );
 
   // ── camera lifecycle (only while scanning) ──────────────────────────────
@@ -144,8 +197,9 @@ export function Scan(): JSX.Element {
     };
   }, [phase, resolve, stopCamera]);
 
-  // Stop the camera if the screen unmounts mid-scan.
+  // Stop the camera / cancel the undo timer if the screen unmounts.
   useEffect(() => () => void stopCamera(), [stopCamera]);
+  useEffect(() => () => clearUndoTimer(), [clearUndoTimer]);
 
   if (guard.redirect) return guard.redirect;
   const actor = guard.actor;
@@ -155,20 +209,35 @@ export function Scan(): JSX.Element {
   const threshold = config?.pointsPerReward ?? 10;
   const balance = state?.balance ?? 0;
   const filled = state?.progress.current ?? 0;
-  const rewardReady = state?.rewardAvailable ?? false;
+  const rewards = state?.rewards ?? [];
   const sliderMax = Math.min(config?.maxPointsPerTransaction ?? SLIDER_HARD_CAP, SLIDER_HARD_CAP);
   const customerName = state?.customer.displayName?.trim() || 'Member';
-  const toGo = Math.max(0, threshold - balance);
+  const redeemIds = rewards.filter((r) => checked[r.id]).map((r) => r.id);
+  const redeemCount = redeemIds.length;
   const addCount = Math.min(points, sliderMax);
+  const nothingToCommit = addCount === 0 && redeemCount === 0;
 
-  /** Most recent non-reversal entry (the candidate for "undo last entry"). */
-  const lastEntry = state
-    ? [...state.transactions].reverse().find((t) => t.type !== 'reversal')
-    : undefined;
+  // ── best-effort wallet push (never blocks the UI) ───────────────────────
+  const pushWallet = (next: CustomerState) => {
+    void services.wallet
+      .pushUpdate(next.customer.id, {
+        balance: next.balance,
+        rewardAvailable: (next.rewards ?? []).length > 0,
+      })
+      .catch(() => {
+        // Free-tier prototype: no-op. Web card remains the source of truth.
+      });
+  };
 
   const scanNext = () => {
     recordActivity();
+    clearUndoTimer();
     setState(null);
+    setScan(null);
+    setChecked({});
+    setInvalidRewards([]);
+    setCommitted(null);
+    setCanUndo(false);
     setActionError(null);
     setManual('');
     setPhase('scanning');
@@ -179,99 +248,74 @@ export function Scan(): JSX.Element {
     if (manual.trim()) void resolveCode(manual);
   };
 
-  // ── best-effort wallet push (never blocks the UI) ───────────────────────
-  const pushWallet = (
-    customerId: string,
-    derived: { balance: number; rewardAvailable: boolean },
-  ) => {
-    void services.wallet.pushUpdate(customerId, derived).catch(() => {
-      // Free-tier prototype: no-op. Web card remains the source of truth.
-    });
+  const toggleReward = (rewardId: string) => {
+    recordActivity();
+    setChecked((prev) => ({ ...prev, [rewardId]: !prev[rewardId] }));
   };
 
-  const refresh = async (customerId: string): Promise<CustomerState | null> => {
-    const next = await services.loyalty.getStateById(customerId);
-    if (next) setState(next);
-    return next;
-  };
-
-  // ── actions (all staff-initiated, pass the actor) ───────────────────────
-  const onAdd = async () => {
-    if (!state || busy) return;
+  // ── the single unified commit (accrue + mint + redeem-N) ────────────────
+  const onCommit = async () => {
+    if (!state || busy || nothingToCommit) return;
     setBusy(true);
     setActionError(null);
     recordActivity();
+    const idempotencyKey = generateId();
     try {
-      const added = addCount;
-      await services.loyalty.accrue(actor, state.customer.id, added);
-      const next = await refresh(state.customer.id);
-      if (next) {
-        pushWallet(next.customer.id, {
-          balance: next.balance,
-          rewardAvailable: next.rewardAvailable,
-        });
-        const name = next.customer.displayName?.trim() || 'Member';
-        toast.show(
-          `Added ${added} · ${name} now at ${next.progress.current} / ${next.progress.threshold}`,
-        );
-      }
-      setPoints(1);
-    } catch {
-      setActionError('Could not add coffees. Check the connection and try again.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onRedeem = async () => {
-    if (!state || busy || !rewardReady) return;
-    setBusy(true);
-    setActionError(null);
-    recordActivity();
-    try {
-      const result = await services.loyalty.redeem(actor, state.customer.id);
+      const result = await services.loyalty.commit(actor, {
+        customerId: state.customer.id,
+        pointsDelta: addCount,
+        redeemRewardIds: redeemIds,
+        idempotencyKey,
+        source: scan?.source ?? 'a',
+      });
       if (!result.ok) {
         setActionError(
-          result.reason ?? 'Could not redeem — they may not have enough coffees yet.',
+          result.error === 'over_cap'
+            ? `That’s over the ${sliderMax}-coffee limit for one scan.`
+            : 'That card could not be found. Scan again.',
         );
-        await refresh(state.customer.id);
         return;
       }
-      const next = await refresh(state.customer.id);
-      if (next) {
-        pushWallet(next.customer.id, {
-          balance: next.balance,
-          rewardAvailable: next.rewardAvailable,
-        });
-        const name = next.customer.displayName?.trim() || 'Member';
-        toast.show(
-          `Reward redeemed · ${name} now at ${next.progress.current} / ${next.progress.threshold}`,
-        );
-      }
+      setState(result.state);
+      pushWallet(result.state);
+      setCommitted({ idempotencyKey, pointsAdded: addCount, result });
+      setCanUndo(true);
+      clearUndoTimer();
+      undoTimerRef.current = setTimeout(() => setCanUndo(false), UNDO_WINDOW_MS);
+      setPhase('committed');
+      toast.show(commitConfirmation(customerName, addCount, result));
     } catch {
-      setActionError('Could not redeem. Check the connection and try again.');
+      setActionError('Could not save. Check the connection and try again.');
     } finally {
       setBusy(false);
     }
   };
 
+  // ── undo the last commit within the 5-second window ─────────────────────
   const onUndo = async () => {
-    if (!state || busy || !lastEntry) return;
+    if (!committed || busy) return;
     setBusy(true);
     setActionError(null);
     recordActivity();
     try {
-      await services.loyalty.reverse(actor, state.customer.id, lastEntry.id);
-      const next = await refresh(state.customer.id);
-      if (next) {
-        pushWallet(next.customer.id, {
-          balance: next.balance,
-          rewardAvailable: next.rewardAvailable,
-        });
-        toast.show('Last entry undone');
+      const result = await services.loyalty.undo(actor, committed.idempotencyKey);
+      if (!result.ok) {
+        setActionError('Could not undo that — it may already have been undone.');
+        return;
       }
+      clearUndoTimer();
+      setCanUndo(false);
+      pushWallet(result.state);
+      // Drop back to the resolved card so the staffer can re-commit correctly.
+      enterResolved(result.state, scan ?? {
+        kind: 'card',
+        customerToken: result.state.customer.token,
+        rewardTokens: [],
+        source: 'a',
+      });
+      toast.show(`Undone · ${customerName} back to ${result.state.progress.current} / ${threshold}`);
     } catch {
-      setActionError('Could not undo that entry. It may have already been reversed.');
+      setActionError('Could not undo. Check the connection and try again.');
     } finally {
       setBusy(false);
     }
@@ -279,6 +323,7 @@ export function Scan(): JSX.Element {
 
   const backToPanel = () => {
     recordActivity();
+    clearUndoTimer();
     void stopCamera();
     navigate(ROUTES.staff);
   };
@@ -351,50 +396,57 @@ export function Scan(): JSX.Element {
         {phase === 'resolved' && state && (
           <>
             <StateLabel>state · resolved</StateLabel>
-            <CustChip
-              name={customerName}
-              current={filled}
-              total={threshold}
-              status="scanned"
-            />
+            <CustChip name={customerName} current={filled} total={threshold} status="scanned" />
 
             <div className="staff-scan__gap" aria-hidden="true" />
 
             <PointsSlider
               value={points}
               onChange={setPoints}
+              min={0}
               max={sliderMax}
               label="Coffees to add"
             />
 
+            {rewards.length > 0 && (
+              <fieldset className="staff-scan__rewards">
+                <legend>Free coffees to redeem</legend>
+                {rewards.map((reward) => (
+                  <label key={reward.id} className="staff-scan__reward">
+                    <input
+                      type="checkbox"
+                      checked={!!checked[reward.id]}
+                      onChange={() => toggleReward(reward.id)}
+                    />
+                    <span className="staff-scan__reward-desc">{reward.descriptionSnapshot}</span>
+                    <span className="staff-scan__reward-code">{formatShortCode(reward.shortCode)}</span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
+
+            {invalidRewards.length > 0 && (
+              <p className="staff-scan__hint">
+                {invalidRewards.length} scanned{' '}
+                {plural(invalidRewards.length, 'reward was', 'rewards were')} already used.
+              </p>
+            )}
+
             {actionError && <p className="staff-scan__error">{actionError}</p>}
 
             <div className="stack-sm staff-scan__actions">
-              <Button variant="forest" onClick={() => void onAdd()} disabled={busy}>
-                {coffeeLabel(addCount)}
-              </Button>
-
               <Button
-                variant="line"
-                onClick={() => void onRedeem()}
-                disabled={busy || !rewardReady}
+                variant="forest"
+                onClick={() => void onCommit()}
+                disabled={busy || nothingToCommit}
               >
-                Redeem reward
+                {commitLabel(addCount, redeemCount)}
               </Button>
-              {!rewardReady && (
+              {rewards.length === 0 && (
                 <p className="elig">
-                  Unlocks at {threshold} cups — {toGo} to go.
+                  No free coffees yet — {Math.max(0, threshold - balance)} to go.
                 </p>
               )}
-
-              <Button
-                variant="ghost"
-                className="staff-scan__ghost"
-                onClick={() => void onUndo()}
-                disabled={busy || !lastEntry}
-              >
-                Undo last entry
-              </Button>
               <Button
                 variant="ghost"
                 className="staff-scan__ghost"
@@ -406,7 +458,58 @@ export function Scan(): JSX.Element {
             </div>
           </>
         )}
+
+        {phase === 'committed' && committed && (
+          <>
+            <StateLabel>state · saved</StateLabel>
+            <CustChip
+              name={customerName}
+              current={filled}
+              total={threshold}
+              status="saved"
+            />
+            <p className="staff-scan__saved">
+              {commitConfirmation(customerName, committed.pointsAdded, committed.result)}
+            </p>
+            {committed.result.rejected.length > 0 && (
+              <p className="staff-scan__hint">
+                {committed.result.rejected.length}{' '}
+                {plural(committed.result.rejected.length, 'reward was', 'rewards were')} already
+                used and skipped.
+              </p>
+            )}
+
+            {actionError && <p className="staff-scan__error">{actionError}</p>}
+
+            <div className="stack-sm staff-scan__actions">
+              {canUndo && (
+                <Button variant="line" onClick={() => void onUndo()} disabled={busy}>
+                  Undo
+                </Button>
+              )}
+              <Button variant="forest" onClick={scanNext} disabled={busy}>
+                Scan next
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
+}
+
+/** One-line confirmation of what a commit did (points / redeemed / minted). */
+function commitConfirmation(
+  name: string,
+  pointsAdded: number,
+  result: Extract<CommitResult, { ok: true }>,
+): string {
+  const parts: string[] = [];
+  if (pointsAdded > 0) parts.push(`Added ${pointsAdded}`);
+  if (result.redeemed.length > 0) parts.push(`redeemed ${result.redeemed.length}`);
+  if (result.minted.length > 0) {
+    parts.push(`${result.minted.length} new ${plural(result.minted.length, 'reward', 'rewards')}`);
+  }
+  const summary = parts.length > 0 ? parts.join(' · ') : 'No change';
+  return `${name}: ${summary} · now ${result.state.progress.current} / ${result.state.progress.threshold}`;
 }

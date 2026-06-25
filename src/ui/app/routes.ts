@@ -35,6 +35,21 @@ export const ROUTES = {
 
 export type RouteKey = keyof typeof ROUTES;
 
+/**
+ * Scan-payload URL shapes (rewards-as-objects, REWARDS-PLAN §3.5). These are the
+ * paths baked into the **card / reward QR** and parsed by `qr/encode.ts`
+ * `parseScan` — they are **staff-scan URLs only and are deliberately NOT mounted
+ * as react-router routes** (a customer is never navigated to them). Built by
+ * `cardScanPayload` / `rewardScanPayload`; documented here so the formats live
+ * beside the app's other routes.
+ */
+export const SCAN_PAYLOADS = {
+  /** Card QR: `…/#/c/<customerToken>?s=a|w`. */
+  card: '/c/:token',
+  /** Reward QR: `…/#/r?ids=<rewardToken[,rewardToken…]>&c=<customerToken>&s=a`. */
+  reward: '/r',
+} as const;
+
 /** Concrete card path for a token (§4.4). */
 export function cardPath(token: string): string {
   return `/card/${encodeURIComponent(token)}`;

@@ -29,6 +29,98 @@ export function tokenFromCardScan(text: string): string {
 }
 
 /**
+ * Scan source: `'a'` = app/web card camera, `'w'` = a wallet pass. Recorded on
+ * the audit entry; drives nothing but validation/analytics (REWARDS-PLAN §3.5).
+ */
+export type ScanSource = 'a' | 'w';
+
+/**
+ * What a single staff scan resolves to (rewards-as-objects, REWARDS-PLAN §3.5).
+ * A card scan carries the customer token only; a reward scan additionally
+ * carries 1..N reward tokens (a single reward is just a 1-element composite).
+ */
+export interface ScanResult {
+  kind: 'card' | 'reward';
+  customerToken: string;
+  /** Reward tokens to pre-attach for redemption (empty for a plain card scan). */
+  rewardTokens: string[];
+  source: ScanSource;
+}
+
+/**
+ * Build the **card** scan URL embedded in the card/wallet QR:
+ * `…/#/c/<customerToken>?s=a|w`. Staff-scan only — never a customer route.
+ */
+export function cardScanPayload(token: string, source: ScanSource = 'a'): string {
+  return appUrl(`/c/${encodeURIComponent(token)}?s=${source}`);
+}
+
+/**
+ * Build the **reward** scan URL embedded in a redeem QR:
+ * `…/#/r?ids=<rewardToken[,rewardToken…]>&c=<customerToken>&s=a`. One QR can
+ * carry 1..10 reward tokens (a single reward is a 1-element composite). Staff-scan
+ * only — never a customer route.
+ */
+export function rewardScanPayload(
+  rewardTokens: string[],
+  customerToken: string,
+  source: ScanSource = 'a',
+): string {
+  const ids = rewardTokens.map(encodeURIComponent).join(',');
+  return appUrl(`/r?ids=${ids}&c=${encodeURIComponent(customerToken)}&s=${source}`);
+}
+
+function asSource(value: string | null): ScanSource {
+  return value === 'w' ? 'w' : 'a';
+}
+
+/**
+ * Parse any scanned code into a uniform {@link ScanResult} (REWARDS-PLAN §3.5).
+ * Handles the two scan-URL shapes plus legacy/bare fallbacks:
+ *  - `…/#/r?ids=<tok,…>&c=<token>&s=a`  → reward (1..N tokens)
+ *  - `…/#/c/<token>?s=a|w`              → card (+source)
+ *  - `…/#/status/<token>` or a bare token → card, source `'a'` (back-compat, so
+ *    old baked wallet passes never hard-fail)
+ */
+export function parseScan(text: string): ScanResult {
+  const raw = text.trim();
+  // Everything after the hash is the in-app route; the base path is irrelevant.
+  const hashIdx = raw.indexOf('#');
+  const route = hashIdx >= 0 ? raw.slice(hashIdx + 1) : raw;
+
+  // reward: /r?ids=<tok,…>&c=<customerToken>&s=a
+  const reward = route.match(/\/r\?(.+)$/);
+  if (reward) {
+    const params = new URLSearchParams(reward[1]);
+    const rewardTokens = (params.get('ids') ?? '')
+      .split(',')
+      .map((t) => decodeURIComponent(t).trim())
+      .filter(Boolean);
+    return {
+      kind: 'reward',
+      customerToken: decodeURIComponent(params.get('c') ?? '').trim(),
+      rewardTokens,
+      source: asSource(params.get('s')),
+    };
+  }
+
+  // card: /c/<customerToken>?s=a|w
+  const card = route.match(/\/c\/([^/?#]+)(?:\?(.*))?$/);
+  if (card) {
+    const params = new URLSearchParams(card[2] ?? '');
+    return {
+      kind: 'card',
+      customerToken: decodeURIComponent(card[1]).trim(),
+      rewardTokens: [],
+      source: asSource(params.get('s')),
+    };
+  }
+
+  // legacy /status/<token> or a bare token → plain card, app source.
+  return { kind: 'card', customerToken: tokenFromCardScan(raw), rewardTokens: [], source: 'a' };
+}
+
+/**
  * The registration QR encodes the full URL the customer's phone opens: the app's
  * base URL + the HashRouter register route carrying the peer id. The phone reads
  * the id from the route and connects back to the staff peer.

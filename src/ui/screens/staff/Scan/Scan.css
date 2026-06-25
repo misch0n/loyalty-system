@@ -37,6 +37,54 @@
   margin: 0;
 }
 
+/* Reward redemption checklist — pre-checked from the scan, ticked manually. */
+.staff-scan__rewards {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 13px;
+  background: #fff;
+}
+.staff-scan__rewards legend {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  padding: 0 6px;
+}
+.staff-scan__reward {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  font-size: 14px;
+  color: var(--ink);
+}
+.staff-scan__reward + .staff-scan__reward {
+  border-top: 1px solid var(--line);
+}
+.staff-scan__reward input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--forest);
+  flex: none;
+}
+.staff-scan__reward-desc {
+  flex: 1;
+}
+.staff-scan__reward-code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.staff-scan__saved {
+  font-size: 13px;
+  color: var(--ink);
+  margin: 12px 0 0;
+}
+
 /* Manual-entry fallback (camera-less demos). Keeps the donor field look. */
 .staff-scan__manual {
   margin-top: 14px;

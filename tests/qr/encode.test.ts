@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   cardPayload,
+  cardScanPayload,
+  rewardScanPayload,
+  parseScan,
   tokenFromCardScan,
   registrationPayload,
   toDataUrl,
@@ -24,6 +27,51 @@ describe('payloads', () => {
     expect(url).toContain('#/register/sess-1');
     expect(url.startsWith('http')).toBe(true);
     expect(url).not.toContain('peer:');
+  });
+});
+
+describe('parseScan (rewards-as-objects)', () => {
+  it('parses a card scan URL with the source flag', () => {
+    const result = parseScan(cardScanPayload('cust-1', 'w'));
+    expect(result).toEqual({
+      kind: 'card',
+      customerToken: 'cust-1',
+      rewardTokens: [],
+      source: 'w',
+    });
+  });
+
+  it('defaults the source to app when absent', () => {
+    expect(parseScan(cardScanPayload('cust-1')).source).toBe('a');
+  });
+
+  it('parses a composite reward scan URL (1..N reward tokens + customer + source)', () => {
+    const result = parseScan(rewardScanPayload(['r1', 'r2', 'r3'], 'cust-9', 'a'));
+    expect(result).toEqual({
+      kind: 'reward',
+      customerToken: 'cust-9',
+      rewardTokens: ['r1', 'r2', 'r3'],
+      source: 'a',
+    });
+  });
+
+  it('parses a single-reward QR as a 1-element composite', () => {
+    expect(parseScan(rewardScanPayload(['only'], 'cust-9')).rewardTokens).toEqual(['only']);
+  });
+
+  it('stays backward-compatible with legacy /status URLs and bare tokens', () => {
+    expect(parseScan(cardPayload('legacy-tok'))).toEqual({
+      kind: 'card',
+      customerToken: 'legacy-tok',
+      rewardTokens: [],
+      source: 'a',
+    });
+    expect(parseScan('  bare-token  ')).toEqual({
+      kind: 'card',
+      customerToken: 'bare-token',
+      rewardTokens: [],
+      source: 'a',
+    });
   });
 });
 
