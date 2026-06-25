@@ -15,6 +15,8 @@ import type {
   AppendAuditInput,
   AppendTransactionInput,
   AuditFilter,
+  CommitResult,
+  CounterTransaction,
   CreateCustomerInput,
   CreateRecoveryCodeInput,
   CreateStaffInput,
@@ -26,8 +28,11 @@ import type {
 import type {
   AuditLogEntry,
   Customer,
+  CustomerState,
   LoyaltyTransaction,
   ProgramConfig,
+  Reward,
+  RewardStatus,
   Snapshot,
   StaffAccount,
 } from '../../domain/models';
@@ -101,6 +106,20 @@ export class ApiStore implements DataStore {
   }
   redeemReward(customerId: string, staffId: string): Promise<RedeemResult> {
     return this.request('POST', `/customers/${customerId}/redeem`, { staffId });
+  }
+
+  commitCounterTransaction(txn: CounterTransaction): Promise<CommitResult> {
+    return this.request('POST', `/customers/${txn.customerId}/commit`, txn);
+  }
+  listRewards(customerId: string, status?: RewardStatus): Promise<Reward[]> {
+    const query = status ? `?status=${status}` : '';
+    return this.request('GET', `/customers/${customerId}/rewards${query}`);
+  }
+  getCustomerState(customerId: string): Promise<CustomerState> {
+    return this.request('GET', `/customers/${customerId}/state`);
+  }
+  undoCommit(idempotencyKey: string): Promise<CommitResult> {
+    return this.request('POST', '/commits/undo', { idempotencyKey });
   }
 
   createRecoveryCode(input: CreateRecoveryCodeInput): Promise<void> {

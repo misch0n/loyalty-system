@@ -7,7 +7,17 @@
 
 export type StaffRole = 'admin' | 'staff';
 export type CustomerStatus = 'active' | 'deleted';
-export type TransactionType = 'accrual' | 'redemption' | 'reversal';
+
+/**
+ * Ledger entry kinds.
+ *
+ * `'reward_issue'` is the rewards-as-objects replacement for the old
+ * `'redemption'`: a minting accrual (−threshold) that spawns a discrete
+ * {@link Reward}. `'redemption'` is RETAINED ONLY TRANSITIONALLY so pre-rework
+ * code keeps compiling — it is removed once the storage rework (REWARDS-PLAN
+ * Phase 2) lands. New code must never emit `'redemption'`.
+ */
+export type TransactionType = 'accrual' | 'reward_issue' | 'reversal' | 'redemption';
 
 /** Single, admin-editable record describing the loyalty program rules. */
 export interface ProgramConfig {
@@ -99,6 +109,80 @@ export interface LoyaltyTransaction {
   note?: string;
   /** Set on `reversal` entries; points at the entry being undone. */
   reversesTransactionId?: string;
+  /** Set on `reward_issue` entries (and their reversal): the {@link Reward} minted/voided. */
+  rewardId?: string;
+}
+
+/**
+ * Lifecycle status of a materialized {@link Reward}. `transfer_pending` is
+ * RESERVED for gifting (deferred — schema-reserved only, see REWARDS-PLAN §6).
+ */
+export type RewardStatus = 'unspent' | 'spent' | 'voided' | 'transfer_pending';
+
+/**
+ * A discrete, countable, ownable reward — the rewards-as-objects model that
+ * replaces the implicit `balance ≥ threshold` boolean.
+ *
+ * This is a MATERIALIZED PROJECTION: a cache for fast reads and a row to lock on
+ * during a commit. The append-only {@link RewardEvent} log is the SOURCE OF TRUTH
+ * for a reward's status — `status` here is derived from those events.
+ */
+export interface Reward {
+  id: string;
+  /** Random, opaque 128-bit token — carried in the reward QR. */
+  token: string;
+  /** Crockford-base32 short code — MANUAL / camera-fail path only. */
+  shortCode: string;
+  ownerId: string;
+  status: RewardStatus;
+  issuedAt: string;
+  /** The `reward_issue` transaction that minted this reward. */
+  sourceTxnId: string;
+  /** `rewardDescription` captured at mint time, so history stays stable. */
+  descriptionSnapshot: string;
+  spentAt?: string;
+  spentByStaffId?: string;
+}
+
+/**
+ * Append-only reward-lifecycle event — the SOURCE OF TRUTH for a reward's status.
+ * Reserved gifting kinds (transfer/pooled) are deferred (REWARDS-PLAN §6).
+ */
+export type RewardEventType = 'reward.issued' | 'reward.redeemed' | 'reward.voided';
+
+export interface RewardEvent {
+  id: string;
+  rewardId: string;
+  type: RewardEventType;
+  customerId: string;
+  staffId?: string;
+  timestamp: string;
+  /** Free-form context, e.g. `{ reason: 'mint_reversed' | 'undo_reissue' }`. Never PII. */
+  details?: Record<string, string>;
+}
+
+/**
+ * Canonical derived read-model for one customer (rewards-as-objects). Defined in
+ * the domain so both the `DataStore` port and `LoyaltyService` can reference it
+ * without inverting the layer dependency; `LoyaltyService` re-exports it.
+ *
+ * TRANSITIONAL (REWARDS-PLAN): `transactions` and `rewardAvailable` are retained
+ * so pre-rework UI/services keep compiling. They are dropped once the service
+ * rework (Phase 3) lands; `rewards` (the unspent-reward list, whose count drives
+ * the card) is the replacement for the `rewardAvailable` boolean.
+ */
+export interface CustomerState {
+  customer: Customer;
+  config: ProgramConfig;
+  /** @deprecated transitional — removed after the service rework (Phase 3). */
+  transactions: LoyaltyTransaction[];
+  /** Settles to 0..threshold−1 once rewards mint on crossing. */
+  balance: number;
+  /** @deprecated transitional — use `rewards` (the unspent count) instead. */
+  rewardAvailable: boolean;
+  /** Unspent rewards the customer owns; the count drives the card. */
+  rewards?: Reward[];
+  progress: { current: number; threshold: number; rewardsAvailable: number };
 }
 
 export type AuditAction =

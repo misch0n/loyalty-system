@@ -4,16 +4,10 @@
  * stored. Staff initiate every credit; redemption is atomic in the store.
  */
 
-import type { Customer, LoyaltyTransaction, ProgramConfig } from '../domain/models';
+import type { Customer, CustomerState, LoyaltyTransaction } from '../domain/models';
 import type { DataStore, RedeemResult } from '../ports/DataStore';
 import type { Mailer } from '../ports/Mailer';
-import {
-  balance,
-  clampAccrual,
-  progress,
-  rewardAvailable,
-  type Progress,
-} from '../domain/loyalty';
+import { balance, clampAccrual, progress, rewardAvailable } from '../domain/loyalty';
 import {
   deriveAlerts,
   alertKey,
@@ -25,14 +19,13 @@ import { appUrl } from '../config/links';
 import type { AuditService } from './AuditService';
 import type { Actor } from './types';
 
-export interface CustomerState {
-  customer: Customer;
-  config: ProgramConfig;
-  transactions: LoyaltyTransaction[];
-  balance: number;
-  rewardAvailable: boolean;
-  progress: Progress;
-}
+/**
+ * Re-exported from the domain so existing `services/`/`ui/` imports
+ * (`import type { CustomerState } from '.../LoyaltyService'`) keep working while
+ * the canonical definition lives in `domain/models.ts` (so the `DataStore` port
+ * can reference it without a layer inversion). See REWARDS-PLAN §3.4.
+ */
+export type { CustomerState } from '../domain/models';
 
 export class LoyaltyService {
   constructor(

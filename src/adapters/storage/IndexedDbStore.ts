@@ -15,6 +15,8 @@ import type {
   AppendAuditInput,
   AppendTransactionInput,
   AuditFilter,
+  CommitResult,
+  CounterTransaction,
   CreateCustomerInput,
   CreateRecoveryCodeInput,
   CreateStaffInput,
@@ -26,8 +28,11 @@ import type {
 import type {
   AuditLogEntry,
   Customer,
+  CustomerState,
   LoyaltyTransaction,
   ProgramConfig,
+  Reward,
+  RewardStatus,
   Snapshot,
   StaffAccount,
 } from '../../domain/models';
@@ -433,6 +438,32 @@ export class IndexedDbStore implements DataStore {
     await tx.done;
 
     return { ok: true, transaction: entry, balance: current + decision.delta };
+  }
+
+  // ── rewards-as-objects (unified commit) ─────────────────────────────────────
+  //
+  // PHASE 0 PLACEHOLDERS. The contract (REWARDS-PLAN §3.3) is declared on the
+  // `DataStore` port now so call sites and the production `ApiStore` can be wired
+  // ahead of the storage rework. These throw until Phase 2 implements the schema
+  // v5 stores + the atomic, idempotent commit. Nothing calls them yet.
+
+  private rewardsNotImplemented(method: string): never {
+    throw new Error(
+      `IndexedDbStore.${method} is not implemented yet — rewards-as-objects lands in REWARDS-PLAN Phase 2.`,
+    );
+  }
+
+  commitCounterTransaction(_txn: CounterTransaction): Promise<CommitResult> {
+    return this.rewardsNotImplemented('commitCounterTransaction');
+  }
+  listRewards(_customerId: string, _status?: RewardStatus): Promise<Reward[]> {
+    return this.rewardsNotImplemented('listRewards');
+  }
+  getCustomerState(_customerId: string): Promise<CustomerState> {
+    return this.rewardsNotImplemented('getCustomerState');
+  }
+  undoCommit(_idempotencyKey: string): Promise<CommitResult> {
+    return this.rewardsNotImplemented('undoCommit');
   }
 
   // ── recovery codes (single-use, short-expiry) ──────────────────────────────

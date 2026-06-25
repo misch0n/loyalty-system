@@ -11,8 +11,11 @@
 import type {
   AuditLogEntry,
   Customer,
+  CustomerState,
   LoyaltyTransaction,
   ProgramConfig,
+  Reward,
+  RewardStatus,
   Snapshot,
   StaffAccount,
   StaffRole,
@@ -81,6 +84,47 @@ export interface CreateRecoveryCodeInput {
   expiresAt: number; // epoch ms
 }
 
+// ── rewards-as-objects: the unified commit contract (REWARDS-PLAN §3.3) ───────
+
+/**
+ * The single atomic mutation for the counter: accrue points, mint any rewards
+ * crossed, and redeem 0..N existing rewards — all in one step, idempotent on
+ * `idempotencyKey`. Replaces the separate accrue/redeem two-call flow.
+ */
+export interface CounterTransaction {
+  customerId: string;
+  /** Points to add: 0..`maxPointsPerTransaction` (over the cap ⇒ `over_cap`). */
+  pointsDelta: number;
+  /** Reward ids to redeem this commit: 0..10 (composite cap 10, hard 15). */
+  redeemRewardIds: string[];
+  staffId: string;
+  /** Dedup key — a repeat with the same key returns the cached result, no re-writes. */
+  idempotencyKey: string;
+  /** Scan origin: 'a' = app camera, 'w' = wallet. Recorded on audit; drives nothing else. */
+  source: 'a' | 'w';
+}
+
+/** A redeem id that failed re-validation at commit time; the rest still apply (subset redeem). */
+export interface RejectedRedemption {
+  rewardId: string;
+  reason: 'not_owner' | 'already_spent' | 'reward_invalid';
+}
+
+/**
+ * Outcome of {@link DataStore.commitCounterTransaction}. On success carries the
+ * fresh derived state plus exactly what was minted/redeemed/rejected; on failure
+ * a short-circuit error (no writes performed).
+ */
+export type CommitResult =
+  | {
+      ok: true;
+      state: CustomerState;
+      minted: Reward[];
+      redeemed: Reward[];
+      rejected: RejectedRedemption[];
+    }
+  | { ok: false; error: 'customer_not_found' | 'over_cap' };
+
 export interface DataStore {
   // ── customers ────────────────────────────────────────────────────────────
   createCustomer(input: CreateCustomerInput): Promise<Customer>;
@@ -100,8 +144,32 @@ export interface DataStore {
   // ── loyalty (append-only) ──────────────────────────────────────────────────
   appendTransaction(tx: AppendTransactionInput): Promise<LoyaltyTransaction>;
   listTransactions(customerId: string): Promise<LoyaltyTransaction[]>;
-  /** Atomic check-balance-then-write to prevent double-spend. */
+  /**
+   * Atomic check-balance-then-write to prevent double-spend.
+   *
+   * TRANSITIONAL: the pre-rework redeem path. The rewards-as-objects model
+   * (REWARDS-PLAN) replaces it with {@link DataStore.commitCounterTransaction};
+   * this signature is removed once that lands.
+   */
   redeemReward(customerId: string, staffId: string): Promise<RedeemResult>;
+
+  // ── rewards-as-objects (unified commit, REWARDS-PLAN §3.3) ──────────────────
+  /**
+   * The single atomic mutation entry: accrual + mint-on-cross + redeem-N in one
+   * IDB readwrite tx, idempotent on `txn.idempotencyKey`. Replaces the separate
+   * `appendTransaction`(accrual)/`redeemReward` two-call flow.
+   */
+  commitCounterTransaction(txn: CounterTransaction): Promise<CommitResult>;
+  /** Materialized rewards for a customer, optionally filtered by status. */
+  listRewards(customerId: string, status?: RewardStatus): Promise<Reward[]>;
+  /** Full derived read-model: settled balance + unspent rewards. */
+  getCustomerState(customerId: string): Promise<CustomerState>;
+  /**
+   * Reverse a commit within the undo window: reverse the points, void any
+   * freshly-minted (unspent) reward, and re-mint a replacement for each reward
+   * spent in that commit. A spent reward is never un-spent.
+   */
+  undoCommit(idempotencyKey: string): Promise<CommitResult>;
 
   // ── staff & config ─────────────────────────────────────────────────────────
   createStaff(input: CreateStaffInput): Promise<StaffAccount>;
