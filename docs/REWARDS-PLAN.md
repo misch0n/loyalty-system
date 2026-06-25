@@ -48,6 +48,9 @@ Phase 0+1 can land together (safe, no behavior). Phase 2 is the big one. 5 & 6 a
 
 ## 2 · Locked decisions (settled with the maintainer)
 
+> **The reasoning behind each of these — trade-offs considered and alternatives rejected —
+> is in [`REWARDS-DECISIONS.md`](REWARDS-DECISIONS.md).** Read it before "simplifying" any of them.
+
 | # | Decision |
 |---|---|
 | Migration | **None.** Prototype only — clean reset to **schema v5**: upgrade drops & recreates stores, then seeds fresh in the new model. |
