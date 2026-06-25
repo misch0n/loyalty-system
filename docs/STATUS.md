@@ -5,14 +5,30 @@
 > [`SPEC.md`](SPEC.md); working rules in [`../CLAUDE.md`](../CLAUDE.md).
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 >
-> **▶ Active initiative:** the rewards-as-objects rework (Appendices C+D + multi-reward) is
-> in progress — Phases 0–7 are done; **Phase 8 (docs: STATUS divergences + acceptance rows) is next**.
-> Phase-by-phase plan + resume protocol in [`REWARDS-PLAN.md`](REWARDS-PLAN.md), the
-> reasoning behind every decision in [`REWARDS-DECISIONS.md`](REWARDS-DECISIONS.md).
-> Maintainer preferences, assistant conventions, and iOS/deploy/IndexedDB gotchas are in
-> [`COLLAB-NOTES.md`](COLLAB-NOTES.md). New session continuing that work: start from those files.
+> **✓ Completed initiative:** the rewards-as-objects rework (Appendices C+D + multi-reward) is
+> **complete — all phases 0–8 done**. Rewards are now discrete, countable `Reward` objects behind a
+> single atomic/idempotent commit (accrue + mint + multi-reward subset redeem) with a 5-second undo;
+> see the **"Rewards-as-objects acceptance (C9/D10)"** table + formats/undo subsection below.
+> Phase-by-phase record in [`REWARDS-PLAN.md`](REWARDS-PLAN.md), the reasoning behind every decision
+> in [`REWARDS-DECISIONS.md`](REWARDS-DECISIONS.md). Maintainer preferences, assistant conventions,
+> and iOS/deploy/IndexedDB gotchas are in [`COLLAB-NOTES.md`](COLLAB-NOTES.md).
 
-**Last updated:** 2026-06-25 (**Rewards-as-objects — Phase 7 (wallet hooks).** Aligned the
+**Last updated:** 2026-06-25 (**Rewards-as-objects — Phase 8 (docs).** Final step of the
+[`REWARDS-PLAN`](REWARDS-PLAN.md) rework — **docs only, no code**. Recorded the rewards-as-objects
+model across the docs: the SPEC §15 acceptance rows the rework touched now point at the unified
+commit (`LoyaltyService.commit` → `DataStore.commitCounterTransaction`) instead of the retired
+`accrue`/`redeem`/`redeemReward` path; a new **rewards-as-objects acceptance table (C9/D10)** maps
+every criterion from REWARDS-PLAN §5 to its test; and a new **"Rewards-as-objects: formats + undo
+model"** subsection documents the reward token / reward short code / card-scan (`/c`) +
+reward-scan (`/r`) QR-URL formats and the 5-second undo semantics (reverse net points · void
+freshly-minted unspent rewards · re-mint a point-neutral replacement per spent reward — a spent
+reward is never un-spent). Divergence **l** (commit atomicity = IDB-tx scope, no row lock) and the
+**JSON-snapshot gap** (export/import doesn't carry the three v5 stores) were already on file.
+`README.md` refreshed to the discrete-reward model: the accrual/redemption flow diagram and the ER
+model gain `Reward` + `RewardEvent`, the ledger `type` drops `redemption` for `reward_issue`, the
+feature table describes the one-commit accrue+mint+redeem flow + 5s undo, and the seed threshold is
+corrected to **8**. Ticked the Phase 8 box in REWARDS-PLAN — the rework is complete. **435 Vitest
+tests**, tsc + build all green (unchanged — docs only). Prior — **Rewards-as-objects — Phase 7 (wallet hooks).** Aligned the
 wallet seam with the discrete reward model (REWARDS-PLAN Phase 7). **`WalletProvider`**'s
 `WalletDerivedState` swaps the old `rewardAvailable: boolean` for **`rewardCount: number`** — the
 count of unspent reward objects the customer holds (the "N free coffees" the card shows), alongside
@@ -114,7 +130,7 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 - React + TypeScript + Vite SPA, IndexedDB storage, deployed to GitHub Pages.
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
-- **421 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
+- **435 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
 - **Puppeteer e2e suite** (`e2e/`, run with `npm run e2e`) drives the built app in headless Chrome: welcome, register→card, staff PIN, prototype panel, and the reference bug-list regressions (13 checks).
 - CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`,
   `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets) → deploys on push to `main`.
@@ -132,12 +148,12 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 | No single-browser / dual-pane simulation | ✅ (LocalBridgeTransport removed) | `adapters/transport/` |
 | Optional-PII and token-only registration | ✅ | `services/CustomerService.ts`, `domain/validation.ts` |
 | Auto-provision on scan (unknown valid token → token-only card) | ❌ **removed from UI** (see above) — members are created only by self-registration |
-| Accrual respects cap; append-only ledger; derived balance | ✅ | `services/LoyaltyService.ts`, `domain/loyalty.ts` |
-| Reward-available email on threshold crossing (best-effort) | ✅ | `LoyaltyService.accrue` → `Mailer` |
-| Atomic redemption (no double-spend) | ✅ | `adapters/storage/IndexedDbStore.ts` (`redeemReward`) |
+| Accrual respects cap; append-only ledger; derived balance | ✅ now via the **unified commit** (rewards-as-objects rework) — one atomic `commit` accrues, mints rewards on threshold-crossing, and redeems N, capped at `maxPointsPerTransaction` (`over_cap` reject). Balance settles to `0..threshold−1`; the "N free" count = unspent `Reward` objects (not a derived boolean). See the **Rewards-as-objects acceptance (C9/D10)** table + formats subsection below. | `services/LoyaltyService.ts` (`commit`), `adapters/storage/IndexedDbStore.ts` (`commitCounterTransaction`), `domain/loyalty.ts` + `domain/rewards.ts` |
+| Reward-available email on threshold crossing (best-effort) | ✅ | `LoyaltyService.commit` → `Mailer` (exactly one email per commit, only when the commit minted ≥1 reward) |
+| Atomic redemption (no double-spend) | ✅ now a **commit-time, idempotent, subset redeem** — every `redeemRewardId` is re-validated (`not_owner`/`already_spent`/`reward_invalid` → `rejected[]`, valid ones still redeem); a 2nd commit with the same `idempotencyKey` returns the cached result with no writes (atomicity = single IDB-tx scope — see divergence **l**) | `adapters/storage/IndexedDbStore.ts` (`commitCounterTransaction`; internal `redeemReward` helper) |
 | Self-service recovery via single-use expiring link (EmailJS) | ✅ impl; needs live verification | `services/RecoveryService.ts`, `ui/screens/customer/LostCard/LostCard.tsx`, `ui/screens/customer/RecoverConsume/RecoverConsume.tsx`, `adapters/email/EmailJsMailer.ts` |
 | Recovery is **email-only** | ✅ | `ui/screens/customer/LostCard/LostCard.tsx` — the single recovery vector is the emailed single-use link (`RecoveryService`). Staff/name-based recovery removed (a name isn't distinguishing enough). LostCard now explains the **no-email consequence** (a card with no email can't be recovered); the registration caveat (`Register.tsx`) says the same up front |
-| Correction/reversal, logged | ✅ | `LoyaltyService.reverse` |
+| Correction/reversal, logged | ✅ | `LoyaltyService.reverse`; the rewards-as-objects rework adds a **5-second commit Undo** (`LoyaltyService.undo` → `DataStore.undoCommit`): reverse net points, void any freshly-minted unspent reward, and re-mint a point-neutral replacement per reward the commit spent (a spent reward is never un-spent), writing a `loyalty.reverse` audit row — see the formats + undo subsection below |
 | Deletion/opt-out — customer self-delete from card menu; staff-confirmed also available | ✅ | `CustomerService.selfDelete(token)` ← `ui/screens/customer/CardMenu/CardMenu.tsx`; `IndexedDbStore.softDeleteCustomer` |
 | Admin: account CRUD (**Add profile** staff/admin with name/username/password/PIN; per-profile popover = enable/disable, reset password, reset PIN, **delete**, + filtered activity — un-gated) + "Sign out all devices"; config (step-up PIN re-auth on save), stats, audit viewer, alerts; admin is a **superset of staff** (counter/scan access, both views have Sign out) | ✅ | `ui/screens/admin/Admin/Admin.tsx`, `ui/screens/admin/_parts/AccountSheet/`; `StaffService.remove` → `DataStore.deleteStaff`; staff `name` shown in panel + activity |
 | Staff/admin session never auto-displays customer card (entry routing) | ✅ | `ui/app/EntryResolver.tsx` — any active staff/admin (trusted or ephemeral)→**counter** `/staff` (admins reach `/admin` via the counter's "Go to admin" button); trusted+locked→`/staff/unlock`; remembered card→`/card/:token`; else→`/welcome` |
@@ -159,6 +175,86 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 | **B5** Own-card photo | ❌ explicitly dropped (out of scope per requester) | — |
 | **B6** Footer / Find us | ✅ partial — "Find us" (location/hours) on Welcome screen below the fold; café details in `config/cafe.ts`. Light/dark mode, progressive card animations, menu page intentionally not built. | `ui/screens/customer/Welcome.tsx`, `config/cafe.ts` |
 | **B7** Family/couples sharing | No feature code needed — expected behaviour. Sharing the card URL/QR shows the card on any device without overwriting the saved card. Future changes must not bind a card to exactly one device. | documented only |
+
+## Rewards-as-objects acceptance (C9 / D10)
+
+The rewards-as-objects rework (Appendices C + D + multi-reward, plan in
+[`REWARDS-PLAN.md`](REWARDS-PLAN.md), decisions in
+[`REWARDS-DECISIONS.md`](REWARDS-DECISIONS.md)) reworked rewards from an implicit
+`balance ≥ threshold` boolean into discrete, countable `Reward` objects, a single
+atomic/idempotent commit, and customer-driven multi-reward composite redemption. It
+**supersedes** SPEC §6 (reward derivation) and §8.2/§8.3 (scan/commit) and refines B2 —
+`docs/SPEC.md` is authoritative and unedited, so these are recorded here as divergences.
+All acceptance criteria below are met and test-covered:
+
+| Criterion (REWARDS-PLAN §5) | State | Test / where |
+|---|---|---|
+| Crossing threshold mints exactly one reward per `pointsPerReward`, same commit | ✅ | `domain/rewards.ts` `mintFold`; `commit` mint-on-cross — `tests/domain/rewards.test.ts`, `tests/services/Loyalty.test.ts`, `tests/adapters/IndexedDbStore.test.ts` |
+| Retried commit (same key) neither double-accrues nor double-mints | ✅ | `idempotencyKeys` store dedup — commit twice same key → identical result, one write set (`IndexedDbStore.test.ts`, `Loyalty.test.ts`, sync round-trip in `tests/adapters/sync`) |
+| `balance` settles `0..threshold−1`; "N free" = unspent reward count | ✅ | `domain/rewards.ts` `cardProgress`/`unspentRewards`; `getCustomerState` — derivation tests |
+| Redeem atomic + idempotent; 2nd → `already_spent`; non-owner → `not_owner` | ✅ | `domain/rewards.ts` `validateRedemption` (ownership beats status); `commitCounterTransaction` subset-redeem — domain + store tests |
+| Reversing a minting accrual voids the minted reward | ✅ | `domain/rewards.ts` `planUndo`; `undoCommit` void-fresh + re-mint-spent — store + service undo tests |
+| Reward log append-only; status only via events | ✅ | `rewardEvents` store = source of truth (`reward.issued`/`reward.redeemed`/`reward.voided`); `rewards` is a materialized projection — store-invariant tests |
+| One commit can add points AND redeem ≥1; never gated by QR type | ✅ | `CounterTransaction { pointsDelta, redeemRewardIds[] }`; staff Scan slider `min=0` + reward checklist, one `commit` — `ui/screens/staff/Scan` tests |
+| Source tag (`'a'`/`'w'`) parsed + recorded; drives nothing but validation/analytics | ✅ | `parseScan` (`qr/encode.ts`); `commit` writes `source` on the audit row only — parse + Loyalty audit tests |
+| No per-transaction freshness anywhere | ✅ | by design — no timestamp validation on any path |
+| Every `redeemRewardId` re-validated at commit; subset redeemed, rest reported | ✅ | stale id in set → `rejected[]`, valid ones still redeem (commit never aborts) — `IndexedDbStore.test.ts` |
+| Wallet scan with rewards surfaces the redeem affordance from the list | ✅ | a baked wallet pass embeds the **card** URL (`…/#/c/<token>?s=w`); a wallet scan resolves as a plain card scan and staff Scan shows the unspent-reward checklist — Phase 7 (Scan tests). A wallet pass never carries a composite reward QR |
+| All three input paths return `{ customer, balance, rewards }` | ✅ | card scan (`/c`), reward scan (`/r`), manual short-code all resolve to the canonical `CustomerState` via `getState` — Scan + service tests |
+| Undo within 5s: points reversed, fresh mint voided, spent re-minted | ✅ | `LoyaltyService.undo` → `undoCommit`; staff Scan 5-second Undo affordance — service + Scan tests |
+
+### Rewards-as-objects: formats + undo model
+
+**Ledger / reward stores (schema v5).** The points ledger
+`TransactionType` is `accrual | reward_issue | reversal` — `redemption` is **removed**
+from the ledger. Reward lifecycle lives in two new stores: `rewards` (materialized
+`Reward` projection — `byOwner`/`byToken`/`byStatus`/`byShortCode`; status
+`unspent | spent | voided`, reserved `transfer_pending`) and `rewardEvents` (append-only
+`reward.issued | reward.redeemed | reward.voided` — **source of truth** for status). A
+third store `idempotencyKeys` caches each `CommitResult` by `idempotencyKey`.
+
+**Reward token + short code** (`domain/tokens.ts`): a reward carries a 128-bit opaque
+**token** (`generateRewardToken`, goes in the reward QR) and a Crockford-base32
+**short code** (`generateRewardShortCode`, `byRewardShortCode` index) used **only** on the
+manual / camera-fail path — never in the QR. Reuses the customer token + short-code
+machinery verbatim (§3.6).
+
+**Scan QR-URL formats** (`qr/encode.ts`; `parseScan` returns
+`{ kind:'card'|'reward', customerToken, rewardTokens[], source:'a'|'w' }`):
+
+```
+card    .../#/c/<customerToken>?s=a|w
+reward  .../#/r?ids=<rewardToken[,rewardToken…]>&c=<customerToken>&s=a   // 1..10 ids (composite); cap 10, hard 15
+wallet  baked pass embeds  .../#/c/<customerToken>?s=w                   // maintainer-provisions; resolves as a card scan
+manual  customer short code → full state + unspent-rewards list to tick
+```
+
+`/c` and `/r` are **staff-scan URLs only** — deliberately *not* mounted as react-router
+routes (`ui/app/routes.ts` `SCAN_PAYLOADS`). `parseScan` stays **backward-compatible**:
+legacy `…/#/status/<token>` URLs and bare tokens resolve as a card scan (`source:'a'`), so
+older baked wallet passes never hard-fail. Measured QR capacity (EC-M, full tokens): N=5 →
+v9, N=10 → v12 (~65px, comfortably phone-to-phone scannable), N=15 → v15 — hence full ids +
+cap 10; short codes are not needed in the QR.
+
+**The commit** (`DataStore.commitCounterTransaction`, the single atomic mutation entry):
+one IndexedDB `readwrite` tx over `config · customers · transactions · rewards ·
+rewardEvents · idempotencyKeys · audit`. Order: read the idempotency key → if present
+return the cached result with **no** writes; else short-circuit `over_cap`
+(`pointsDelta > maxPointsPerTransaction`) / `customer_not_found` (no writes); else append the
+`accrual`, run `mintFold` (emit `reward_issue(−threshold)` + a `Reward` per crossing),
+re-validate and redeem each id (invalid → `rejected[]`, never abort), persist the
+`CommitResult` under the key, commit. Atomicity is IDB-tx-scope only — see divergence **l**.
+
+**Undo model (5-second window)** — `LoyaltyService.undo` → `DataStore.undoCommit(idempotencyKey)`,
+decision computed by `domain/rewards.ts` `planUndo`:
+- **Reverse the net points**: `reversePoints = mintedCount·threshold − pointsDelta`.
+- **Void** any reward freshly *minted* by that commit and still `unspent` (`reward.voided`,
+  reason `mint_reversed`).
+- **Re-mint** a point-neutral *replacement* reward for each reward the commit *spent*
+  (`reward.issued`, reason `undo_reissue`) — **a spent reward is never un-spent**.
+
+The undo writes a `loyalty.reverse` audit row and sends no email (a reissue is not a fresh
+crossing). It is itself idempotent.
 
 ## What is real vs. stubbed (prototype intentionally)
 
@@ -233,7 +329,7 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 
 ## Test coverage
 
-`npm test` runs **421 Vitest unit/component tests** (includes co-located
+`npm test` runs **435 Vitest unit/component tests** (includes co-located
 `src/ui/**/*.test.tsx` via the extended `test.include` in `vite.config.ts`):
 
 - **domain/** — `loyalty`, `rewards` (rewards-as-objects pure logic: `mintFold`
@@ -430,8 +526,9 @@ unit tests cannot.
   `Snapshot` type and `importAll` were not extended for the three new schema-v5
   stores (`rewards`, `rewardEvents`, `idempotencyKeys`). `importAll` explicitly
   clears those stores on restore so no orphaned rewards survive a backup→restore
-  cycle, but the rewards themselves are lost. Extending `Snapshot` is deferred
-  (Phase 8 or a follow-up).
+  cycle, but the rewards themselves are lost. Extending `Snapshot` is a **deferred
+  follow-up** (a code change, out of scope for the docs-only Phase 8 that closed the
+  rewards-as-objects rework).
 
 ## Spec divergences (prototype vs. production)
 
