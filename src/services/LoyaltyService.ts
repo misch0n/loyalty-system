@@ -5,7 +5,12 @@
  */
 
 import type { Customer, CustomerState, LoyaltyTransaction } from '../domain/models';
-import type { DataStore, RedeemResult } from '../ports/DataStore';
+import type {
+  CommitResult,
+  CounterTransaction,
+  DataStore,
+  RedeemResult,
+} from '../ports/DataStore';
 import type { Mailer } from '../ports/Mailer';
 import { balance, clampAccrual, progress, rewardAvailable } from '../domain/loyalty';
 import {
@@ -26,6 +31,24 @@ import type { Actor } from './types';
  * can reference it without a layer inversion). See REWARDS-PLAN §3.4.
  */
 export type { CustomerState } from '../domain/models';
+
+/**
+ * What the counter submits for the unified commit (rewards-as-objects,
+ * REWARDS-PLAN §3.3). The service stamps the `staffId` from the actor; the
+ * caller supplies the customer, the points to add, the reward ids to redeem,
+ * the dedup key, and the scan source.
+ */
+export interface CommitInput {
+  customerId: string;
+  /** Points to add this commit (0 ⇒ redeem-only). Over the cap ⇒ `over_cap`. */
+  pointsDelta: number;
+  /** Reward ids to redeem this commit (0..10). Invalid ids land in `rejected[]`. */
+  redeemRewardIds: string[];
+  /** Dedup key — a retry with the same key returns the cached result, no re-writes. */
+  idempotencyKey: string;
+  /** Scan origin: 'a' = app camera, 'w' = wallet. Recorded on audit; nothing else. */
+  source: 'a' | 'w';
+}
 
 export class LoyaltyService {
   constructor(
@@ -71,23 +94,30 @@ export class LoyaltyService {
     };
   }
 
-  /** Basic counts for the admin stats screen (no segmentation in v1). */
+  /**
+   * Basic counts for the admin stats screen (no segmentation in v1).
+   *
+   * In the rewards-as-objects model a redemption is a `reward.redeemed` event,
+   * not a ledger entry, so `rewardsRedeemed` counts the `loyalty.redeem` audit
+   * rows the commit writes (one per reward spent) — NOT the ledger (which no
+   * longer carries `redemption` rows). `pointsIssued` still sums the `accrual`
+   * ledger entries.
+   */
   async getStats(): Promise<{
     activeCustomers: number;
     pointsIssued: number;
     rewardsRedeemed: number;
   }> {
-    const [activeCustomers, transactions] = await Promise.all([
+    const [activeCustomers, transactions, redeemEvents] = await Promise.all([
       this.store.countActiveCustomers(),
       this.store.listAllTransactions(),
+      this.store.listAudit({ action: 'loyalty.redeem' }),
     ]);
     let pointsIssued = 0;
-    let rewardsRedeemed = 0;
     for (const tx of transactions) {
       if (tx.type === 'accrual') pointsIssued += tx.points;
-      if (tx.type === 'redemption') rewardsRedeemed += 1;
     }
-    return { activeCustomers, pointsIssued, rewardsRedeemed };
+    return { activeCustomers, pointsIssued, rewardsRedeemed: redeemEvents.length };
   }
 
   /**
@@ -219,5 +249,65 @@ export class LoyaltyService {
     });
     await this.audit.log(actor, 'loyalty.reverse', customerId, transactionId);
     return tx;
+  }
+
+  // ── rewards-as-objects (unified commit, REWARDS-PLAN §3.3) ──────────────────
+
+  /**
+   * The single counter mutation: accrue points, mint a reward per threshold
+   * crossing, and redeem 0..N existing rewards — one atomic, idempotent store
+   * call. On success this writes the audit trail (the store does not): one
+   * `loyalty.accrue` row when points were added and one `loyalty.redeem` row per
+   * reward actually spent, each tagged with the scan `source`. A single
+   * best-effort reward-available notification is sent if the commit minted any
+   * reward. On `over_cap` / `customer_not_found` nothing is written.
+   */
+  async commit(actor: Actor, input: CommitInput): Promise<CommitResult> {
+    const txn: CounterTransaction = {
+      customerId: input.customerId,
+      pointsDelta: input.pointsDelta,
+      redeemRewardIds: input.redeemRewardIds,
+      staffId: actor.id,
+      idempotencyKey: input.idempotencyKey,
+      source: input.source,
+    };
+    const result = await this.store.commitCounterTransaction(txn);
+    if (!result.ok) return result;
+
+    // Audit (the store writes none): accrual once, redemption once per reward
+    // spent. `source` is recorded but drives nothing beyond analytics.
+    if (input.pointsDelta > 0) {
+      await this.audit.log(actor, 'loyalty.accrue', input.customerId, `+${input.pointsDelta} ${input.source}`);
+    }
+    for (const _ of result.redeemed) {
+      await this.audit.log(actor, 'loyalty.redeem', input.customerId, input.source);
+    }
+
+    // One reward-available email per commit, only when a reward was minted.
+    if (result.minted.length > 0) {
+      await this.notifyRewardAvailable(input.customerId);
+    }
+    return result;
+  }
+
+  /** Full derived read-model (settled balance + unspent rewards) for a customer. */
+  async getState(customerId: string): Promise<CustomerState> {
+    return this.store.getCustomerState(customerId);
+  }
+
+  /**
+   * Undo a commit within its window: the store reverses the net points, voids
+   * any freshly-minted (unspent) reward, and re-mints a point-neutral
+   * replacement for each reward the commit spent (a spent reward is never
+   * un-spent). Itself idempotent. Writes a `loyalty.reverse` audit row for the
+   * actor performing the undo; sends no notification (a reissue is not a fresh
+   * threshold crossing).
+   */
+  async undo(actor: Actor, idempotencyKey: string): Promise<CommitResult> {
+    const result = await this.store.undoCommit(idempotencyKey);
+    if (result.ok) {
+      await this.audit.log(actor, 'loyalty.reverse', result.state.customer.id, 'undo');
+    }
+    return result;
   }
 }

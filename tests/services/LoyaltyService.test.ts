@@ -145,6 +145,209 @@ describe('getAlerts', () => {
   });
 });
 
+describe('unified commit (rewards-as-objects)', () => {
+  // Default config: threshold 8, cap 3 per commit.
+  async function accrueTo(balance: number, keyPrefix: string) {
+    let added = 0;
+    let i = 0;
+    while (added < balance) {
+      const step = Math.min(3, balance - added);
+      await loyalty.commit(STAFF, {
+        customerId,
+        pointsDelta: step,
+        redeemRewardIds: [],
+        idempotencyKey: `${keyPrefix}-${i++}`,
+        source: 'a',
+      });
+      added += step;
+    }
+  }
+
+  it('accrues points and mints a reward on the threshold crossing', async () => {
+    await accrueTo(6, 'k'); // below threshold — no mint
+    const crossing = await loyalty.commit(STAFF, {
+      customerId,
+      pointsDelta: 3, // 6 → 9, crosses 8
+      redeemRewardIds: [],
+      idempotencyKey: 'cross',
+      source: 'a',
+    });
+    expect(crossing.ok).toBe(true);
+    if (!crossing.ok) return;
+    expect(crossing.minted).toHaveLength(1);
+    expect(crossing.state.balance).toBe(1); // settled 0..threshold−1
+    expect(crossing.state.rewards).toHaveLength(1);
+  });
+
+  it('rejects a points delta over the cap with no writes', async () => {
+    const result = await loyalty.commit(STAFF, {
+      customerId,
+      pointsDelta: 99,
+      redeemRewardIds: [],
+      idempotencyKey: 'over',
+      source: 'a',
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe('over_cap');
+    // Nothing was accrued.
+    const state = await loyalty.getState(customerId);
+    expect(state.balance).toBe(0);
+  });
+
+  it('reports customer_not_found for an unknown customer', async () => {
+    const result = await loyalty.commit(STAFF, {
+      customerId: 'nope',
+      pointsDelta: 1,
+      redeemRewardIds: [],
+      idempotencyKey: 'ghost',
+      source: 'a',
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe('customer_not_found');
+  });
+
+  it('is idempotent — a retry with the same key returns the cached result, no double-apply', async () => {
+    const first = await loyalty.commit(STAFF, {
+      customerId,
+      pointsDelta: 3,
+      redeemRewardIds: [],
+      idempotencyKey: 'once',
+      source: 'a',
+    });
+    const retry = await loyalty.commit(STAFF, {
+      customerId,
+      pointsDelta: 3,
+      redeemRewardIds: [],
+      idempotencyKey: 'once',
+      source: 'a',
+    });
+    expect(first).toEqual(retry);
+    const state = await loyalty.getState(customerId);
+    expect(state.balance).toBe(3); // applied exactly once
+  });
+
+  it('redeems an owned reward and subset-redeems an invalid id (rejected, not aborted)', async () => {
+    await accrueTo(6, 'r');
+    const cross = await loyalty.commit(STAFF, {
+      customerId,
+      pointsDelta: 3, // mint one reward
+      redeemRewardIds: [],
+      idempotencyKey: 'r-cross',
+      source: 'a',
+    });
+    expect(cross.ok).toBe(true);
+    if (!cross.ok) return;
+    const rewardId = cross.minted[0].id;
+
+    const redeem = await loyalty.commit(STAFF, {
+      customerId,
+      pointsDelta: 0,
+      redeemRewardIds: [rewardId, 'stale-id'],
+      idempotencyKey: 'r-redeem',
+      source: 'w',
+    });
+    expect(redeem.ok).toBe(true);
+    if (!redeem.ok) return;
+    expect(redeem.redeemed).toHaveLength(1);
+    expect(redeem.rejected).toEqual([{ rewardId: 'stale-id', reason: 'reward_invalid' }]);
+    expect(redeem.state.rewards).toHaveLength(0); // the one reward is now spent
+  });
+
+  it('sends exactly one reward-available email per commit that mints', async () => {
+    const mailer = new SpyMailer();
+    const services = freshServices(mailer);
+    const shell = await services.customers.issueCard(STAFF);
+    await services.customers.finalizeRegistration(STAFF, shell.id, {
+      email: 'commit@cafe.test',
+      consent: true,
+    });
+    for (let i = 0; i < 2; i++) {
+      await services.loyalty.commit(STAFF, {
+        customerId: shell.id,
+        pointsDelta: 3,
+        redeemRewardIds: [],
+        idempotencyKey: `m-${i}`,
+        source: 'a',
+      });
+    }
+    expect(mailer.sent).toHaveLength(0); // balance 6, no crossing yet
+    await services.loyalty.commit(STAFF, {
+      customerId: shell.id,
+      pointsDelta: 3, // 6 → 9, mints
+      redeemRewardIds: [],
+      idempotencyKey: 'm-cross',
+      source: 'a',
+    });
+    expect(mailer.sent).toHaveLength(1);
+    expect(mailer.sent[0].kind).toBe('reward-available');
+  });
+
+  it('getStats counts reward.redeemed events (the loyalty.redeem audit), not the ledger', async () => {
+    await accrueTo(6, 's');
+    const cross = await loyalty.commit(STAFF, {
+      customerId,
+      pointsDelta: 3,
+      redeemRewardIds: [],
+      idempotencyKey: 's-cross',
+      source: 'a',
+    });
+    if (!cross.ok) return;
+    await loyalty.commit(STAFF, {
+      customerId,
+      pointsDelta: 0,
+      redeemRewardIds: [cross.minted[0].id],
+      idempotencyKey: 's-redeem',
+      source: 'a',
+    });
+    const stats = await loyalty.getStats();
+    expect(stats.rewardsRedeemed).toBe(1);
+    expect(stats.pointsIssued).toBe(9); // three +3 accruals
+  });
+
+  it('undo re-mints a replacement for a spent reward (spent stays spent) and audits the reversal', async () => {
+    const services = freshServices();
+    const shell = await services.customers.issueCard(STAFF);
+    const id = shell.id;
+    for (let i = 0; i < 2; i++) {
+      await services.loyalty.commit(STAFF, {
+        customerId: id,
+        pointsDelta: 3,
+        redeemRewardIds: [],
+        idempotencyKey: `u-${i}`,
+        source: 'a',
+      });
+    }
+    const cross = await services.loyalty.commit(STAFF, {
+      customerId: id,
+      pointsDelta: 3, // 6 → 9, mints one reward
+      redeemRewardIds: [],
+      idempotencyKey: 'u-cross',
+      source: 'a',
+    });
+    if (!cross.ok) return;
+    await services.loyalty.commit(STAFF, {
+      customerId: id,
+      pointsDelta: 0,
+      redeemRewardIds: [cross.minted[0].id],
+      idempotencyKey: 'u-redeem',
+      source: 'a',
+    });
+    expect((await services.loyalty.getState(id)).rewards).toHaveLength(0);
+
+    const undo = await services.loyalty.undo(STAFF, 'u-redeem');
+    expect(undo.ok).toBe(true);
+    if (!undo.ok) return;
+    expect(undo.minted).toHaveLength(1); // a fresh replacement reward
+    expect((await services.loyalty.getState(id)).rewards).toHaveLength(1);
+
+    // The undo writes a loyalty.reverse audit row for the acting staff.
+    const reversals = await services.audit.list({ action: 'loyalty.reverse' });
+    expect(reversals.some((e) => e.details === 'undo' && e.actorId === STAFF.id)).toBe(true);
+  });
+});
+
 describe('reversal', () => {
   it('reverses an entry with an offsetting transaction (never a destructive edit)', async () => {
     const tx = await loyalty.accrue(STAFF, customerId, 3);

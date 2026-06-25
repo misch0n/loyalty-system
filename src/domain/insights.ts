@@ -12,7 +12,14 @@ import type { AuditAction, AuditLogEntry } from './models';
 export type MetricKind = 'members' | 'active' | 'coffees' | 'rewards';
 export type RangeKind = 'today' | 'week' | 'month' | 'all';
 
-/** Audit actions that count toward each metric. */
+/**
+ * Audit actions that count toward each metric.
+ *
+ * In the rewards-as-objects model `loyalty.redeem` is written once per reward
+ * actually spent in a commit (the surfaced `reward.redeemed` event) — so the
+ * `rewards` metric counts reward redemptions, not ledger entries. The ledger no
+ * longer carries `redemption` rows.
+ */
 const METRIC_ACTIONS: Record<MetricKind, ReadonlyArray<AuditAction>> = {
   members: ['customer.register', 'card.issue', 'card.provision'],
   // "Active" = a card that was used (any loyalty activity) in the period.
