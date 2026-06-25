@@ -44,11 +44,11 @@ describe('StaticWalletProvider.pushUpdate', () => {
   it('is a no-op that never throws (Free tier = static snapshot)', async () => {
     const customer = await store.createCustomer({ token: PRESET_CARD_TOKENS[1] });
     await expect(
-      wallet.pushUpdate(customer.id, { balance: 5, rewardAvailable: false }),
+      wallet.pushUpdate(customer.id, { balance: 5, rewardCount: 0 }),
     ).resolves.toBeUndefined();
     // Even an unknown id is tolerated — the web card is the source of truth.
     await expect(
-      wallet.pushUpdate('nope', { balance: 0, rewardAvailable: false }),
+      wallet.pushUpdate('nope', { balance: 0, rewardCount: 0 }),
     ).resolves.toBeUndefined();
   });
 });
@@ -58,7 +58,7 @@ describe('ServerWalletProvider (production stub)', () => {
     const prod = new ServerWalletProvider();
     await expect(prod.ensurePass('x')).rejects.toThrow();
     await expect(
-      prod.pushUpdate('x', { balance: 0, rewardAvailable: false }),
+      prod.pushUpdate('x', { balance: 0, rewardCount: 0 }),
     ).rejects.toThrow();
   });
 });

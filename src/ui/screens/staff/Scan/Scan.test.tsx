@@ -233,6 +233,11 @@ describe('Staff Scan', () => {
     });
     expect(typeof commit.mock.calls[0][1].idempotencyKey).toBe('string');
 
+    // Best-effort wallet push reflects the settled balance + unspent-reward COUNT
+    // (rewards-as-objects: a count, not the old `rewardAvailable` boolean).
+    const pushUpdate = services.wallet.pushUpdate as ReturnType<typeof vi.fn>;
+    expect(pushUpdate).toHaveBeenCalledWith('c1', { balance: 9, rewardCount: 0 });
+
     // Committed state shows an Undo affordance.
     const undo = Array.from(container.querySelectorAll('button.btn-line')).find((b) =>
       b.textContent === 'Undo',

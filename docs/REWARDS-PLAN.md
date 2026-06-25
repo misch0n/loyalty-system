@@ -39,7 +39,7 @@ deep rationale is needed, ask the maintainer to re-paste the appendix. Gifting/t
 - [x] **Phase 4** — Sync / RPC allow-list
 - [x] **Phase 5** — Scan parser + staff Scan UI (unified commit + 5s undo)
 - [x] **Phase 6** — Customer card UI (reworks shipped overlay + badge)
-- [ ] **Phase 7** — Wallet hooks
+- [x] **Phase 7** — Wallet hooks
 - [ ] **Phase 8** — Docs (STATUS divergences + acceptance rows)
 
 Phase 0+1 can land together (safe, no behavior). Phase 2 is the big one. 5 & 6 are UI.

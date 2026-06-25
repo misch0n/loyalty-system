@@ -222,7 +222,7 @@ export function Scan(): JSX.Element {
     void services.wallet
       .pushUpdate(next.customer.id, {
         balance: next.balance,
-        rewardAvailable: (next.rewards ?? []).length > 0,
+        rewardCount: (next.rewards ?? []).length,
       })
       .catch(() => {
         // Free-tier prototype: no-op. Web card remains the source of truth.

@@ -19,10 +19,17 @@ export interface WalletPass {
   googleUrl: string;
 }
 
-/** Derived progress reflected onto an installed pass (Pro tier only). */
+/**
+ * Derived progress reflected onto an installed pass (Pro tier only).
+ *
+ * Rewards-as-objects: `rewardCount` is the number of unspent reward objects the
+ * customer currently holds (the "N free coffees" the card shows), replacing the
+ * old `rewardAvailable` boolean. `balance` is the settled stamp count
+ * (0..threshold−1) after any mint-on-cross.
+ */
 export interface WalletDerivedState {
   balance: number;
-  rewardAvailable: boolean;
+  rewardCount: number;
 }
 
 export interface WalletProvider {

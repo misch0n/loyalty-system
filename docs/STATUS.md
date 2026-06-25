@@ -6,13 +6,28 @@
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 >
 > **▶ Active initiative:** the rewards-as-objects rework (Appendices C+D + multi-reward) is
-> in progress — Phases 0–6 are done; **Phase 7 (wallet hooks) is next**.
+> in progress — Phases 0–7 are done; **Phase 8 (docs: STATUS divergences + acceptance rows) is next**.
 > Phase-by-phase plan + resume protocol in [`REWARDS-PLAN.md`](REWARDS-PLAN.md), the
 > reasoning behind every decision in [`REWARDS-DECISIONS.md`](REWARDS-DECISIONS.md).
 > Maintainer preferences, assistant conventions, and iOS/deploy/IndexedDB gotchas are in
 > [`COLLAB-NOTES.md`](COLLAB-NOTES.md). New session continuing that work: start from those files.
 
-**Last updated:** 2026-06-25 (**Rewards-as-objects — Phase 6 (customer card UI).** Reworked the
+**Last updated:** 2026-06-25 (**Rewards-as-objects — Phase 7 (wallet hooks).** Aligned the
+wallet seam with the discrete reward model (REWARDS-PLAN Phase 7). **`WalletProvider`**'s
+`WalletDerivedState` swaps the old `rewardAvailable: boolean` for **`rewardCount: number`** — the
+count of unspent reward objects the customer holds (the "N free coffees" the card shows), alongside
+the settled `balance` (0..threshold−1). The staff Scan's best-effort `pushWallet` now sends
+`rewardCount: (next.rewards ?? []).length` instead of `length > 0`; `StaticWalletProvider.pushUpdate`
+stays a deliberate Free-tier no-op and `ServerWalletProvider.pushUpdate` still throws (placeholder) —
+only the payload shape changed. **Wallet redemption** needs no new code: a baked wallet pass embeds
+the **card** scan URL (`…/#/c/<token>?s=w`, maintainer-provisioned), so a wallet scan resolves as a
+plain card scan (source `'w'`, no reward tokens) and the staff Scan surfaces the **redeem checklist**
+from the customer's unspent rewards generically — **a wallet pass never carries a composite reward QR**
+(that lives only in the in-app `EnlargedQr` redeem overlay). **Maintainer action item (confirm):** the
+baked pass barcode should be the `…/#/c/<customerToken>?s=w` card URL; `parseScan` is backward-compatible
+so older `…/#/status/<token>` baked passes still resolve (card, source `'a'`). **+1 assertion** (Scan
+commit test now asserts `pushUpdate('c1', { balance, rewardCount })`) — **435 Vitest tests**, tsc + build
+all green. Phase 8 (docs: divergences + acceptance rows) is the remaining rework step. Prior — **Rewards-as-objects — Phase 6 (customer card UI).** Reworked the
 customer card surface onto the discrete reward model (REWARDS-PLAN Phase 6). The **Card screen**
 (`ui/screens/customer/Card/`) now resolves its reward-aware state the same way the staff Scan does —
 `getStateByToken(token)` to resolve token→id, then **`getState(id)`** for the canonical

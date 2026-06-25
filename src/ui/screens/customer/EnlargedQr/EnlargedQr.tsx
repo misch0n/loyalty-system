@@ -10,6 +10,12 @@
  *
  * Liveness caveat (Free tier): the pass is a static snapshot, so the copy must
  * NOT imply it auto-updates — the web card stays the source of truth.
+ *
+ * Rewards-as-objects (REWARDS-PLAN Phase 7): the in-app redeem mode shows the
+ * composite reward QR; a WALLET pass never carries a composite reward QR. A
+ * baked pass embeds the card scan URL (`…/#/c/<token>?s=w`, maintainer-provisioned),
+ * so wallet redemption flows through the staff scan, which surfaces the redeem
+ * checklist from the customer's unspent rewards — not an on-pass composite code.
  */
 
 import { useEffect, useState } from 'react';
