@@ -121,6 +121,33 @@ describe('PeerClientStore + StoreServer round-trip', () => {
     expect(changed).toHaveBeenCalledTimes(1);
   });
 
+  it('commitCounterTransaction over RPC lands on the host and a retried key does not double-apply', async () => {
+    const { client } = wire();
+    const created = await (client.store as DataStore).createCustomer({ token: 'commit-tok' });
+
+    const txn = {
+      customerId: created.id,
+      pointsDelta: 3,
+      redeemRewardIds: [],
+      staffId: 'staff-1',
+      idempotencyKey: 'idem-1',
+      source: 'a' as const,
+    };
+
+    const first = await client.store.commitCounterTransaction(txn);
+    expect(first.ok).toBe(true);
+    if (first.ok) expect(first.state.balance).toBe(3);
+
+    // Retry with the SAME key: identical result, no second accrual on the host.
+    const retry = await client.store.commitCounterTransaction(txn);
+    expect(retry).toEqual(first);
+
+    // The host really has a single settled balance of 3, not 6.
+    const state = await host.getCustomerState(created.id);
+    expect(state.balance).toBe(3);
+    expect((await host.listTransactions(created.id)).filter((t) => t.type === 'accrual')).toHaveLength(1);
+  });
+
   it('dispose rejects pending calls', async () => {
     const { host: hostLink, client: clientLink } = makeLinkPair();
     // No server wired, so the call never gets answered.

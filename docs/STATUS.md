@@ -6,13 +6,25 @@
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 >
 > **▶ Active initiative:** the rewards-as-objects rework (Appendices C+D + multi-reward) is
-> in progress — Phases 0–3 are done; **Phase 4 (sync / RPC allow-list) is next**.
+> in progress — Phases 0–4 are done; **Phase 5 (scan parser + staff Scan UI) is next**.
 > Phase-by-phase plan + resume protocol in [`REWARDS-PLAN.md`](REWARDS-PLAN.md), the
 > reasoning behind every decision in [`REWARDS-DECISIONS.md`](REWARDS-DECISIONS.md).
 > Maintainer preferences, assistant conventions, and iOS/deploy/IndexedDB gotchas are in
 > [`COLLAB-NOTES.md`](COLLAB-NOTES.md). New session continuing that work: start from those files.
 
-**Last updated:** 2026-06-25 (**Rewards-as-objects — Phase 3 (services).** Wired the
+**Last updated:** 2026-06-25 (**Rewards-as-objects — Phase 4 (sync / RPC allow-list).** Opened the
+unified-commit contract over the prototype device-pairing seam (REWARDS-PLAN Phase 4). The sync
+allow-list (`adapters/sync/storeMethods.ts`) — the single source of truth both `PeerClientStore`
+(client proxy) and `StoreServer` (host dispatch) read from — gains **`commitCounterTransaction`**,
+**`listRewards`**, **`getCustomerState`**, and **`undoCommit`**, so a paired client device now drives
+the reward model through the till over RPC exactly as a local store would. `commitCounterTransaction`
+and `undoCommit` are also registered as **mutating** (they push the `changed` refetch envelope); the
+store's real `idempotencyKey` dedup makes the 10s RPC-retry path safe — a retried commit returns the
+cached result and never double-applies. Also closed a pre-existing gap: **`deleteStaff`** was a
+`DataStore` method missing from the allow-list, so admin account deletion would have failed on a paired
+client — added (mutating). No adapter logic changed — `PeerClientStore`/`StoreServer` are list-driven.
+**+1 test** (sync round-trip: client commit lands on the host; same-key retry → identical result, one
+accrual, settled balance unchanged) — **422 Vitest tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 3 (services).** Wired the
 unified-commit store contract through `LoyaltyService` (REWARDS-PLAN Phase 3). New
 **`commit(actor, input)`** wraps `DataStore.commitCounterTransaction` (accrual + mint-on-cross +
 redeem-N in one atomic, idempotent call) and — since the store writes no audit — appends the
