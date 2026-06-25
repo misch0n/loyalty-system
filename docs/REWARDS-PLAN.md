@@ -33,7 +33,7 @@ deep rationale is needed, ask the maintainer to re-paste the appendix. Gifting/t
 ## 1 · Progress checklist
 
 - [x] **Phase 0** — Contracts & types (no behavior)
-- [ ] **Phase 1** — Pure domain + unit tests
+- [x] **Phase 1** — Pure domain + unit tests
 - [ ] **Phase 2** — Storage adapter + schema v5 + new seed (the core)
 - [ ] **Phase 3** — Services
 - [ ] **Phase 4** — Sync / RPC allow-list

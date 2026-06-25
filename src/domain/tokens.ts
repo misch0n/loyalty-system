@@ -81,3 +81,22 @@ export function formatShortCode(code: string | undefined | null): string {
   if (!code) return '';
   return code.length === SHORT_CODE_LEN ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
 }
+
+// ── reward identifiers (rewards-as-objects, REWARDS-PLAN §3.6) ────────────────
+//
+// A Reward carries the SAME two-handle scheme as a customer card: a 128-bit
+// opaque token (carried in the reward QR) and a Crockford-base32 short code for
+// the MANUAL / camera-fail path only. They reuse the customer machinery verbatim
+// — named here so the rewards model has clear, intent-revealing factories and so
+// the alphabet/length stay in lockstep (`normalizeShortCode`/`isValidShortCode`
+// validate a reward short code unchanged).
+
+/** Generate a fresh 128-bit opaque reward token (carried in the reward QR). */
+export function generateRewardToken(): string {
+  return generateToken();
+}
+
+/** Generate a fresh reward short code (Crockford base32, MANUAL path only). */
+export function generateRewardShortCode(): string {
+  return generateShortCode();
+}

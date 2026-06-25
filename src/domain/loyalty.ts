@@ -8,7 +8,16 @@
 
 import type { LoyaltyTransaction, ProgramConfig } from './models';
 
-/** Current balance = signed sum of all of a customer's ledger entries. */
+/**
+ * Current balance = signed sum of all of a customer's ledger entries.
+ *
+ * In the rewards-as-objects model (REWARDS-PLAN) the ledger gains a
+ * `reward_issue(−threshold)` entry on every crossing, so the balance now
+ * SETTLES to 0..threshold−1 instead of accumulating. The sum is unchanged; the
+ * new derivation (mint-fold, settled card progress, unspent reward count) lives
+ * in `domain/rewards.ts`. The functions below are the transitional pre-rework
+ * derivation, removed once the service rework (Phase 3) lands.
+ */
 export function balance(transactions: LoyaltyTransaction[]): number {
   return transactions.reduce((sum, tx) => sum + tx.points, 0);
 }

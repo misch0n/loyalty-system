@@ -7,6 +7,8 @@ import {
   normalizeShortCode,
   isValidShortCode,
   formatShortCode,
+  generateRewardToken,
+  generateRewardShortCode,
 } from '../../src/domain/tokens';
 
 describe('generateToken', () => {
@@ -67,5 +69,24 @@ describe('short code', () => {
   it('isValidShortCode rejects wrong length or out-of-alphabet', () => {
     expect(isValidShortCode('K39XQ4T')).toBe(false); // 7 chars
     expect(isValidShortCode('K39XQ4TI')).toBe(false); // contains I
+  });
+});
+
+describe('reward identifiers', () => {
+  it('generateRewardToken produces a valid 128-bit opaque token (same shape as the card token)', () => {
+    const token = generateRewardToken();
+    expect(isValidToken(token)).toBe(true);
+    expect(token).toMatch(/^[A-Za-z0-9_-]{22}$/);
+  });
+
+  it('generateRewardShortCode produces a valid Crockford short code (validated by the shared machinery)', () => {
+    const code = generateRewardShortCode();
+    expect(isValidShortCode(code)).toBe(true);
+    expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
+  });
+
+  it('reward identifiers are effectively unique across many draws', () => {
+    const tokens = new Set(Array.from({ length: 200 }, () => generateRewardToken()));
+    expect(tokens.size).toBe(200);
   });
 });
