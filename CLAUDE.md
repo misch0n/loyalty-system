@@ -7,6 +7,12 @@ state* of the implementation (what exists, where, what's stubbed), `README.md`
 for architecture + diagrams, then `docs/SPEC.md` for the authoritative spec. The
 concrete subagent definitions live in `.claude/agents/`.
 
+**Active initiative + handoff (read if continuing across cleared-context sessions):**
+`docs/REWARDS-PLAN.md` is the live, phase-by-phase build plan for the rewards-as-objects
+rework (Appendices C+D + multi-reward) — it has a resume protocol and a progress checklist so
+a fresh session can pick up the next task cold. `docs/COLLAB-NOTES.md` captures the maintainer's
+preferences, the assistant's operating conventions, and the iOS/deploy/IndexedDB gotchas.
+
 ---
 
 ## What this is
