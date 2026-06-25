@@ -163,6 +163,198 @@ describe('loyalty ledger', () => {
   });
 });
 
+describe('rewards-as-objects (commitCounterTransaction / undo)', () => {
+  let idem = 0;
+  const key = () => `idem-${++idem}`;
+
+  /** A counter transaction with the boilerplate filled in. */
+  const counter = (over: Partial<Parameters<IndexedDbStore['commitCounterTransaction']>[0]>) => ({
+    customerId: 'x',
+    pointsDelta: 0,
+    redeemRewardIds: [],
+    staffId: 's',
+    idempotencyKey: key(),
+    source: 'a' as const,
+    ...over,
+  });
+
+  /** Loosen the per-transaction cap so a single commit can cross the threshold. */
+  const widenCap = () => store.updateConfig({ maxPointsPerTransaction: 50 });
+
+  it('accrues points and settles the balance below the threshold', async () => {
+    const c = await store.createCustomer({ token: 't' });
+    const r = await store.commitCounterTransaction(counter({ customerId: c.id, pointsDelta: 3 }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.minted).toHaveLength(0);
+    expect(r.state.balance).toBe(3);
+    expect(r.state.progress).toEqual({ current: 3, threshold: 8, rewardsAvailable: 0 });
+  });
+
+  it('mints exactly one reward when an accrual crosses the threshold, balance settles', async () => {
+    await widenCap();
+    const c = await store.createCustomer({ token: 't' });
+    const r = await store.commitCounterTransaction(counter({ customerId: c.id, pointsDelta: 8 }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.minted).toHaveLength(1);
+    expect(r.minted[0].status).toBe('unspent');
+    expect(r.minted[0].token).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(r.state.balance).toBe(0);
+    expect(r.state.rewards).toHaveLength(1);
+    // The ledger gained an accrual + a reward_issue(−threshold) entry.
+    expect((await store.listTransactions(c.id)).map((t) => t.type).sort()).toEqual([
+      'accrual',
+      'reward_issue',
+    ]);
+  });
+
+  it('mints several rewards in one commit when a big accrual crosses twice', async () => {
+    await widenCap();
+    const c = await store.createCustomer({ token: 't' });
+    const r = await store.commitCounterTransaction(counter({ customerId: c.id, pointsDelta: 19 }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.minted).toHaveLength(2); // 19 → two rewards, balance settles to 3
+    expect(r.state.balance).toBe(3);
+    expect(await store.listRewards(c.id, 'unspent')).toHaveLength(2);
+  });
+
+  it('is idempotent: a retried commit (same key) returns the same result with no extra writes', async () => {
+    const c = await store.createCustomer({ token: 't' });
+    const txn = counter({ customerId: c.id, pointsDelta: 3 });
+    const first = await store.commitCounterTransaction(txn);
+    const second = await store.commitCounterTransaction(txn); // same idempotencyKey
+    expect(second).toEqual(first);
+    // No double accrual: exactly one ledger entry, balance unchanged.
+    expect(await store.listTransactions(c.id)).toHaveLength(1);
+    expect((await store.getCustomerState(c.id)).balance).toBe(3);
+  });
+
+  it('redeems a reward and reports a stale id without aborting (subset redeem)', async () => {
+    await widenCap();
+    const c = await store.createCustomer({ token: 't' });
+    const minted = await store.commitCounterTransaction(
+      counter({ customerId: c.id, pointsDelta: 8 }),
+    );
+    expect(minted.ok && minted.minted).toBeTruthy();
+    if (!minted.ok) return;
+    const rewardId = minted.minted[0].id;
+
+    const r = await store.commitCounterTransaction(
+      counter({ customerId: c.id, redeemRewardIds: [rewardId, 'ghost-id'] }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.redeemed.map((x) => x.id)).toEqual([rewardId]);
+    expect(r.rejected).toEqual([{ rewardId: 'ghost-id', reason: 'reward_invalid' }]);
+    expect(await store.listRewards(c.id, 'unspent')).toHaveLength(0);
+    expect(await store.listRewards(c.id, 'spent')).toHaveLength(1);
+
+    // A second redeem of the same reward is rejected as already_spent.
+    const again = await store.commitCounterTransaction(
+      counter({ customerId: c.id, redeemRewardIds: [rewardId] }),
+    );
+    expect(again.ok && again.rejected).toEqual([{ rewardId, reason: 'already_spent' }]);
+  });
+
+  it("rejects redeeming another customer's reward as not_owner", async () => {
+    await widenCap();
+    const a = await store.createCustomer({ token: 'a' });
+    const b = await store.createCustomer({ token: 'b' });
+    const minted = await store.commitCounterTransaction(
+      counter({ customerId: a.id, pointsDelta: 8 }),
+    );
+    if (!minted.ok) throw new Error('mint failed');
+    const r = await store.commitCounterTransaction(
+      counter({ customerId: b.id, redeemRewardIds: [minted.minted[0].id] }),
+    );
+    expect(r.ok && r.rejected).toEqual([
+      { rewardId: minted.minted[0].id, reason: 'not_owner' },
+    ]);
+    // a's reward is untouched.
+    expect(await store.listRewards(a.id, 'unspent')).toHaveLength(1);
+  });
+
+  it('rejects an over-cap accrual with no writes', async () => {
+    const c = await store.createCustomer({ token: 't' });
+    const r = await store.commitCounterTransaction(
+      counter({ customerId: c.id, pointsDelta: 99 }),
+    );
+    expect(r).toEqual({ ok: false, error: 'over_cap' });
+    expect(await store.listTransactions(c.id)).toHaveLength(0);
+  });
+
+  it('rejects a commit for an unknown customer with no writes', async () => {
+    const r = await store.commitCounterTransaction(
+      counter({ customerId: 'nobody', pointsDelta: 1 }),
+    );
+    expect(r).toEqual({ ok: false, error: 'customer_not_found' });
+  });
+
+  it('undo reverses points and voids a freshly-minted reward', async () => {
+    await widenCap();
+    const c = await store.createCustomer({ token: 't' });
+    const txn = counter({ customerId: c.id, pointsDelta: 8 });
+    const committed = await store.commitCounterTransaction(txn);
+    if (!committed.ok) throw new Error('commit failed');
+
+    const undo = await store.undoCommit(txn.idempotencyKey);
+    expect(undo.ok).toBe(true);
+    if (!undo.ok) return;
+    // Minted reward voided, balance back to the pre-commit value.
+    expect(await store.listRewards(c.id, 'unspent')).toHaveLength(0);
+    expect(await store.listRewards(c.id, 'voided')).toHaveLength(1);
+    expect((await store.getCustomerState(c.id)).balance).toBe(0);
+  });
+
+  it('undo of a points-only commit reverses the balance', async () => {
+    const c = await store.createCustomer({ token: 't' });
+    const txn = counter({ customerId: c.id, pointsDelta: 3 });
+    await store.commitCounterTransaction(txn);
+    await store.undoCommit(txn.idempotencyKey);
+    expect((await store.getCustomerState(c.id)).balance).toBe(0);
+  });
+
+  it('undo of a redemption re-mints a replacement and leaves the original spent', async () => {
+    await widenCap();
+    const c = await store.createCustomer({ token: 't' });
+    const minted = await store.commitCounterTransaction(
+      counter({ customerId: c.id, pointsDelta: 8 }),
+    );
+    if (!minted.ok) throw new Error('mint failed');
+    const original = minted.minted[0].id;
+
+    const redeemTxn = counter({ customerId: c.id, redeemRewardIds: [original] });
+    await store.commitCounterTransaction(redeemTxn);
+    expect(await store.listRewards(c.id, 'unspent')).toHaveLength(0);
+
+    const undo = await store.undoCommit(redeemTxn.idempotencyKey);
+    expect(undo.ok).toBe(true);
+    if (!undo.ok) return;
+    // The spent reward STAYS spent; a fresh replacement is minted.
+    expect(undo.minted).toHaveLength(1);
+    expect(undo.minted[0].id).not.toBe(original);
+    expect(await store.listRewards(c.id, 'spent')).toHaveLength(1);
+    expect(await store.listRewards(c.id, 'unspent')).toHaveLength(1);
+  });
+
+  it('undo is itself idempotent (a second undo replays the cached result)', async () => {
+    const c = await store.createCustomer({ token: 't' });
+    const txn = counter({ customerId: c.id, pointsDelta: 3 });
+    await store.commitCounterTransaction(txn);
+    const first = await store.undoCommit(txn.idempotencyKey);
+    const second = await store.undoCommit(txn.idempotencyKey);
+    expect(second).toEqual(first);
+    expect((await store.getCustomerState(c.id)).balance).toBe(0);
+  });
+
+  it('undo of an unknown key reports nothing to undo', async () => {
+    const r = await store.undoCommit('never-committed');
+    expect(r).toEqual({ ok: false, error: 'customer_not_found' });
+  });
+});
+
 describe('staff & config', () => {
   it('creates and resolves a staff account by username', async () => {
     const created = await store.createStaff({ username: 'bob', passwordHash: 'pw', role: 'staff' });
@@ -291,9 +483,8 @@ describe('stats & backup', () => {
   });
 });
 
-describe('migration & recovery (regression: the v4 "everything stuck" hang)', () => {
-  /** Build a pre-v4 (v3) database by hand: the old schema with NO byShortCode
-   *  index, holding a legacy customer that has no short code. */
+describe('migration & recovery (v5 clean reset + the "everything stuck" hang)', () => {
+  /** Build a pre-v5 (v3) database by hand, holding a legacy customer. */
   async function makeV3DatabaseWithLegacyCustomer(): Promise<void> {
     const db = await openDB(DB_NAME, 3, {
       upgrade(database) {
@@ -320,21 +511,20 @@ describe('migration & recovery (regression: the v4 "everything stuck" hang)', ()
     db.close();
   }
 
-  it('migrates v3 → v4: adds the short-code index, backfills, stays usable', async () => {
-    globalThis.indexedDB = new IDBFactory(); // discard the beforeEach v4 store's DB
+  it('v5 is a clean reset: an older DB is dropped + recreated, store stays usable', async () => {
+    globalThis.indexedDB = new IDBFactory(); // discard the beforeEach v5 store's DB
     await makeV3DatabaseWithLegacyCustomer();
 
     const migrated = new IndexedDbStore();
-    // The legacy row gets a backfilled short code, resolvable by the new index.
-    const legacy = await migrated.getCustomerByToken('legacy-tok');
-    expect(legacy?.shortCode).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
-    expect(await migrated.getCustomerByShortCode(legacy!.shortCode)).toMatchObject({
-      id: 'legacy1',
-    });
+    // The clean reset drops the legacy data (no migration — REWARDS-DECISIONS Q2).
+    expect(await migrated.getCustomerByToken('legacy-tok')).toBeNull();
+    // The fresh v5 seed is present and the new reward stores are live.
+    expect((await migrated.listStaff()).map((s) => s.username)).toEqual(['admin', 'priya', 'staff']);
     // And the store is fully usable — this is the exact path that hung in prod
     // (card creation / login awaiting an open that never resolved).
     const created = await migrated.createCustomer({ token: 'after-migration' });
     expect(await migrated.getCustomerByToken('after-migration')).toMatchObject({ id: created.id });
+    expect(await migrated.listRewards(created.id)).toEqual([]);
   });
 
   it('self-heals a wedged/incompatible database (deletes + reopens, never hangs)', async () => {

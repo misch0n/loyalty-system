@@ -1,19 +1,38 @@
 /**
- * Demo seed data (prototype only).
+ * Demo seed data (prototype only) — rewards-as-objects model.
  *
- * Generates a coherent set of members + ledger entries + audit rows spread
- * across today / this week / this month / older, so the admin stat breakdowns
- * (and their charts) have something to show on a fresh or just-reset device.
- * Deterministic given `now` (no randomness), so it's stable to reason about and
- * test. Tokens are distinct from the wallet preset `PROTOcard…` tokens.
+ * Generates a coherent set of members + ledger entries + discrete reward objects
+ * + reward events + audit rows spread across today / this week / this month /
+ * older, so the admin stat breakdowns (and their charts) have something to show
+ * on a fresh or just-reset device. Deterministic given `now` (no randomness), so
+ * it's stable to reason about and test. Tokens are distinct from the wallet
+ * preset `PROTOcard…` tokens.
+ *
+ * In the rewards-as-objects model a redemption is NOT a ledger entry — it is a
+ * {@link Reward} status change (`unspent` → `spent`) plus a `reward.redeemed`
+ * event. The ledger therefore holds only `accrual` and `reward_issue(−threshold)`
+ * entries, so the balance settles to 0..threshold−1. We still emit the matching
+ * `loyalty.accrue` / `loyalty.redeem` AUDIT rows so the (transitional,
+ * audit-based) admin stat breakdowns keep their content until Phase 3 moves them
+ * onto the reward-event log.
  *
  * Seeded only on a truly-fresh DB (first run / after Reset) — never overwrites a
  * device that already has customers.
  */
-import type { AuditLogEntry, Customer, LoyaltyTransaction } from '../../domain/models';
+import type {
+  AuditLogEntry,
+  Customer,
+  LoyaltyTransaction,
+  Reward,
+  RewardEvent,
+} from '../../domain/models';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
+
+/** Reward threshold for the demo (matches DEFAULT_CONFIG.pointsPerReward). */
+const THRESHOLD = 8;
+const REWARD_DESCRIPTION = 'Free regular coffee';
 
 /** Seed staff ids used for attribution (must match SEED_STAFF). */
 const STAFF_IDS = ['seed-staff', 'seed-staff-2', 'seed-admin'] as const;
@@ -36,36 +55,40 @@ const MEMBER_NAMES = [
 export interface DemoSeed {
   customers: Customer[];
   transactions: LoyaltyTransaction[];
+  rewards: Reward[];
+  rewardEvents: RewardEvent[];
   audit: AuditLogEntry[];
 }
 
-/** Deterministic unique Crockford short code for demo member `n` (e.g. DM00000C). */
-function demoShortCode(n: number): string {
-  const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+
+/** Deterministic 6-char Crockford suffix for a small index `n`. */
+function base32(n: number): string {
   let s = '';
   let v = n;
   for (let k = 0; k < 6; k++) {
     s = CROCKFORD[v % 32] + s;
     v = Math.floor(v / 32);
   }
-  return `DM${s}`;
+  return s;
 }
 
-/** Accrual ("coffee") event offsets, in hours before `now`, spread over ~7 weeks. */
-function accrualOffsetsHours(): number[] {
-  const out: number[] = [];
-  // Today — a handful through the day.
-  for (let h = 1; h <= 10; h += 1.5) out.push(h);
-  // This week (1–6 days ago) — two a day.
-  for (let d = 1; d <= 6; d += 1) {
-    out.push(d * 24 + 3);
-    out.push(d * 24 + 9);
-  }
-  // This month (8–28 days ago) — every ~3 days.
-  for (let d = 8; d <= 28; d += 3) out.push(d * 24 + 5);
-  // Older (32–48 days ago) — every ~4 days.
-  for (let d = 32; d <= 48; d += 4) out.push(d * 24 + 6);
-  return out;
+/** Unique customer short code, e.g. DM00000C. */
+function demoShortCode(n: number): string {
+  return `DM${base32(n)}`;
+}
+
+/** Unique reward short code, e.g. RW00000C (disjoint from customer codes). */
+function demoRewardCode(n: number): string {
+  return `RW${base32(n)}`;
+}
+
+/**
+ * Number of "coffees" (accruals) a member has bought — deterministic, 5..18, and
+ * larger for older members so several rewards mint across the ranges.
+ */
+function coffeesFor(i: number): number {
+  return 5 + ((i * 7) % 14);
 }
 
 /** Redemption event offsets, in hours before `now`, one per range band. */
@@ -75,9 +98,12 @@ export function buildDemoSeed(now: number): DemoSeed {
   const iso = (ms: number): string => new Date(ms).toISOString();
   const customers: Customer[] = [];
   const transactions: LoyaltyTransaction[] = [];
+  const rewards: Reward[] = [];
+  const rewardEvents: RewardEvent[] = [];
   const audit: AuditLogEntry[] = [];
   let seq = 0;
   const nextId = (prefix: string): string => `${prefix}-${++seq}`;
+  let rewardSeq = 0;
 
   // Members, joined over the last ~50 days (newest first in MEMBER_NAMES order).
   MEMBER_NAMES.forEach((name, i) => {
@@ -101,58 +127,99 @@ export function buildDemoSeed(now: number): DemoSeed {
       targetId: id,
       timestamp: iso(createdMs),
     });
+
+    // Coffees (accruals) spread between join and now; mint a reward on each
+    // threshold crossing (reward_issue ledger entry + Reward + reward.issued).
+    const coffees = coffeesFor(i);
+    let earned = 0;
+    for (let k = 0; k < coffees; k++) {
+      const frac = (k + 1) / (coffees + 1);
+      const ts = Math.round(createdMs + frac * (now - createdMs));
+      const staffId = STAFF_IDS[(i + k) % STAFF_IDS.length];
+      transactions.push({
+        id: nextId('demo-tx'),
+        customerId: id,
+        type: 'accrual',
+        points: 1,
+        staffId,
+        timestamp: iso(ts),
+      });
+      audit.push({
+        id: nextId('demo-aud'),
+        actorId: staffId,
+        actorRole: 'staff',
+        action: 'loyalty.accrue',
+        targetId: id,
+        timestamp: iso(ts),
+      });
+      earned += 1;
+      if (earned % THRESHOLD === 0) {
+        const rewardId = `demo-rw-${++rewardSeq}`;
+        const issueId = nextId('demo-tx');
+        transactions.push({
+          id: issueId,
+          customerId: id,
+          type: 'reward_issue',
+          points: -THRESHOLD,
+          staffId,
+          timestamp: iso(ts),
+          rewardId,
+        });
+        rewards.push({
+          id: rewardId,
+          token: `DEMOrwd${String(rewardSeq).padStart(4, '0')}aaaaaaaaaaa`,
+          shortCode: demoRewardCode(rewardSeq),
+          ownerId: id,
+          status: 'unspent',
+          issuedAt: iso(ts),
+          sourceTxnId: issueId,
+          descriptionSnapshot: REWARD_DESCRIPTION,
+        });
+        rewardEvents.push({
+          id: nextId('demo-re'),
+          rewardId,
+          type: 'reward.issued',
+          customerId: id,
+          staffId,
+          timestamp: iso(ts),
+        });
+      }
+    }
   });
 
-  const customerAt = (i: number): Customer => customers[i % customers.length];
-  const staffAt = (i: number): string => STAFF_IDS[i % STAFF_IDS.length];
-
-  // Coffees (accruals) across the ranges.
-  accrualOffsetsHours().forEach((h, i) => {
-    const ts = iso(now - h * HOUR);
-    const customer = customerAt(i * 3 + 1);
-    const staffId = staffAt(i);
-    const points = (i % 2) + 1;
-    transactions.push({
-      id: nextId('demo-tx'),
-      customerId: customer.id,
-      type: 'accrual',
-      points,
-      staffId,
-      timestamp: ts,
-    });
-    audit.push({
-      id: nextId('demo-aud'),
-      actorId: staffId,
-      actorRole: 'staff',
-      action: 'loyalty.accrue',
-      targetId: customer.id,
-      timestamp: ts,
-    });
-  });
-
-  // Rewards redeemed across the ranges.
+  // Redeem some of the minted rewards across the ranges so the admin "rewards
+  // redeemed" breakdown has content. Each redemption marks the Reward spent +
+  // appends a reward.redeemed event + a loyalty.redeem audit row.
+  const mintable = rewards.filter((r) => r.status === 'unspent');
   REDEEM_OFFSETS_HOURS.forEach((h, i) => {
-    const ts = iso(now - h * HOUR);
-    const customer = customerAt(i * 2);
-    const staffId = staffAt(i + 1);
-    transactions.push({
-      id: nextId('demo-tx'),
-      customerId: customer.id,
-      type: 'redemption',
-      points: -8,
+    const reward = mintable[i];
+    if (!reward) return;
+    const issuedMs = new Date(reward.issuedAt).getTime();
+    // Redeem at the chosen offset, but never before the reward was issued.
+    const redeemMs = Math.max(now - h * HOUR, issuedMs + HOUR);
+    if (redeemMs >= now) return;
+    const ts = iso(redeemMs);
+    const staffId = STAFF_IDS[(i + 1) % STAFF_IDS.length];
+    reward.status = 'spent';
+    reward.spentAt = ts;
+    reward.spentByStaffId = staffId;
+    rewardEvents.push({
+      id: nextId('demo-re'),
+      rewardId: reward.id,
+      type: 'reward.redeemed',
+      customerId: reward.ownerId,
       staffId,
       timestamp: ts,
-      note: 'Free regular coffee',
     });
     audit.push({
       id: nextId('demo-aud'),
       actorId: staffId,
       actorRole: 'staff',
       action: 'loyalty.redeem',
-      targetId: customer.id,
+      targetId: reward.ownerId,
       timestamp: ts,
     });
   });
 
-  return { customers, transactions, audit };
+  return { customers, transactions, rewards, rewardEvents, audit };
 }

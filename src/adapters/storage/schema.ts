@@ -11,11 +11,21 @@ import type {
   Customer,
   LoyaltyTransaction,
   ProgramConfig,
+  Reward,
+  RewardEvent,
   StaffAccount,
 } from '../../domain/models';
+import type { CommitResult } from '../../ports/DataStore';
 
 export const DB_NAME = 'cafe-loyalty';
-export const DB_VERSION = 4;
+/**
+ * v5 (rewards-as-objects, REWARDS-PLAN Phase 2) is a CLEAN RESET: the upgrade
+ * drops every existing store and recreates the full schema below, then the seed
+ * repopulates in the new model. The prototype has no live customer data to
+ * migrate, so dropping + recreating eliminates the riskiest (lossy) migration
+ * class — see REWARDS-DECISIONS Q2.
+ */
+export const DB_VERSION = 5;
 
 /** The legacy reward threshold, superseded by the 8-coffee default (see seed). */
 export const LEGACY_POINTS_PER_REWARD = 10;
@@ -31,6 +41,34 @@ export interface RecoveryCodeRecord {
   customerId: string;
   expiresAt: number; // epoch ms
   usedAt?: number; // epoch ms; set once on consume
+}
+
+/**
+ * Idempotency-dedup record (rewards-as-objects, REWARDS-PLAN §3.3 / Q5). Maps a
+ * commit's `idempotencyKey` to its cached {@link CommitResult} so a retried RPC
+ * commit (the paired-device path has a 10s retry) returns the same result with
+ * NO re-writes. Also carries the minimal effect of the commit so `undoCommit`
+ * can reverse it without re-deriving (points reversed, fresh mints voided, spent
+ * rewards re-minted). All ids only — never PII.
+ */
+export interface IdempotencyRecord {
+  key: string;
+  /** The original commit's result, replayed verbatim on a same-key retry. */
+  result: CommitResult;
+  /** Staff member who committed it (attribution for the undo's reversal/reissue). */
+  staffId: string;
+  /** Points the commit accrued (to compute the reversal). */
+  pointsDelta: number;
+  /** Threshold in force at commit time (pointsPerReward). */
+  threshold: number;
+  /** Ids of rewards the commit minted (voided on undo). */
+  mintedRewardIds: string[];
+  /** Ids of rewards the commit redeemed (each re-minted on undo). */
+  spentRewardIds: string[];
+  /** Set once the commit has been undone (a second undo is a cached no-op). */
+  undone?: boolean;
+  /** Cached undo outcome, so a repeat `undoCommit` is idempotent. */
+  undoResult?: CommitResult;
 }
 
 export interface LoyaltyDB extends DBSchema {
@@ -53,6 +91,22 @@ export interface LoyaltyDB extends DBSchema {
     value: LoyaltyTransaction;
     indexes: { byCustomer: string };
   };
+  /**
+   * Materialized {@link Reward} projections (rewards-as-objects). The append-only
+   * `rewardEvents` log is the source of truth for status; this store is the
+   * fast-read cache + the row a redeem locks on (within the commit tx).
+   */
+  rewards: {
+    key: string;
+    value: Reward;
+    indexes: { byOwner: string; byToken: string; byStatus: string; byShortCode: string };
+  };
+  /** Append-only reward-lifecycle log (issued / redeemed / voided). */
+  rewardEvents: {
+    key: string;
+    value: RewardEvent;
+    indexes: { byReward: string; byOwner: string };
+  };
   audit: {
     key: string;
     value: AuditLogEntry;
@@ -61,6 +115,11 @@ export interface LoyaltyDB extends DBSchema {
   recoveryCodes: {
     key: string;
     value: RecoveryCodeRecord;
+  };
+  /** Commit idempotency-dedup cache (keyed by `idempotencyKey`). */
+  idempotencyKeys: {
+    key: string;
+    value: IdempotencyRecord;
   };
 }
 

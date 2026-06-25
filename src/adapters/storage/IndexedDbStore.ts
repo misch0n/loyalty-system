@@ -10,7 +10,7 @@
  * only and must never hold real customer data.
  */
 
-import { openDB, type IDBPDatabase } from 'idb';
+import { openDB, type IDBPDatabase, type IDBPTransaction } from 'idb';
 import type {
   AppendAuditInput,
   AppendTransactionInput,
@@ -24,6 +24,7 @@ import type {
   CustomerQuery,
   DataStore,
   RedeemResult,
+  RejectedRedemption,
 } from '../../ports/DataStore';
 import type {
   AuditLogEntry,
@@ -32,24 +33,63 @@ import type {
   LoyaltyTransaction,
   ProgramConfig,
   Reward,
+  RewardEvent,
   RewardStatus,
   Snapshot,
   StaffAccount,
 } from '../../domain/models';
-import { generateId, generateShortCode } from '../../domain/tokens';
+import {
+  generateId,
+  generateRewardShortCode,
+  generateRewardToken,
+  generateShortCode,
+} from '../../domain/tokens';
 import { balance, checkRedemption } from '../../domain/loyalty';
+import {
+  cardProgress,
+  isOverCap,
+  mintFold,
+  planUndo,
+  validateRedemption,
+} from '../../domain/rewards';
 import { normalizeEmail, normalizePhone } from '../../domain/validation';
 import {
   CONFIG_KEY,
   DB_NAME,
   DB_VERSION,
   DEFAULT_CONFIG,
-  LEGACY_POINTS_PER_REWARD,
   SEED_STAFF,
+  type IdempotencyRecord,
   type LoyaltyDB,
   type RecoveryCodeRecord,
 } from './schema';
 import { buildDemoSeed } from './demoSeed';
+
+/** Every store cleared/recreated on a clean v5 DB (and emptied on Reset). */
+const ALL_STORES = [
+  'config',
+  'staff',
+  'customers',
+  'transactions',
+  'rewards',
+  'rewardEvents',
+  'audit',
+  'recoveryCodes',
+  'idempotencyKeys',
+] as const;
+
+/** Stores spanned by the atomic commit/undo readwrite transaction. */
+const COMMIT_STORES = [
+  'config',
+  'customers',
+  'transactions',
+  'rewards',
+  'rewardEvents',
+  'idempotencyKeys',
+] as const;
+
+/** The commit/undo transaction type — lets the write helpers reach its stores. */
+type CommitTx = IDBPTransaction<LoyaltyDB, typeof COMMIT_STORES, 'readwrite'>;
 
 export class IndexedDbStore implements DataStore {
   private dbPromise: Promise<IDBPDatabase<LoyaltyDB>>;
@@ -78,18 +118,8 @@ export class IndexedDbStore implements DataStore {
    */
   async reset(): Promise<void> {
     const db = await this.dbPromise;
-    const tx = db.transaction(
-      ['config', 'staff', 'customers', 'transactions', 'audit', 'recoveryCodes'],
-      'readwrite',
-    );
-    await Promise.all([
-      tx.objectStore('config').clear(),
-      tx.objectStore('staff').clear(),
-      tx.objectStore('customers').clear(),
-      tx.objectStore('transactions').clear(),
-      tx.objectStore('audit').clear(),
-      tx.objectStore('recoveryCodes').clear(),
-    ]);
+    const tx = db.transaction(ALL_STORES, 'readwrite');
+    await Promise.all(ALL_STORES.map((name) => tx.objectStore(name).clear()));
     await tx.done;
     await this.seed(db); // re-run the idempotent seed: default config + mock staff
   }
@@ -123,50 +153,51 @@ export class IndexedDbStore implements DataStore {
   private openOnce(): Promise<IDBPDatabase<LoyaltyDB>> {
     let opened: IDBPDatabase<LoyaltyDB> | undefined;
     const opening = openDB<LoyaltyDB>(DB_NAME, DB_VERSION, {
-      async upgrade(database, oldVersion, _newVersion, transaction) {
-        if (oldVersion < 1) {
-          database.createObjectStore('config', { keyPath: 'id' });
-
-          const staff = database.createObjectStore('staff', { keyPath: 'id' });
-          staff.createIndex('byUsername', 'username', { unique: true });
-
-          const customers = database.createObjectStore('customers', { keyPath: 'id' });
-          customers.createIndex('byToken', 'token', { unique: true });
-          customers.createIndex('byStatus', 'status');
-          customers.createIndex('byShortCode', 'shortCode', { unique: true });
-
-          const transactions = database.createObjectStore('transactions', { keyPath: 'id' });
-          transactions.createIndex('byCustomer', 'customerId');
-
-          const audit = database.createObjectStore('audit', { keyPath: 'id' });
-          audit.createIndex('byTimestamp', 'timestamp');
-          audit.createIndex('byAction', 'action');
+      upgrade(database) {
+        // v5 (rewards-as-objects): CLEAN RESET. Drop every existing store and
+        // recreate the full schema below; the post-open seed repopulates in the
+        // new model. No data migration — the prototype has nothing to preserve
+        // (REWARDS-DECISIONS Q2), and this sidesteps the riskiest migration
+        // class entirely. Every call here is synchronous: NO await loop inside
+        // the versionchange transaction (an awaited cursor loop can hang the
+        // upgrade on Safari, then block every later DB op).
+        for (const name of Array.from(database.objectStoreNames)) {
+          database.deleteObjectStore(name);
         }
-        if (oldVersion < 2) {
-          // Recovery codes keyed by the opaque code itself (no PII stored).
-          database.createObjectStore('recoveryCodes', { keyPath: 'code' });
-        }
-        if (oldVersion < 3 && oldVersion >= 1) {
-          // The program default changed from 10 → 8 coffees (the card shows a
-          // fixed 10-stamp layout: welcome + 8 purchases + free). Nudge devices
-          // still on the old default so they pick up the new program; a custom
-          // (non-legacy) threshold an admin set is left untouched.
-          const store = transaction.objectStore('config');
-          const cfg = await store.get(CONFIG_KEY);
-          if (cfg && cfg.pointsPerReward === LEGACY_POINTS_PER_REWARD) {
-            await store.put({ ...cfg, pointsPerReward: DEFAULT_CONFIG.pointsPerReward });
-          }
-        }
-        if (oldVersion < 4 && oldVersion >= 1) {
-          // Add the human-shareable short code index. Existing rows have no
-          // `shortCode` (so they're simply absent from this unique index until
-          // backfilled). Backfill runs AFTER open in a normal transaction —
-          // never here: awaiting a cursor loop inside a versionchange upgrade can
-          // hang the transaction on Safari, which then blocks every DB op.
-          transaction.objectStore('customers').createIndex('byShortCode', 'shortCode', {
-            unique: true,
-          });
-        }
+
+        database.createObjectStore('config', { keyPath: 'id' });
+
+        const staff = database.createObjectStore('staff', { keyPath: 'id' });
+        staff.createIndex('byUsername', 'username', { unique: true });
+
+        const customers = database.createObjectStore('customers', { keyPath: 'id' });
+        customers.createIndex('byToken', 'token', { unique: true });
+        customers.createIndex('byStatus', 'status');
+        customers.createIndex('byShortCode', 'shortCode', { unique: true });
+
+        const transactions = database.createObjectStore('transactions', { keyPath: 'id' });
+        transactions.createIndex('byCustomer', 'customerId');
+
+        // rewards-as-objects: materialized reward projections + their event log.
+        const rewards = database.createObjectStore('rewards', { keyPath: 'id' });
+        rewards.createIndex('byOwner', 'ownerId');
+        rewards.createIndex('byToken', 'token', { unique: true });
+        rewards.createIndex('byStatus', 'status');
+        rewards.createIndex('byShortCode', 'shortCode', { unique: true });
+
+        const rewardEvents = database.createObjectStore('rewardEvents', { keyPath: 'id' });
+        rewardEvents.createIndex('byReward', 'rewardId');
+        rewardEvents.createIndex('byOwner', 'customerId');
+
+        const audit = database.createObjectStore('audit', { keyPath: 'id' });
+        audit.createIndex('byTimestamp', 'timestamp');
+        audit.createIndex('byAction', 'action');
+
+        // Recovery codes keyed by the opaque code itself (no PII stored).
+        database.createObjectStore('recoveryCodes', { keyPath: 'code' });
+
+        // Commit idempotency-dedup cache (keyed by idempotencyKey).
+        database.createObjectStore('idempotencyKeys', { keyPath: 'key' });
       },
       blocked() {
         // Another open connection is holding back our upgrade. We can't proceed;
@@ -259,12 +290,17 @@ export class IndexedDbStore implements DataStore {
     }
   }
 
-  /** Write the prototype demo members/ledger/audit (see demoSeed.ts). */
+  /** Write the prototype demo members/ledger/rewards/audit (see demoSeed.ts). */
   private async seedDemo(db: IDBPDatabase<LoyaltyDB>): Promise<void> {
-    const { customers, transactions, audit } = buildDemoSeed(Date.now());
-    const tx = db.transaction(['customers', 'transactions', 'audit'], 'readwrite');
+    const { customers, transactions, rewards, rewardEvents, audit } = buildDemoSeed(Date.now());
+    const tx = db.transaction(
+      ['customers', 'transactions', 'rewards', 'rewardEvents', 'audit'],
+      'readwrite',
+    );
     for (const c of customers) await tx.objectStore('customers').put(c);
     for (const t of transactions) await tx.objectStore('transactions').put(t);
+    for (const r of rewards) await tx.objectStore('rewards').put(r);
+    for (const e of rewardEvents) await tx.objectStore('rewardEvents').put(e);
     for (const a of audit) await tx.objectStore('audit').put(a);
     await tx.done;
   }
@@ -440,30 +476,341 @@ export class IndexedDbStore implements DataStore {
     return { ok: true, transaction: entry, balance: current + decision.delta };
   }
 
-  // ── rewards-as-objects (unified commit) ─────────────────────────────────────
+  // ── rewards-as-objects (unified commit, REWARDS-PLAN §3.3) ──────────────────
   //
-  // PHASE 0 PLACEHOLDERS. The contract (REWARDS-PLAN §3.3) is declared on the
-  // `DataStore` port now so call sites and the production `ApiStore` can be wired
-  // ahead of the storage rework. These throw until Phase 2 implements the schema
-  // v5 stores + the atomic, idempotent commit. Nothing calls them yet.
+  // `commitCounterTransaction` is the single atomic mutation entry: accrue
+  // points, mint a reward per threshold crossing, and redeem 0..N existing
+  // rewards — all in ONE IndexedDB readwrite tx (the tx scope is the lock; there
+  // is no IDB row lock — recorded as a divergence, prod = SELECT … FOR UPDATE),
+  // idempotent on `idempotencyKey`. Audit is NOT written here — the service layer
+  // appends it (with `source`) in Phase 3, matching how audit is appended today.
 
-  private rewardsNotImplemented(method: string): never {
-    throw new Error(
-      `IndexedDbStore.${method} is not implemented yet — rewards-as-objects lands in REWARDS-PLAN Phase 2.`,
+  async commitCounterTransaction(txn: CounterTransaction): Promise<CommitResult> {
+    const db = await this.dbPromise;
+    const tx = db.transaction(COMMIT_STORES, 'readwrite');
+    const idemStore = tx.objectStore('idempotencyKeys');
+
+    // Idempotent replay: a repeat with the same key returns the cached result
+    // with NO writes (the correctness guard for the 10s RPC-retry path).
+    const existing = await idemStore.get(txn.idempotencyKey);
+    if (existing) {
+      await tx.done;
+      return existing.result;
+    }
+
+    const config = this.configFrom(await tx.objectStore('config').get(CONFIG_KEY));
+    const threshold = config.pointsPerReward;
+
+    // over_cap short-circuit (no writes): pointsDelta over the cap or negative.
+    if (isOverCap(txn.pointsDelta, config)) {
+      await tx.done;
+      return { ok: false, error: 'over_cap' };
+    }
+
+    // customer_not_found short-circuit (no writes).
+    const customerStore = tx.objectStore('customers');
+    const customer = await customerStore.get(txn.customerId);
+    if (!customer) {
+      await tx.done;
+      return { ok: false, error: 'customer_not_found' };
+    }
+
+    const now = this.now();
+    const txnStore = tx.objectStore('transactions');
+    const rewardStore = tx.objectStore('rewards');
+
+    const startBalance = balance(await txnStore.index('byCustomer').getAll(txn.customerId));
+
+    // 1. Accrual (skip a zero-point accrual — a redeem-only commit adds no entry).
+    if (txn.pointsDelta > 0) {
+      await txnStore.add({
+        id: generateId(),
+        customerId: txn.customerId,
+        type: 'accrual',
+        points: txn.pointsDelta,
+        staffId: txn.staffId,
+        timestamp: now,
+      });
+    }
+
+    // 2. Mint-on-cross: one reward_issue(−threshold) + one Reward + one event per
+    //    crossing. Folds a multi-reward crossing (a large accrual) in one step.
+    const minted: Reward[] = [];
+    const plan = mintFold(startBalance + txn.pointsDelta, config);
+    for (let i = 0; i < plan.mintCount; i++) {
+      const reward = await this.mintReward(
+        tx,
+        txn.customerId,
+        txn.staffId,
+        config.rewardDescription,
+        plan.perMintPoints,
+        now,
+      );
+      minted.push(reward);
+    }
+
+    // 3. Redeem each requested id — subset redeem: an invalid id is reported in
+    //    `rejected[]` and never aborts the commit. Re-validated against the live
+    //    row (ownership beats status), so a stale scan can't double-spend.
+    const redeemed: Reward[] = [];
+    const rejected: RejectedRedemption[] = [];
+    for (const rewardId of txn.redeemRewardIds) {
+      const reward = (await rewardStore.get(rewardId)) ?? null;
+      const validity = validateRedemption(reward, txn.customerId);
+      if (!validity.ok) {
+        rejected.push({ rewardId, reason: validity.reason });
+        continue;
+      }
+      const spent: Reward = {
+        ...(reward as Reward),
+        status: 'spent',
+        spentAt: now,
+        spentByStaffId: txn.staffId,
+      };
+      await rewardStore.put(spent);
+      await tx
+        .objectStore('rewardEvents')
+        .add(this.rewardEvent('reward.redeemed', spent.id, txn.customerId, txn.staffId, now));
+      redeemed.push(spent);
+    }
+
+    const state = this.buildState(
+      customer,
+      config,
+      await txnStore.index('byCustomer').getAll(txn.customerId),
+      await rewardStore.index('byOwner').getAll(txn.customerId),
     );
+    const result: CommitResult = { ok: true, state, minted, redeemed, rejected };
+
+    const record: IdempotencyRecord = {
+      key: txn.idempotencyKey,
+      result,
+      staffId: txn.staffId,
+      pointsDelta: txn.pointsDelta,
+      threshold,
+      mintedRewardIds: minted.map((r) => r.id),
+      spentRewardIds: redeemed.map((r) => r.id),
+    };
+    await idemStore.put(record);
+    await tx.done;
+    return result;
   }
 
-  commitCounterTransaction(_txn: CounterTransaction): Promise<CommitResult> {
-    return this.rewardsNotImplemented('commitCounterTransaction');
+  async listRewards(customerId: string, status?: RewardStatus): Promise<Reward[]> {
+    const db = await this.dbPromise;
+    const all = await db.getAllFromIndex('rewards', 'byOwner', customerId);
+    const filtered = status ? all.filter((r) => r.status === status) : all;
+    return filtered.sort((a, b) => a.issuedAt.localeCompare(b.issuedAt));
   }
-  listRewards(_customerId: string, _status?: RewardStatus): Promise<Reward[]> {
-    return this.rewardsNotImplemented('listRewards');
+
+  async getCustomerState(customerId: string): Promise<CustomerState> {
+    const db = await this.dbPromise;
+    const tx = db.transaction(['config', 'customers', 'transactions', 'rewards'], 'readonly');
+    const customer = await tx.objectStore('customers').get(customerId);
+    if (!customer) throw new Error('Customer not found.');
+    const config = this.configFrom(await tx.objectStore('config').get(CONFIG_KEY));
+    const transactions = await tx.objectStore('transactions').index('byCustomer').getAll(customerId);
+    const rewards = await tx.objectStore('rewards').index('byOwner').getAll(customerId);
+    await tx.done;
+    return this.buildState(customer, config, transactions, rewards);
   }
-  getCustomerState(_customerId: string): Promise<CustomerState> {
-    return this.rewardsNotImplemented('getCustomerState');
+
+  async undoCommit(idempotencyKey: string): Promise<CommitResult> {
+    const db = await this.dbPromise;
+    const tx = db.transaction(COMMIT_STORES, 'readwrite');
+    const idemStore = tx.objectStore('idempotencyKeys');
+    const record = await idemStore.get(idempotencyKey);
+    // Nothing to undo (unknown key, or the original commit failed).
+    if (!record || !record.result.ok) {
+      await tx.done;
+      return { ok: false, error: 'customer_not_found' };
+    }
+    // Already undone — replay the cached undo result, no second reversal.
+    if (record.undone && record.undoResult) {
+      await tx.done;
+      return record.undoResult;
+    }
+
+    const customerId = record.result.state.customer.id;
+    const customerStore = tx.objectStore('customers');
+    const customer = await customerStore.get(customerId);
+    if (!customer) {
+      await tx.done;
+      return { ok: false, error: 'customer_not_found' };
+    }
+
+    const config = this.configFrom(await tx.objectStore('config').get(CONFIG_KEY));
+    const now = this.now();
+    const txnStore = tx.objectStore('transactions');
+    const rewardStore = tx.objectStore('rewards');
+
+    const undo = planUndo({
+      pointsDelta: record.pointsDelta,
+      threshold: record.threshold,
+      mintedRewardIds: record.mintedRewardIds,
+      spentRewardIds: record.spentRewardIds,
+    });
+
+    // 1. Reverse the commit's net point effect (skip a no-op zero reversal).
+    if (undo.reversePoints !== 0) {
+      await txnStore.add({
+        id: generateId(),
+        customerId,
+        type: 'reversal',
+        points: undo.reversePoints,
+        staffId: record.staffId,
+        timestamp: now,
+        note: 'undo',
+      });
+    }
+
+    // 2. Void each freshly-minted reward still unspent (a spent one can't be voided).
+    for (const rewardId of undo.voidRewardIds) {
+      const reward = await rewardStore.get(rewardId);
+      if (!reward || reward.status !== 'unspent') continue;
+      await rewardStore.put({ ...reward, status: 'voided' });
+      await tx
+        .objectStore('rewardEvents')
+        .add(
+          this.rewardEvent('reward.voided', rewardId, customerId, undefined, now, {
+            reason: 'mint_reversed',
+          }),
+        );
+    }
+
+    // 3. Re-mint a point-neutral replacement for each reward the commit spent —
+    //    the spent reward STAYS spent (append-only); the customer is made whole.
+    const reissued: Reward[] = [];
+    for (let i = 0; i < undo.reissueForSpentRewardIds.length; i++) {
+      const reward = await this.mintReward(
+        tx,
+        customerId,
+        record.staffId,
+        config.rewardDescription,
+        0, // point-neutral: no reward_issue ledger debit (already earned earlier)
+        now,
+        { reason: 'undo_reissue' },
+      );
+      reissued.push(reward);
+    }
+
+    const state = this.buildState(
+      customer,
+      config,
+      await txnStore.index('byCustomer').getAll(customerId),
+      await rewardStore.index('byOwner').getAll(customerId),
+    );
+    const undoResult: CommitResult = {
+      ok: true,
+      state,
+      minted: reissued,
+      redeemed: [],
+      rejected: [],
+    };
+    await idemStore.put({ ...record, undone: true, undoResult });
+    await tx.done;
+    return undoResult;
   }
-  undoCommit(_idempotencyKey: string): Promise<CommitResult> {
-    return this.rewardsNotImplemented('undoCommit');
+
+  /** Strip the store-only `id` off a config record (or fall back to the default). */
+  private configFrom(record: (ProgramConfig & { id: string }) | undefined): ProgramConfig {
+    if (!record) return DEFAULT_CONFIG;
+    const { id: _id, ...config } = record;
+    return config;
+  }
+
+  /**
+   * Build the canonical {@link CustomerState} read-model from a customer's full
+   * ledger + reward rows. Balance settles to 0..threshold−1 (minting debits each
+   * crossing); the unspent-reward count drives the card. The transitional
+   * `transactions`/`rewardAvailable`/`progress.rewardsAvailable` are populated too
+   * (removed once the service rework, Phase 3, lands).
+   */
+  private buildState(
+    customer: Customer,
+    config: ProgramConfig,
+    transactions: LoyaltyTransaction[],
+    rewards: Reward[],
+  ): CustomerState {
+    const ordered = [...transactions].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    const bal = balance(ordered);
+    const prog = cardProgress(bal, config);
+    const unspent = rewards
+      .filter((r) => r.status === 'unspent')
+      .sort((a, b) => a.issuedAt.localeCompare(b.issuedAt));
+    return {
+      customer,
+      config,
+      transactions: ordered,
+      balance: bal,
+      rewardAvailable: unspent.length > 0,
+      rewards: unspent,
+      progress: { current: prog.current, threshold: prog.threshold, rewardsAvailable: unspent.length },
+    };
+  }
+
+  /**
+   * Mint one reward inside the commit/undo tx: append its `reward_issue` ledger
+   * entry (skipped when `ledgerDelta` is 0 — a point-neutral undo reissue, since
+   * the points were already consumed at the original mint), materialize the
+   * unspent {@link Reward}, and append its `reward.issued` event. Returns it.
+   */
+  private async mintReward(
+    tx: CommitTx,
+    customerId: string,
+    staffId: string,
+    description: string,
+    ledgerDelta: number,
+    now: string,
+    details?: Record<string, string>,
+  ): Promise<Reward> {
+    const rewardStore = tx.objectStore('rewards');
+    const rewardId = generateId();
+    let sourceTxnId = '';
+    if (ledgerDelta !== 0) {
+      sourceTxnId = generateId();
+      await tx.objectStore('transactions').add({
+        id: sourceTxnId,
+        customerId,
+        type: 'reward_issue',
+        points: ledgerDelta,
+        staffId,
+        timestamp: now,
+        rewardId,
+      });
+    }
+    // A short code unique among rewards (collision odds ~1 in 10^12; bounded retry).
+    let shortCode = generateRewardShortCode();
+    for (let i = 0; i < 12 && (await rewardStore.index('byShortCode').get(shortCode)); i++) {
+      shortCode = generateRewardShortCode();
+    }
+    const reward: Reward = {
+      id: rewardId,
+      token: generateRewardToken(),
+      shortCode,
+      ownerId: customerId,
+      status: 'unspent',
+      issuedAt: now,
+      sourceTxnId,
+      descriptionSnapshot: description,
+    };
+    await rewardStore.add(reward);
+    await tx
+      .objectStore('rewardEvents')
+      .add(this.rewardEvent('reward.issued', rewardId, customerId, staffId, now, details));
+    return reward;
+  }
+
+  /** Build one append-only reward-lifecycle event (no PII in `details`). */
+  private rewardEvent(
+    type: RewardEvent['type'],
+    rewardId: string,
+    customerId: string,
+    staffId: string | undefined,
+    now: string,
+    details?: Record<string, string>,
+  ): RewardEvent {
+    return { id: generateId(), rewardId, type, customerId, staffId, timestamp: now, details };
   }
 
   // ── recovery codes (single-use, short-expiry) ──────────────────────────────
@@ -644,8 +991,20 @@ export class IndexedDbStore implements DataStore {
 
   async importAll(snapshot: Snapshot): Promise<void> {
     const db = await this.dbPromise;
+    // The Snapshot predates rewards-as-objects (it carries no rewards), so also
+    // CLEAR the reward stores + the idempotency cache on import — otherwise a
+    // restore would leave orphaned rewards/events pointing at wiped customers.
     const tx = db.transaction(
-      ['config', 'staff', 'customers', 'transactions', 'audit'],
+      [
+        'config',
+        'staff',
+        'customers',
+        'transactions',
+        'audit',
+        'rewards',
+        'rewardEvents',
+        'idempotencyKeys',
+      ],
       'readwrite',
     );
     await Promise.all([
@@ -654,6 +1013,9 @@ export class IndexedDbStore implements DataStore {
       tx.objectStore('customers').clear(),
       tx.objectStore('transactions').clear(),
       tx.objectStore('audit').clear(),
+      tx.objectStore('rewards').clear(),
+      tx.objectStore('rewardEvents').clear(),
+      tx.objectStore('idempotencyKeys').clear(),
     ]);
     await tx.objectStore('config').put({ ...snapshot.config, id: CONFIG_KEY });
     for (const s of snapshot.staff) await tx.objectStore('staff').put(s);
