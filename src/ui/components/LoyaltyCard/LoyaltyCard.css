@@ -66,36 +66,60 @@
   opacity: 0.85;
 }
 
+/* The reward entry: a sage container holding the tappable "entry" (→ the first
+   reward's QR) and, for 2+ rewards, a count badge that opens the composite
+   picker. The container itself is not a button (it holds two buttons). */
 .ready-banner {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  border: 0;
-  text-align: left;
-  font: inherit;
   background: var(--sage);
   color: var(--forest-700);
   border-radius: 16px;
   padding: 13px 15px;
   position: relative;
   overflow: hidden;
+}
+/* The main tappable entry (star + copy) → single reward QR. */
+.ready-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  padding: 0;
   cursor: pointer;
+  position: relative;
+  z-index: 1;
   -webkit-tap-highlight-color: transparent;
   transition: transform 120ms ease;
 }
-.ready-banner:active {
+.ready-entry:active {
   transform: translateY(1px);
 }
-/* Multiple free coffees unlocked: cup glyph + count, right-aligned. Shown only
-   for 2+ (a single reward shows no badge). */
+/* The "×N" composite multiplier shown beside the entry label when expanded. */
+.ready-banner .mult {
+  font-family: var(--mono);
+  font-weight: 700;
+  margin-left: 6px;
+  opacity: 0.9;
+}
+/* Multiple free coffees unlocked: cup glyph + count (collapsed) or a QR icon
+   (expanded), right-aligned. Shown only for 2+ (a single reward shows no badge). */
 .ready-banner .ready-badge {
   margin-left: auto;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 9px;
+  padding: 6px 10px;
+  border: 0;
   border-radius: 999px;
   background: rgba(36, 60, 46, 0.16);
   color: var(--forest-700);
@@ -103,11 +127,41 @@
   font-weight: 700;
   font-size: 13px;
   line-height: 1;
+  cursor: pointer;
   position: relative;
+  z-index: 1;
+  -webkit-tap-highlight-color: transparent;
 }
 .ready-banner .ready-badge svg {
   width: 15px;
   height: 15px;
+}
+/* The composite picker: a selectable list of the owned rewards, first preselected. */
+.reward-choices {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 10px 13px;
+  border-radius: 14px;
+  background: rgba(248, 243, 232, 0.1);
+  display: grid;
+  gap: 7px;
+}
+.reward-choices li {
+  margin: 0;
+}
+.reward-choices label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--cream);
+  cursor: pointer;
+}
+.reward-choices input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--sage);
+  flex: 0 0 auto;
 }
 .ready-banner .spark {
   position: absolute;

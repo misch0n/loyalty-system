@@ -45,8 +45,10 @@ export function Card() {
   const [savedToken, setSavedToken] = useState<string | null>(null);
   const [enlarged, setEnlarged] = useState(false);
   // The enlarged QR opens in two modes: the plain card view (tap the QR) and a
-  // special "redeem" view (tap the unlocked-reward banner).
+  // special "redeem" view (tap a reward entry) — which shows the REWARD QR for
+  // the reward token(s) the card selected.
   const [redeemMode, setRedeemMode] = useState(false);
+  const [redeemTokens, setRedeemTokens] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const resolvingRef = useRef(false);
@@ -75,15 +77,19 @@ export function Card() {
     let active = true;
     void loyalty
       .getStateByToken(routeToken)
-      .then((next) => {
+      .then(async (found) => {
         if (!active) return;
         setOffline(false);
-        if (!next) {
+        if (!found) {
           setPhase('missing');
           setState(null);
           return;
         }
-        setState(next);
+        // Resolve token → id, then read the reward-aware state (settled balance +
+        // discrete unspent rewards) — the same path the staff Scan uses.
+        const fresh = await loyalty.getState(found.customer.id);
+        if (!active) return;
+        setState(fresh);
         setPhase('ready');
       })
       .catch(() => {
@@ -132,13 +138,15 @@ export function Card() {
 
   if (!state) return null;
 
-  const { customer, progress, rewardAvailable } = state;
+  const { customer, progress } = state;
+  const rewards = state.rewards ?? [];
+  const rewardReady = rewards.length > 0;
   const name = customer.displayName || 'Your card';
   const owned = savedToken === routeToken;
   const code = `CKY · ${formatShortCode(customer.shortCode)}`;
 
   return (
-    <div className={`screen ${rewardAvailable ? 'bg-sage' : 'bg-blush'}`}>
+    <div className={`screen ${rewardReady ? 'bg-sage' : 'bg-blush'}`}>
       <div className="screen-pad card-main">
         <div className="card-topline">
           <Eyebrow className="center card-eyebrow">Your Ckyka card</Eyebrow>
@@ -173,13 +181,13 @@ export function Card() {
           total={progress.threshold}
           token={routeToken}
           code={code}
-          rewardReady={rewardAvailable}
-          rewardsAvailable={progress.rewardsAvailable}
+          rewards={rewards}
           onEnlarge={() => {
             setRedeemMode(false);
             setEnlarged(true);
           }}
-          onRedeem={() => {
+          onRedeem={(tokens) => {
+            setRedeemTokens(tokens);
             setRedeemMode(true);
             setEnlarged(true);
           }}
@@ -187,8 +195,8 @@ export function Card() {
         />
 
         <p className="card-hint">
-          {rewardAvailable
-            ? 'Enjoy — your card resets after this one.'
+          {rewardReady
+            ? 'Show your free coffee at the counter — tap the reward to enlarge it.'
             : 'Tap your code to enlarge it or add it to your wallet.'}
         </p>
         <div className="spacer" />
@@ -205,6 +213,7 @@ export function Card() {
         name={name}
         code={code}
         redeem={redeemMode}
+        rewardTokens={redeemTokens}
       />
 
       <CardMenu

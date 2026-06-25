@@ -17,7 +17,7 @@ import { Overlay } from '../../../components/Overlay/Overlay';
 import { WalletButton } from '../../../components/Button/Button';
 import { BotanicalWreath } from '../../../components/BotanicalWreath/BotanicalWreath';
 import { useServices } from '../../../common/ServicesContext';
-import { cardPayload, toDataUrl } from '../../../../qr/encode';
+import { cardPayload, rewardScanPayload, toDataUrl } from '../../../../qr/encode';
 import { detectWalletKind } from '../../../../wallet/passes';
 import './EnlargedQr.css';
 
@@ -26,15 +26,18 @@ export interface EnlargedQrProps {
   onClose: () => void;
   /** Internal customer id — used to ensure/mint the wallet pass. */
   customerId: string;
-  /** Opaque card token — drives the QR payload. */
+  /** Opaque card token — drives the card QR payload (and the `c=` of a reward QR). */
   token: string;
   /** Member display name, or a neutral fallback. */
   name: string;
   /** Short human code shown under the name, e.g. "CKY · 5YUrTHtx". */
   code: string;
-  /** Special "redeem your free coffee" presentation (same QR, celebratory feel,
-   *  gold-trimmed on a forest panel; no wallet button). */
+  /** Special "redeem your free coffee" presentation: the REWARD QR (not the card
+   *  QR), framed by the café's botanical artwork; no wallet button. */
   redeem?: boolean;
+  /** Reward tokens to encode in the redeem QR (`/r?ids=…&c=<token>`). One token =
+   *  a single reward; 2+ = a composite. Ignored unless `redeem` is set. */
+  rewardTokens?: string[];
 }
 
 type WalletPhase = 'idle' | 'error';
@@ -59,6 +62,7 @@ export function EnlargedQr({
   name,
   code,
   redeem = false,
+  rewardTokens = [],
 }: EnlargedQrProps) {
   const { wallet } = useServices();
   const [qr, setQr] = useState<string | null>(null);
@@ -71,31 +75,43 @@ export function EnlargedQr({
   const [passUrl, setPassUrl] = useState<string | null>(null);
 
   const os = detectWalletKind();
+  // In redeem mode the QR carries the reward token(s) (`/r?ids=…&c=<token>`); the
+  // plain enlarged view carries the card URL. A redeem QR with no reward tokens
+  // falls back to the card QR (defensive — should not happen).
+  const rewardKey = rewardTokens.join(',');
 
   useEffect(() => {
     if (!open) return;
-    setShowWallet(isMobileSurface());
+    setShowWallet(!redeem && isMobileSurface());
     setPhase('idle');
     setPassUrl(null);
     let active = true;
-    void toDataUrl(cardPayload(token)).then((url) => {
+    const payload =
+      redeem && rewardTokens.length > 0
+        ? rewardScanPayload(rewardTokens, token)
+        : cardPayload(token);
+    void toDataUrl(payload).then((url) => {
       if (active) setQr(url);
     });
     // Resolve the wallet pass up front (the static provider is a cheap local
-    // lookup) so tapping the button is a synchronous window.open.
-    void wallet
-      .ensurePass(customerId)
-      .then((pass) => {
-        if (!active) return;
-        setPassUrl(os === 'apple' ? pass.appleUrl : pass.googleUrl);
-      })
-      .catch(() => {
-        if (active) setPhase('error');
-      });
+    // lookup) so tapping the button is a synchronous window.open. Skipped in
+    // redeem mode, which never shows the wallet button.
+    if (!redeem) {
+      void wallet
+        .ensurePass(customerId)
+        .then((pass) => {
+          if (!active) return;
+          setPassUrl(os === 'apple' ? pass.appleUrl : pass.googleUrl);
+        })
+        .catch(() => {
+          if (active) setPhase('error');
+        });
+    }
     return () => {
       active = false;
     };
-  }, [open, token, customerId, wallet, os]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, token, customerId, wallet, os, redeem, rewardKey]);
 
   function onAddToWallet() {
     if (!passUrl) {
@@ -112,16 +128,21 @@ export function EnlargedQr({
   );
 
   if (redeem) {
-    // Special redeem presentation: the same QR, framed by the café's botanical
+    // Special redeem presentation: the REWARD QR, framed by the café's botanical
     // artwork (leaves, beans, coffee cherries) so claiming a free coffee feels
-    // like an event.
+    // like an event. A composite (2+ rewards) reads in the plural.
+    const many = rewardTokens.length > 1;
     return (
       <Overlay open={open} onClose={onClose} label="Redeem your free coffee">
         <div className="redeem-panel">
           <BotanicalWreath className="redeem-deco" />
           <div className="redeem-inner">
-            <h2 className="redeem-title">Your free coffee</h2>
-            <p className="redeem-sub">Show this at the counter to redeem.</p>
+            <h2 className="redeem-title">{many ? 'Your free coffees' : 'Your free coffee'}</h2>
+            <p className="redeem-sub">
+              {many
+                ? 'Show this at the counter to redeem them all.'
+                : 'Show this at the counter to redeem.'}
+            </p>
             <div className="redeem-qrbox">{qrImg}</div>
             <div className="cd redeem-cd">{code}</div>
           </div>

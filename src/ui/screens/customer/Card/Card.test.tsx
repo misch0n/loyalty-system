@@ -17,7 +17,7 @@ import { Card } from './Card';
 import { ServicesProvider } from '../../../common/ServicesContext';
 import type { Services } from '../../../../services/Services';
 import type { CustomerState } from '../../../../services/LoyaltyService';
-import type { Customer, ProgramConfig } from '../../../../domain/models';
+import type { Customer, ProgramConfig, Reward } from '../../../../domain/models';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -49,20 +49,39 @@ const config = {
   cardInactivityDays: 365,
 } as ProgramConfig;
 
-function state(current: number, rewardAvailable: boolean): CustomerState {
+function reward(n: number): Reward {
+  return {
+    id: `r${n}`,
+    token: `rtok-${n}`,
+    shortCode: `CODE${n}`,
+    ownerId: 'c1',
+    status: 'unspent',
+    issuedAt: `2026-01-0${n}T00:00:00.000Z`,
+    sourceTxnId: `tx${n}`,
+    descriptionSnapshot: 'free coffee',
+  };
+}
+
+function state(current: number, rewards: Reward[]): CustomerState {
   return {
     customer,
     config,
     transactions: [],
     balance: current,
-    rewardAvailable,
-    progress: { current, threshold: 10, rewardsAvailable: rewardAvailable ? 1 : 0 },
+    rewardAvailable: rewards.length > 0,
+    rewards,
+    progress: { current, threshold: 10, rewardsAvailable: rewards.length },
   };
 }
 
+// The Card resolves token → id via getStateByToken, then reads the reward-aware
+// view via getState(id) — both return the same fake state here.
 function fakeServices(cs: CustomerState): Services {
   return {
-    loyalty: { getStateByToken: vi.fn().mockResolvedValue(cs) },
+    loyalty: {
+      getStateByToken: vi.fn().mockResolvedValue(cs),
+      getState: vi.fn().mockResolvedValue(cs),
+    },
     identity: { get: vi.fn().mockResolvedValue('tok-card-1'), set: vi.fn(), clear: vi.fn() },
     wallet: { ensurePass: vi.fn() },
   } as unknown as Services;
@@ -87,16 +106,21 @@ async function mount(services: Services) {
 
 describe('Card', () => {
   it('renders the collecting state on a blush background', async () => {
-    await mount(fakeServices(state(7, false)));
+    await mount(fakeServices(state(7, [])));
     expect(container.querySelector('.screen.bg-blush')).not.toBeNull();
     expect(container.querySelector('.progress-note')).not.toBeNull();
     expect(container.textContent).toContain('Maria');
     expect(container.querySelector('.ready-banner')).toBeNull();
   });
 
-  it('renders the reward state on a sage background', async () => {
-    await mount(fakeServices(state(10, true)));
+  it('renders the reward state on a sage background when an unspent reward is owned', async () => {
+    await mount(fakeServices(state(0, [reward(1)])));
     expect(container.querySelector('.screen.bg-sage')).not.toBeNull();
     expect(container.querySelector('.ready-banner')).not.toBeNull();
+  });
+
+  it('shows the multi-reward count badge for 2+ unspent rewards', async () => {
+    await mount(fakeServices(state(2, [reward(1), reward(2)])));
+    expect(container.querySelector('.ready-badge')?.textContent).toContain('2');
   });
 });

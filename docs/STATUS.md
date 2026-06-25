@@ -6,13 +6,35 @@
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 >
 > **▶ Active initiative:** the rewards-as-objects rework (Appendices C+D + multi-reward) is
-> in progress — Phases 0–5 are done; **Phase 6 (customer card UI) is next**.
+> in progress — Phases 0–6 are done; **Phase 7 (wallet hooks) is next**.
 > Phase-by-phase plan + resume protocol in [`REWARDS-PLAN.md`](REWARDS-PLAN.md), the
 > reasoning behind every decision in [`REWARDS-DECISIONS.md`](REWARDS-DECISIONS.md).
 > Maintainer preferences, assistant conventions, and iOS/deploy/IndexedDB gotchas are in
 > [`COLLAB-NOTES.md`](COLLAB-NOTES.md). New session continuing that work: start from those files.
 
-**Last updated:** 2026-06-25 (**Rewards-as-objects — Phase 5 (scan parser + staff Scan UI).** Reworked
+**Last updated:** 2026-06-25 (**Rewards-as-objects — Phase 6 (customer card UI).** Reworked the
+customer card surface onto the discrete reward model (REWARDS-PLAN Phase 6). The **Card screen**
+(`ui/screens/customer/Card/`) now resolves its reward-aware state the same way the staff Scan does —
+`getStateByToken(token)` to resolve token→id, then **`getState(id)`** for the canonical
+`CustomerState` (settled balance 0..threshold−1 + the discrete unspent **`rewards`** list). The
+sage/blush background and the reward entry are driven by **`rewards.length > 0`** (unspent count), not
+the old `rewardAvailable` boolean / `progress.rewardsAvailable`. **`LoyaltyCard`**
+(`ui/components/LoyaltyCard/`) takes the unspent `rewards: Reward[]` (replacing the
+`rewardReady`/`rewardsAvailable` props): ≥1 reward shows the sage **reward entry** (tap → the FIRST
+reward's QR, a 1-element composite); **2+** shows a **count badge** (cup glyph + N) that, on tap,
+**expands a selectable picker** (first preselected) and **morphs into a QR icon** — tapping it composes
+the **selected** reward ids into one reward QR, and a **`×N`** multiplier shows by the label. The chosen
+reward tokens flow up via the new **`onRedeem(rewardTokens: string[])`** callback (was `() => void`).
+The shipped botanical redeem overlay (**`EnlargedQr`**) now encodes the **reward QR**
+(`rewardScanPayload(tokens, customerToken)` → `…/#/r?ids=<tok,…>&c=<token>&s=a`) instead of the card QR
+when opened in redeem mode (new **`rewardTokens`** prop; single vs. composite copy: "Your free
+coffee(s)"); the plain enlarged view still shows the card QR + wallet button (wallet resolution skipped
+in redeem mode). The transitional service methods (`getStateByToken`/`getStateById`/`getStateByShortCode`
++ `rewardAvailable`/`progress.rewardsAvailable`) remain — both reworked UIs (Scan, Card) now consume the
+new `getState` path, so they can be retired in a later cleanup. **+5 tests** (LoyaltyCard single-tap
+→ first token, badge-expand → composite-of-selected with `×N`; Card reward-aware fetch + multi-reward
+badge; EnlargedQr card-QR vs reward-QR payload + plural copy) — **435 Vitest tests**, tsc + build all
+green. The Phase-8 docs pass will record the reward/QR formats + acceptance rows. Prior — **Rewards-as-objects — Phase 5 (scan parser + staff Scan UI).** Reworked
 the staff counter onto the unified rewards-as-objects commit (REWARDS-PLAN Phase 5). New **`parseScan`**
 (`qr/encode.ts`) collapses every scanned code into one uniform shape
 `{kind:'card'|'reward', customerToken, rewardTokens[], source:'a'|'w'}`: a card QR
