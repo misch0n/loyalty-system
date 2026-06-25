@@ -46,61 +46,53 @@
   margin: 2px 0 0;
 }
 
-/* ── Redeem mode (B4): a forest panel with a gold-trimmed, shimmering QR ─────── */
+/* ── Redeem mode (V4): the QR framed by the café's botanical wreath ──────────── */
 .qr-enlarge .redeem-panel {
+  position: relative;
+  width: min(88vw, 330px);
+  border-radius: 24px;
+  overflow: hidden;
+  background: #f5eddc; /* warm cream, like the brand artwork base */
+  color: var(--ink);
+  box-shadow: 0 26px 50px -24px rgba(40, 30, 20, 0.5);
+}
+.qr-enlarge .redeem-deco {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.qr-enlarge .redeem-inner {
+  position: relative; /* above the wreath */
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: 330px;
-  padding: 30px 26px 26px;
-  border-radius: 24px;
-  background: linear-gradient(155deg, #34543f, #233a2c 75%);
-  color: var(--cream);
-  box-shadow: 0 26px 50px -24px rgba(25, 42, 32, 0.9);
-}
-.qr-enlarge .redeem-star {
-  color: #e3c069; /* gold, echoing the "unlocked" treatment */
-}
-.qr-enlarge .redeem-star svg {
-  width: 32px;
-  height: 32px;
-  display: block;
+  padding: 30px 30px 28px;
 }
 .qr-enlarge .redeem-title {
   font-family: var(--serif);
   font-weight: 600;
   font-size: 23px;
-  margin: 10px 0 4px;
+  margin: 0 0 4px;
 }
 .qr-enlarge .redeem-sub {
   font-size: 13px;
-  opacity: 0.85;
+  color: var(--ink-soft);
   margin: 0 0 18px;
+  max-width: 24ch;
 }
 .qr-enlarge .redeem-qrbox {
-  position: relative;
-  overflow: hidden;
+  background: #fff;
+  border-radius: 18px;
   padding: 14px;
-  border-radius: 20px;
-  border: 4px solid transparent;
-  /* gold gradient ring via padding/border-box layering */
-  background:
-    linear-gradient(#fff, #fff) padding-box,
-    linear-gradient(135deg, #f6e3a8, #e3c069 40%, #caa14f 60%, #f6e3a8) border-box;
-  box-shadow:
-    0 0 0 1px rgba(202, 161, 79, 0.3),
-    0 12px 28px -12px rgba(180, 140, 40, 0.6);
+  box-shadow: 0 10px 24px -12px rgba(40, 30, 20, 0.35);
 }
-.qr-enlarge .redeem-shine {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  transform: translateX(-120%);
-  background: linear-gradient(115deg, transparent 40%, rgba(255, 255, 255, 0.55) 50%, transparent 60%);
-  animation: sweep 3.2s ease-in-out infinite; /* same shine as the unlocked banner */
+.qr-enlarge .redeem-qrbox .enlarged-qr-img {
+  width: min(54vw, 196px);
 }
 .qr-enlarge .redeem-cd {
   margin-top: 14px;
-  color: #cfd8c4;
+  color: var(--ink-soft);
 }

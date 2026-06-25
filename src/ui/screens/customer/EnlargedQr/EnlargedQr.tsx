@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react';
 import { Overlay } from '../../../components/Overlay/Overlay';
 import { WalletButton } from '../../../components/Button/Button';
+import { BotanicalWreath } from '../../../components/BotanicalWreath/BotanicalWreath';
 import { useServices } from '../../../common/ServicesContext';
 import { cardPayload, toDataUrl } from '../../../../qr/encode';
 import { detectWalletKind } from '../../../../wallet/passes';
@@ -111,23 +112,19 @@ export function EnlargedQr({
   );
 
   if (redeem) {
-    // Special redeem presentation: a forest panel with a gold-trimmed, shimmering
-    // QR — the same code, dressed up so claiming a free coffee feels like an event.
+    // Special redeem presentation: the same QR, framed by the café's botanical
+    // artwork (leaves, beans, coffee cherries) so claiming a free coffee feels
+    // like an event.
     return (
       <Overlay open={open} onClose={onClose} label="Redeem your free coffee">
         <div className="redeem-panel">
-          <span className="redeem-star" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2l2.4 6.3L21 9l-5 4.2L17.6 20 12 16.4 6.4 20 8 13.2 3 9l6.6-.7z" />
-            </svg>
-          </span>
-          <h2 className="redeem-title">Your free coffee</h2>
-          <p className="redeem-sub">Show this at the counter to redeem.</p>
-          <div className="redeem-qrbox">
-            <span className="redeem-shine" aria-hidden="true" />
-            {qrImg}
+          <BotanicalWreath className="redeem-deco" />
+          <div className="redeem-inner">
+            <h2 className="redeem-title">Your free coffee</h2>
+            <p className="redeem-sub">Show this at the counter to redeem.</p>
+            <div className="redeem-qrbox">{qrImg}</div>
+            <div className="cd redeem-cd">{code}</div>
           </div>
-          <div className="cd redeem-cd">{code}</div>
         </div>
       </Overlay>
     );
