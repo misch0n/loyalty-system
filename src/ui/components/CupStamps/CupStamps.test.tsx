@@ -45,4 +45,17 @@ describe('CupStamps', () => {
     expect(container.querySelectorAll('.stamp.on').length).toBe(0);
     expect(container.querySelectorAll('.stamp').length).toBe(5);
   });
+
+  it('showcase renders total+1 cups (earnable + free), no welcome cup', async () => {
+    await mount(<CupStamps filled={3} total={9} showcase />);
+    // 9 earnable + 1 free = 10 displayed cups; the tenth coffee is free.
+    expect(container.querySelectorAll('.stamp').length).toBe(10);
+    expect(container.querySelector('.stamp.welcome')).toBeNull();
+    expect(container.querySelector('.stamp.free.on')).not.toBeNull();
+    // 3 earned + the free prize cup = 4 lit.
+    expect(container.querySelectorAll('.stamp.on').length).toBe(4);
+    const grid = container.querySelector('.stamps') as HTMLElement;
+    expect(grid.dataset.total).toBe('10');
+    expect(grid.dataset.filled).toBe('4');
+  });
 });

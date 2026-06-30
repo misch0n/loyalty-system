@@ -13,6 +13,9 @@ beforeEach(async () => {
   const services = freshServices();
   loyalty = services.loyalty;
   customers = services.customers;
+  // Pin the threshold so these mechanics tests are independent of the product
+  // default (now 9 — nine stamps, tenth coffee free).
+  await services.store.updateConfig({ pointsPerReward: 8 });
   const shell = await customers.issueCard(STAFF);
   customerId = shell.id;
 });

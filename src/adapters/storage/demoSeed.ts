@@ -31,7 +31,7 @@ const DAY = 86_400_000;
 const HOUR = 3_600_000;
 
 /** Reward threshold for the demo (matches DEFAULT_CONFIG.pointsPerReward). */
-const THRESHOLD = 8;
+const THRESHOLD = 9;
 const REWARD_DESCRIPTION = 'Free regular coffee';
 
 /** Seed staff ids used for attribution (must match SEED_STAFF). */

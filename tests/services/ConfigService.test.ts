@@ -10,7 +10,7 @@ beforeEach(() => {
 describe('ConfigService', () => {
   it('seeds a sensible default config', async () => {
     const config = await services.config.get();
-    expect(config.pointsPerReward).toBe(8);
+    expect(config.pointsPerReward).toBe(9);
     expect(config.maxPointsPerTransaction).toBe(3);
   });
 
@@ -41,7 +41,7 @@ describe('stats', () => {
     await services.loyalty.accrue(STAFF, shell.id, 3);
     await services.loyalty.accrue(STAFF, shell.id, 3);
     await services.loyalty.accrue(STAFF, shell.id, 3);
-    await services.loyalty.accrue(STAFF, shell.id, 1); // 10 == default threshold
+    await services.loyalty.accrue(STAFF, shell.id, 1); // 10 total ≥ threshold → one reward
     await services.loyalty.redeem(STAFF, shell.id);
 
     const stats = await services.loyalty.getStats();

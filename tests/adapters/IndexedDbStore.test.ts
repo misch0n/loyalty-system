@@ -125,6 +125,12 @@ describe('customers', () => {
 });
 
 describe('loyalty ledger', () => {
+  // Pin the threshold so these mechanics tests are independent of the product
+  // default (now 9 — nine stamps, tenth coffee free).
+  beforeEach(async () => {
+    await store.updateConfig({ pointsPerReward: 8 });
+  });
+
   it('appends transactions and lists them oldest-first', async () => {
     const c = await store.createCustomer({ token: 't' });
     await store.appendTransaction({ customerId: c.id, type: 'accrual', points: 1, staffId: 's' });
@@ -164,6 +170,12 @@ describe('loyalty ledger', () => {
 });
 
 describe('rewards-as-objects (commitCounterTransaction / undo)', () => {
+  // Pin the threshold so these mechanics tests are independent of the product
+  // default (now 9 — nine stamps, tenth coffee free).
+  beforeEach(async () => {
+    await store.updateConfig({ pointsPerReward: 8 });
+  });
+
   let idem = 0;
   const key = () => `idem-${++idem}`;
 

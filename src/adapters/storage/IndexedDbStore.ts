@@ -154,7 +154,7 @@ export class IndexedDbStore implements DataStore {
     let opened: IDBPDatabase<LoyaltyDB> | undefined;
     const opening = openDB<LoyaltyDB>(DB_NAME, DB_VERSION, {
       upgrade(database) {
-        // v5 (rewards-as-objects): CLEAN RESET. Drop every existing store and
+        // CLEAN RESET on every version bump. Drop every existing store and
         // recreate the full schema below; the post-open seed repopulates in the
         // new model. No data migration — the prototype has nothing to preserve
         // (REWARDS-DECISIONS Q2), and this sidesteps the riskiest migration

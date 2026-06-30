@@ -33,7 +33,7 @@
   position: relative;
   overflow: visible;
 }
-/* The welcome + reward cups always wear a small sticker seal. */
+/* The free reward cup wears a small sticker seal. */
 .stamp .sticker-seal {
   position: absolute;
   top: -5px;
@@ -43,15 +43,6 @@
   opacity: 1;
   color: var(--terra);
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
-}
-/* The welcome cup reads as a gentle "on the house" gift, even at zero progress. */
-.stamp.welcome {
-  background: rgba(214, 224, 196, 0.55);
-  box-shadow: none;
-}
-.stamp.welcome svg:not(.sticker-seal) {
-  opacity: 0.9;
-  color: var(--forest-700);
 }
 /* The free reward cup: dashed ring until earned, then it lights like the rest. */
 .stamp.free {

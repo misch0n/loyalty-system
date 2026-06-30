@@ -42,16 +42,16 @@ const click = (el: Element | null) =>
 
 describe('LoyaltyCard', () => {
   it('renders the collecting state: name, 10-cup showcase grid, progress note', async () => {
-    // total=8 (the reward threshold) renders a 10-cup card: welcome sticker +
-    // 8 earnable + the FREE reward cup.
+    // total=9 (the reward threshold) renders a 10-cup card: 9 earnable cups +
+    // the FREE reward cup. There is no welcome cup.
     await render(
-      <LoyaltyCard name="Maria" filled={7} total={8} token="tok0000000000000000001" code="CKY · 5YUrTHtx" />,
+      <LoyaltyCard name="Maria" filled={8} total={9} token="tok0000000000000000001" code="CKY · 5YUrTHtx" />,
     );
     expect(container.querySelector('.who')?.textContent).toBe('Maria');
     expect(container.querySelectorAll('.stamp').length).toBe(10);
-    // welcome (1) + 7 earned + free (always pre-stamped) = 9 on.
+    // 8 earned + free (always pre-stamped) = 9 on; no welcome cup.
     expect(container.querySelectorAll('.stamp.on').length).toBe(9);
-    expect(container.querySelector('.stamp.welcome')).not.toBeNull();
+    expect(container.querySelector('.stamp.welcome')).toBeNull();
     expect(container.querySelector('.stamp.free.on')).not.toBeNull();
     expect(container.querySelector('.progress-note .left')?.textContent).toContain('1 more');
     expect(container.querySelector('.progress-note .pts')?.textContent?.replace(/\s/g, '')).toBe(

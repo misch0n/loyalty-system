@@ -19,13 +19,17 @@ import type { CommitResult } from '../../ports/DataStore';
 
 export const DB_NAME = 'cafe-loyalty';
 /**
- * v5 (rewards-as-objects, REWARDS-PLAN Phase 2) is a CLEAN RESET: the upgrade
- * drops every existing store and recreates the full schema below, then the seed
- * repopulates in the new model. The prototype has no live customer data to
- * migrate, so dropping + recreating eliminates the riskiest (lossy) migration
- * class — see REWARDS-DECISIONS Q2.
+ * CLEAN RESET on upgrade: the upgrade drops every existing store and recreates
+ * the full schema below, then the seed repopulates in the new model. The
+ * prototype has no live customer data to migrate, so dropping + recreating
+ * eliminates the riskiest (lossy) migration class — see REWARDS-DECISIONS Q2.
+ *
+ * v5 introduced the rewards-as-objects model (REWARDS-PLAN Phase 2). v6 reseeds
+ * so existing devices adopt the 9-stamp card (reward threshold 8 → 9; the
+ * "welcome" freebie cup is gone — the customer earns nine cups and the tenth
+ * coffee is free).
  */
-export const DB_VERSION = 5;
+export const DB_VERSION = 6;
 
 export const CONFIG_KEY = 'singleton';
 
@@ -121,7 +125,7 @@ export interface LoyaltyDB extends DBSchema {
 }
 
 export const DEFAULT_CONFIG: ProgramConfig = {
-  pointsPerReward: 8,
+  pointsPerReward: 9,
   rewardDescription: 'Free regular coffee',
   pointsPerPurchase: 1,
   maxPointsPerTransaction: 3,
