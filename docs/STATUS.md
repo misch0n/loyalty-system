@@ -12,8 +12,21 @@
 > Phase-by-phase record in [`REWARDS-PLAN.md`](REWARDS-PLAN.md), the reasoning behind every decision
 > in [`REWARDS-DECISIONS.md`](REWARDS-DECISIONS.md). Maintainer preferences, assistant conventions,
 > and iOS/deploy/IndexedDB gotchas are in [`COLLAB-NOTES.md`](COLLAB-NOTES.md).
+>
+> **🔖 Parked initiative (branch `claude/github-pages-deploy-ku4gkj`):** the **Appendix E — staff
+> integrity & observability** rework is **assessed + planned, not implemented**. The phase-by-phase
+> build plan — locked decisions + a cold-start resume protocol — is in
+> [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md). **To resume:** read that file, take the first unchecked box in
+> its Progress checklist (Phase 0), and build only that phase. Nothing in `src/` has changed for it yet.
 
-**Last updated:** 2026-06-25 (**Rewards-as-objects — Phase 8 (docs).** Final step of the
+**Last updated:** 2026-07-08 (**Appendix E build plan parked for handoff** (branch
+`claude/github-pages-deploy-ku4gkj`). Added [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md) — the assessed +
+phase-planned **Appendix E** (staff integrity & observability) rework: 3-second pre-commit hold
+replacing the post-commit undo, detectors pruned to self-dealing + repeat-target (admin-configurable),
+ambient activity surfaces removed, staff terminal bounded to actor + last hour, reason-gated JSON
+export; notify-on-export / retention / device-ID scoping / staff disclosure / geofence are
+documented-deferred. **Plan-only — nothing in `src/` implemented.** A resume protocol is in the plan.
+Docs only, no code. Prior — **Rewards-as-objects — Phase 8 (docs).** Final step of the
 [`REWARDS-PLAN`](REWARDS-PLAN.md) rework — **docs only, no code**. Recorded the rewards-as-objects
 model across the docs: the SPEC §15 acceptance rows the rework touched now point at the unified
 commit (`LoyaltyService.commit` → `DataStore.commitCounterTransaction`) instead of the retired
