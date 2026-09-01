@@ -37,6 +37,57 @@
   margin: 0;
 }
 
+/* Pre-commit hold (Appendix E): the 3-second window in which the staged
+   transaction is shown and can still be cancelled. Nothing is written yet. */
+.staff-scan__hold {
+  margin: 14px 0 0;
+  padding: 16px;
+  border: 1.5px solid var(--line);
+  border-radius: 13px;
+  background: #fff;
+}
+.staff-scan__hold-lead {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.staff-scan__hold-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.staff-scan__hold-list li {
+  font-size: 15px;
+  color: var(--ink);
+  padding: 3px 0;
+}
+.staff-scan__hold-earn {
+  color: var(--forest);
+  font-weight: 600;
+}
+.staff-scan__hold-bar {
+  margin-top: 14px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.staff-scan__hold-bar span {
+  display: block;
+  height: 100%;
+  background: var(--forest);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+.staff-scan__hold-count {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
 /* Reward redemption checklist — pre-checked from the scan, ticked manually. */
 .staff-scan__rewards {
   margin: 14px 0 0;

@@ -106,13 +106,6 @@ function fakeServices(overrides: Partial<Record<string, unknown>> = {}): Service
         redeemed: [],
         rejected: [],
       }),
-      undo: vi.fn().mockResolvedValue({
-        ok: true,
-        state: stateFor(7),
-        minted: [],
-        redeemed: [],
-        rejected: [],
-      }),
       ...overrides,
     },
     customers: { provisionFromToken: vi.fn() },
@@ -178,6 +171,22 @@ function forestButton(label: string): HTMLButtonElement {
   ) as HTMLButtonElement;
 }
 
+function lineButton(label: string): HTMLButtonElement {
+  return Array.from(container.querySelectorAll('button.btn-line')).find((b) =>
+    b.textContent?.includes(label),
+  ) as HTMLButtonElement;
+}
+
+async function click(button: HTMLButtonElement) {
+  await act(async () => {
+    button.click();
+  });
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 describe('Staff Scan', () => {
   it('starts in the scanning state with the ScanView frame', async () => {
     await mountScan(fakeServices());
@@ -210,48 +219,95 @@ describe('Staff Scan', () => {
     expect(container.querySelector('.elig')?.textContent).toContain('3 to go');
   });
 
-  it('commits points with the unified commit and then offers Undo', async () => {
+  it('holds the staged transaction instead of committing immediately', async () => {
     const services = fakeServices();
     await mountScan(services);
     await inject('PROTOcard0000000000001');
 
-    await act(async () => {
-      forestButton('Add 1 coffee').click();
-    });
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await click(forestButton('Add 1 coffee'));
 
-    const commit = services.loyalty.commit as ReturnType<typeof vi.fn>;
-    expect(commit).toHaveBeenCalledTimes(1);
-    expect(commit.mock.calls[0][1]).toMatchObject({
-      customerId: 'c1',
-      pointsDelta: 1,
-      redeemRewardIds: [],
-      source: 'a',
-    });
-    expect(typeof commit.mock.calls[0][1].idempotencyKey).toBe('string');
+    // Nothing written — the hold summarizes what is ABOUT to be saved.
+    expect(services.loyalty.commit).not.toHaveBeenCalled();
+    expect(container.querySelector('.staff-scan__hold')).not.toBeNull();
+    expect(container.querySelector('.staff-scan__hold-list')?.textContent).toContain('Add 1 coffee');
+    expect(container.querySelector('.staff-scan__hold-count')?.textContent).toContain('Saving in');
+    expect(lineButton('Cancel')).toBeDefined();
+    expect(forestButton('Commit now')).toBeDefined();
+  });
 
-    // Best-effort wallet push reflects the settled balance + unspent-reward COUNT
-    // (rewards-as-objects: a count, not the old `rewardAvailable` boolean).
-    const pushUpdate = services.wallet.pushUpdate as ReturnType<typeof vi.fn>;
-    expect(pushUpdate).toHaveBeenCalledWith('c1', { balance: 9, rewardCount: 0 });
+  it('writes nothing when the hold is cancelled', async () => {
+    const services = fakeServices();
+    await mountScan(services);
+    await inject('PROTOcard0000000000001');
 
-    // Committed state shows an Undo affordance.
-    const undo = Array.from(container.querySelectorAll('button.btn-line')).find((b) =>
-      b.textContent === 'Undo',
-    ) as HTMLButtonElement;
-    expect(undo).toBeDefined();
+    await click(forestButton('Add 1 coffee'));
+    await click(lineButton('Cancel'));
 
-    await act(async () => {
-      undo.click();
-    });
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect((services.loyalty.undo as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
+    expect(services.loyalty.commit).not.toHaveBeenCalled();
+    // Back on the counter panel, nothing lost.
+    expect(container.querySelector('.staff-scan__hold')).toBeNull();
+    expect(forestButton('Add 1 coffee')).toBeDefined();
+  });
+
+  it('commits once when the hold elapses and returns to the scanner', async () => {
+    vi.useFakeTimers();
+    try {
+      const services = fakeServices();
+      await mountScan(services);
+      await inject('PROTOcard0000000000001');
+
+      await click(forestButton('Add 1 coffee'));
+      expect(services.loyalty.commit).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3200);
+      });
+
+      const commit = services.loyalty.commit as ReturnType<typeof vi.fn>;
+      expect(commit).toHaveBeenCalledTimes(1);
+      expect(commit.mock.calls[0][1]).toMatchObject({
+        customerId: 'c1',
+        pointsDelta: 1,
+        redeemRewardIds: [],
+        source: 'a',
+      });
+      expect(typeof commit.mock.calls[0][1].idempotencyKey).toBe('string');
+
+      // Best-effort wallet push reflects the settled balance + unspent-reward COUNT.
+      const pushUpdate = services.wallet.pushUpdate as ReturnType<typeof vi.fn>;
+      expect(pushUpdate).toHaveBeenCalledWith('c1', { balance: 9, rewardCount: 0 });
+
+      // Terminal auto-advances back to the scanner — no card left on screen.
+      expect(container.querySelector('.scanview')).not.toBeNull();
+      expect(container.querySelector('.cust')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('"Commit now" submits before the hold elapses, exactly once', async () => {
+    const services = fakeServices();
+    await mountScan(services);
+    await inject('PROTOcard0000000000001');
+
+    await click(forestButton('Add 1 coffee'));
+    await click(forestButton('Commit now'));
+
+    expect(services.loyalty.commit).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.scanview')).not.toBeNull();
+  });
+
+  it('offers no post-commit reversal affordance', async () => {
+    const services = fakeServices();
+    await mountScan(services);
+    await inject('PROTOcard0000000000001');
+
+    await click(forestButton('Add 1 coffee'));
+    await click(forestButton('Commit now'));
+
+    expect(
+      Array.from(container.querySelectorAll('button')).some((b) => /undo/i.test(b.textContent ?? '')),
+    ).toBe(false);
   });
 
   it('pre-checks a scanned reward and redeems it on commit', async () => {
@@ -276,19 +332,36 @@ describe('Staff Scan', () => {
     expect(box.checked).toBe(true);
 
     // Reward scan defaults to 0 points → button is "Redeem 1".
-    await act(async () => {
-      forestButton('Redeem 1').click();
-    });
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await click(forestButton('Redeem 1'));
+
+    // The hold names the redemption before anything is written.
+    expect(container.querySelector('.staff-scan__hold-list')?.textContent).toContain(
+      'Redeem 1 free coffee',
+    );
+    await click(forestButton('Commit now'));
 
     const commit = services.loyalty.commit as ReturnType<typeof vi.fn>;
     expect(commit.mock.calls[0][1]).toMatchObject({
       pointsDelta: 0,
       redeemRewardIds: ['rw1'],
     });
+  });
+
+  it('previews the reward a staged commit will earn', async () => {
+    // 9 of 10 + 1 coffee crosses the threshold → one reward minted on commit.
+    const services = fakeServices({
+      getStateByToken: vi.fn().mockResolvedValue(stateFor(9)),
+      getState: vi.fn().mockResolvedValue(stateFor(9)),
+    });
+    await mountScan(services);
+    await inject('PROTOcard0000000000001');
+
+    await click(forestButton('Add 1 coffee'));
+
+    expect(container.querySelector('.staff-scan__hold-earn')?.textContent).toContain(
+      'earns 1 free coffee',
+    );
+    expect(services.loyalty.commit).not.toHaveBeenCalled();
   });
 
   it('surfaces an over_cap rejection as an error', async () => {
@@ -298,14 +371,11 @@ describe('Staff Scan', () => {
     await mountScan(services);
     await inject('PROTOcard0000000000001');
 
-    await act(async () => {
-      forestButton('Add 1 coffee').click();
-    });
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await click(forestButton('Add 1 coffee'));
+    await click(forestButton('Commit now'));
 
+    // Rejection drops back to the counter panel with the error shown.
     expect(container.querySelector('.staff-scan__error')?.textContent).toContain('limit');
+    expect(container.querySelector('.staff-scan__hold')).toBeNull();
   });
 });

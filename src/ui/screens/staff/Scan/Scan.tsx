@@ -1,19 +1,27 @@
 /**
  * Staff scan workflow (Ckyka view 10) — one screen, sequenced states (not
- * separate routes), reworked for rewards-as-objects (REWARDS-PLAN Phase 5):
+ * separate routes), reworked for the Appendix E pre-commit hold (INTEGRITY-PLAN
+ * Phase 0):
  *   scanning   — live camera inside the `<ScanView>` frame; decode → resolve
  *   resolved   — camera collapses; `<CustChip>` confirms WHO, then the UNIFIED
  *                counter: a points slider AND a reward checklist (pre-checked
- *                from the scan), committed together in ONE atomic call
- *   committed  — confirmation + a 5-second Undo affordance, then "Scan next"
+ *                from the scan), staged together for ONE atomic call
+ *   pending    — a 3-second blocking hold that summarizes exactly what is about
+ *                to be written, with Cancel and Commit now. NOTHING is written
+ *                until the window elapses
  *   notfound   — unknown code → "have them join on their phone" hint
  *
- * Every commit/undo is staff-initiated, passes the authenticated `actor`, and is
- * append-only (undo reverses points, voids a fresh mint, and re-mints a
- * replacement per spent reward — never a destructive edit). A scan resolves a
- * uniform `{customerToken, rewardTokens, source}` (`parseScan`); the customer's
- * unspent rewards drive the checklist and any scanned reward token that no longer
- * matches an unspent reward is surfaced as "already used". UI → services only.
+ * The hold replaces the old post-commit Undo: errors are caught in the seconds
+ * BEFORE the ledger is touched, so there is no staff-reachable path that
+ * reverses an already-committed transaction. Cancel discards the staged
+ * transaction and writes nothing; on commit the terminal auto-advances to the
+ * scanner so every customer starts from a fresh scan.
+ *
+ * Every commit is staff-initiated, passes the authenticated `actor`, and is
+ * append-only. A scan resolves a uniform `{customerToken, rewardTokens, source}`
+ * (`parseScan`); the customer's unspent rewards drive the checklist and any
+ * scanned reward token that no longer matches an unspent reward is surfaced as
+ * "already used". UI → services only.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -28,22 +36,36 @@ import { useStaffGuard } from '../useStaffGuard';
 import { startScanner, type ScannerHandle } from '../../../../qr/scan';
 import { parseScan, type ScanResult } from '../../../../qr/encode';
 import { generateId, normalizeShortCode, formatShortCode } from '../../../../domain/tokens';
-import type { CustomerState, CommitResult } from '../../../../services/LoyaltyService';
+import { mintFold } from '../../../../domain/rewards';
+import type { Actor } from '../../../../services/types';
+import type { CustomerState } from '../../../../services/LoyaltyService';
 import './Scan.css';
 
 const SCAN_REGION_ID = 'staff-scan-region';
 /** Hard ceiling on the multi-add slider regardless of config (Ckyka view 10). */
 const SLIDER_HARD_CAP = 3;
-/** How long the Undo affordance stays live after a commit (REWARDS-PLAN §2). */
-const UNDO_WINDOW_MS = 5000;
+/**
+ * How long a staged transaction is held before it is written (Appendix E).
+ * Nothing touches the store until this elapses — the hold IS the safeguard.
+ */
+const HOLD_MS = 3000;
+/** Countdown repaint interval. */
+const HOLD_TICK_MS = 100;
 
-type Phase = 'scanning' | 'resolved' | 'committed' | 'notfound';
+type Phase = 'scanning' | 'resolved' | 'pending' | 'notfound';
 
-/** A successful commit kept around for the confirmation + undo step. */
-interface Committed {
+/**
+ * A transaction staged by the counter panel and awaiting the hold. It exists
+ * only in component state — nothing here has been written.
+ */
+interface Staged {
+  /** Allocated up front so an early "Commit now" and the timeout share one key. */
   idempotencyKey: string;
-  pointsAdded: number;
-  result: Extract<CommitResult, { ok: true }>;
+  pointsDelta: number;
+  redeemRewardIds: string[];
+  /** Rewards this WILL mint, computed client-side (nothing is committed yet). */
+  willMint: number;
+  source: 'a' | 'w';
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -75,24 +97,25 @@ export function Scan(): JSX.Element {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [manual, setManual] = useState('');
-  const [committed, setCommitted] = useState<Committed | null>(null);
-  const [canUndo, setCanUndo] = useState(false);
+  const [staged, setStaged] = useState<Staged | null>(null);
+  const [remainingMs, setRemainingMs] = useState(HOLD_MS);
 
   const scannerRef = useRef<ScannerHandle | null>(null);
   const resolvingRef = useRef(false);
-  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * The hold's countdown effect must be declared before the staff guard's early
+   * return, but the commit closure needs the authenticated actor that the guard
+   * produces. Keep both behind latest-value refs the effect can read.
+   */
+  const actorRef = useRef<Actor | null>(null);
+  const commitRef = useRef<((staged: Staged) => Promise<void>) | null>(null);
+  /** Guards the one-commit-per-staged-transaction rule (timeout vs "Commit now"). */
+  const firedRef = useRef(false);
 
   const stopCamera = useCallback(async () => {
     const handle = scannerRef.current;
     scannerRef.current = null;
     if (handle) await handle.stop();
-  }, []);
-
-  const clearUndoTimer = useCallback(() => {
-    if (undoTimerRef.current) {
-      clearTimeout(undoTimerRef.current);
-      undoTimerRef.current = null;
-    }
   }, []);
 
   /** Move into the resolved state for a freshly-fetched customer + scan. */
@@ -197,9 +220,33 @@ export function Scan(): JSX.Element {
     };
   }, [phase, resolve, stopCamera]);
 
-  // Stop the camera / cancel the undo timer if the screen unmounts.
+  // Keep the guard's actor readable from the countdown effect's closure.
+  useEffect(() => {
+    actorRef.current = guard.actor;
+  });
+
+  // ── the 3-second pre-commit hold ────────────────────────────────────────
+  // Nothing is written while this runs. On timeout the staged transaction is
+  // committed exactly once; Cancel tears the effect down before it fires.
+  useEffect(() => {
+    if (phase !== 'pending' || !staged) return;
+    const deadline = Date.now() + HOLD_MS;
+    setRemainingMs(HOLD_MS);
+    const timer = setInterval(() => {
+      const left = deadline - Date.now();
+      if (left > 0) {
+        setRemainingMs(left);
+        return;
+      }
+      clearInterval(timer);
+      setRemainingMs(0);
+      void commitRef.current?.(staged);
+    }, HOLD_TICK_MS);
+    return () => clearInterval(timer);
+  }, [phase, staged]);
+
+  // Stop the camera if the screen unmounts.
   useEffect(() => () => void stopCamera(), [stopCamera]);
-  useEffect(() => () => clearUndoTimer(), [clearUndoTimer]);
 
   if (guard.redirect) return guard.redirect;
   const actor = guard.actor;
@@ -216,6 +263,8 @@ export function Scan(): JSX.Element {
   const redeemCount = redeemIds.length;
   const addCount = Math.min(points, sliderMax);
   const nothingToCommit = addCount === 0 && redeemCount === 0;
+  const holdSecondsLeft = Math.max(1, Math.ceil(remainingMs / 1000));
+  const holdProgress = Math.min(1, Math.max(0, 1 - remainingMs / HOLD_MS));
 
   // ── best-effort wallet push (never blocks the UI) ───────────────────────
   const pushWallet = (next: CustomerState) => {
@@ -231,13 +280,12 @@ export function Scan(): JSX.Element {
 
   const scanNext = () => {
     recordActivity();
-    clearUndoTimer();
+    firedRef.current = false;
     setState(null);
     setScan(null);
     setChecked({});
     setInvalidRewards([]);
-    setCommitted(null);
-    setCanUndo(false);
+    setStaged(null);
     setActionError(null);
     setManual('');
     setPhase('scanning');
@@ -253,22 +301,53 @@ export function Scan(): JSX.Element {
     setChecked((prev) => ({ ...prev, [rewardId]: !prev[rewardId] }));
   };
 
-  // ── the single unified commit (accrue + mint + redeem-N) ────────────────
-  const onCommit = async () => {
+  // ── stage the transaction and start the hold (writes NOTHING) ───────────
+  const onStage = () => {
     if (!state || busy || nothingToCommit) return;
+    recordActivity();
+    setActionError(null);
+    firedRef.current = false;
+    // Preview the mint client-side — the store does the real fold on commit.
+    const willMint = config ? mintFold(balance + addCount, config).mintCount : 0;
+    setStaged({
+      idempotencyKey: generateId(),
+      pointsDelta: addCount,
+      redeemRewardIds: redeemIds,
+      willMint,
+      source: scan?.source ?? 'a',
+    });
+    setRemainingMs(HOLD_MS);
+    setPhase('pending');
+  };
+
+  /** Discard the staged transaction — nothing was ever written. */
+  const onCancelHold = () => {
+    recordActivity();
+    firedRef.current = false;
+    setStaged(null);
+    setRemainingMs(HOLD_MS);
+    setPhase('resolved');
+  };
+
+  // ── the single unified commit (accrue + mint + redeem-N) ────────────────
+  const runCommit = async (pending: Staged) => {
+    if (!state || firedRef.current) return;
+    firedRef.current = true;
     setBusy(true);
     setActionError(null);
     recordActivity();
-    const idempotencyKey = generateId();
     try {
       const result = await services.loyalty.commit(actor, {
         customerId: state.customer.id,
-        pointsDelta: addCount,
-        redeemRewardIds: redeemIds,
-        idempotencyKey,
-        source: scan?.source ?? 'a',
+        pointsDelta: pending.pointsDelta,
+        redeemRewardIds: pending.redeemRewardIds,
+        idempotencyKey: pending.idempotencyKey,
+        source: pending.source,
       });
       if (!result.ok) {
+        firedRef.current = false;
+        setStaged(null);
+        setPhase('resolved');
         setActionError(
           result.error === 'over_cap'
             ? `That’s over the ${sliderMax}-coffee limit for one scan.`
@@ -276,54 +355,24 @@ export function Scan(): JSX.Element {
         );
         return;
       }
-      setState(result.state);
       pushWallet(result.state);
-      setCommitted({ idempotencyKey, pointsAdded: addCount, result });
-      setCanUndo(true);
-      clearUndoTimer();
-      undoTimerRef.current = setTimeout(() => setCanUndo(false), UNDO_WINDOW_MS);
-      setPhase('committed');
-      toast.show(commitConfirmation(customerName, addCount, result));
+      toast.show(commitConfirmation(customerName, pending.pointsDelta, result));
+      // Appendix E: the terminal returns to idle after every commit, so each
+      // customer starts from a fresh scan and no card lingers on screen.
+      scanNext();
     } catch {
+      firedRef.current = false;
+      setStaged(null);
+      setPhase('resolved');
       setActionError('Could not save. Check the connection and try again.');
     } finally {
       setBusy(false);
     }
   };
-
-  // ── undo the last commit within the 5-second window ─────────────────────
-  const onUndo = async () => {
-    if (!committed || busy) return;
-    setBusy(true);
-    setActionError(null);
-    recordActivity();
-    try {
-      const result = await services.loyalty.undo(actor, committed.idempotencyKey);
-      if (!result.ok) {
-        setActionError('Could not undo that — it may already have been undone.');
-        return;
-      }
-      clearUndoTimer();
-      setCanUndo(false);
-      pushWallet(result.state);
-      // Drop back to the resolved card so the staffer can re-commit correctly.
-      enterResolved(result.state, scan ?? {
-        kind: 'card',
-        customerToken: result.state.customer.token,
-        rewardTokens: [],
-        source: 'a',
-      });
-      toast.show(`Undone · ${customerName} back to ${result.state.progress.current} / ${threshold}`);
-    } catch {
-      setActionError('Could not undo. Check the connection and try again.');
-    } finally {
-      setBusy(false);
-    }
-  };
+  commitRef.current = runCommit;
 
   const backToPanel = () => {
     recordActivity();
-    clearUndoTimer();
     void stopCamera();
     navigate(ROUTES.staff);
   };
@@ -437,7 +486,7 @@ export function Scan(): JSX.Element {
             <div className="stack-sm staff-scan__actions">
               <Button
                 variant="forest"
-                onClick={() => void onCommit()}
+                onClick={onStage}
                 disabled={busy || nothingToCommit}
               >
                 {commitLabel(addCount, redeemCount)}
@@ -459,36 +508,52 @@ export function Scan(): JSX.Element {
           </>
         )}
 
-        {phase === 'committed' && committed && (
+        {phase === 'pending' && staged && state && (
           <>
-            <StateLabel>state · saved</StateLabel>
-            <CustChip
-              name={customerName}
-              current={filled}
-              total={threshold}
-              status="saved"
-            />
-            <p className="staff-scan__saved">
-              {commitConfirmation(customerName, committed.pointsAdded, committed.result)}
-            </p>
-            {committed.result.rejected.length > 0 && (
-              <p className="staff-scan__hint">
-                {committed.result.rejected.length}{' '}
-                {plural(committed.result.rejected.length, 'reward was', 'rewards were')} already
-                used and skipped.
-              </p>
-            )}
+            <StateLabel>state · holding</StateLabel>
+            <CustChip name={customerName} current={filled} total={threshold} status="holding" />
 
-            {actionError && <p className="staff-scan__error">{actionError}</p>}
+            <div className="staff-scan__hold" role="status" aria-live="polite">
+              <p className="staff-scan__hold-lead">About to save</p>
+              <ul className="staff-scan__hold-list">
+                {staged.pointsDelta > 0 && (
+                  <li>
+                    Add {staged.pointsDelta}{' '}
+                    {plural(staged.pointsDelta, 'coffee', 'coffees')}
+                  </li>
+                )}
+                {staged.redeemRewardIds.length > 0 && (
+                  <li>
+                    Redeem {staged.redeemRewardIds.length} free{' '}
+                    {plural(staged.redeemRewardIds.length, 'coffee', 'coffees')}
+                  </li>
+                )}
+                {staged.willMint > 0 && (
+                  <li className="staff-scan__hold-earn">
+                    {customerName} earns {staged.willMint} free{' '}
+                    {plural(staged.willMint, 'coffee', 'coffees')}
+                  </li>
+                )}
+              </ul>
+              <div className="staff-scan__hold-bar" aria-hidden="true">
+                <span style={{ transform: `scaleX(${holdProgress})` }} />
+              </div>
+              <p className="staff-scan__hold-count">
+                Saving in {holdSecondsLeft}
+                {' '}s — cancel now if this is wrong
+              </p>
+            </div>
 
             <div className="stack-sm staff-scan__actions">
-              {canUndo && (
-                <Button variant="line" onClick={() => void onUndo()} disabled={busy}>
-                  Undo
-                </Button>
-              )}
-              <Button variant="forest" onClick={scanNext} disabled={busy}>
-                Scan next
+              <Button variant="line" onClick={onCancelHold} disabled={busy}>
+                Cancel
+              </Button>
+              <Button
+                variant="forest"
+                onClick={() => void runCommit(staged)}
+                disabled={busy}
+              >
+                Commit now
               </Button>
             </div>
           </>
@@ -502,7 +567,11 @@ export function Scan(): JSX.Element {
 function commitConfirmation(
   name: string,
   pointsAdded: number,
-  result: Extract<CommitResult, { ok: true }>,
+  result: {
+    state: CustomerState;
+    minted: readonly unknown[];
+    redeemed: readonly unknown[];
+  },
 ): string {
   const parts: string[] = [];
   if (pointsAdded > 0) parts.push(`Added ${pointsAdded}`);
