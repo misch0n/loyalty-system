@@ -836,9 +836,33 @@ export class IndexedDbStore implements DataStore {
 
   async listAudit(filter: AuditFilter = {}): Promise<AuditLogEntry[]> {
     const db = await this.dbPromise;
-    let entries = await db.getAll('audit');
-    if (filter.action) entries = entries.filter((e) => e.action === filter.action);
-    if (filter.actorId) entries = entries.filter((e) => e.actorId === filter.actorId);
+    // A bounded range reads through the `byTimestamp` index instead of scanning
+    // the whole store — the export workflow (Appendix E) always supplies one.
+    let entries: AuditLogEntry[];
+    if (filter.from || filter.to) {
+      const range =
+        filter.from && filter.to
+          ? IDBKeyRange.bound(filter.from, filter.to)
+          : filter.from
+            ? IDBKeyRange.lowerBound(filter.from)
+            : IDBKeyRange.upperBound(filter.to as string);
+      entries = await db.getAllFromIndex('audit', 'byTimestamp', range);
+    } else {
+      entries = await db.getAll('audit');
+    }
+
+    // Within a field the values are OR'd; across fields AND'd. A singular and
+    // its plural form union together.
+    const actions = new Set(
+      [...(filter.actions ?? []), ...(filter.action ? [filter.action] : [])],
+    );
+    if (actions.size > 0) entries = entries.filter((e) => actions.has(e.action));
+
+    const actors = new Set(
+      [...(filter.actorIds ?? []), ...(filter.actorId ? [filter.actorId] : [])],
+    );
+    if (actors.size > 0) entries = entries.filter((e) => actors.has(e.actorId));
+
     entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp)); // newest first
     if (filter.limit) entries = entries.slice(0, filter.limit);
     return entries;

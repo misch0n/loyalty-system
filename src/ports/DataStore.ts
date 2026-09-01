@@ -72,9 +72,23 @@ export interface AppendAuditInput {
   details?: string;
 }
 
+/**
+ * Audit query. Singular `action`/`actorId` are the everyday reads; the plural
+ * `actions`/`actorIds` and the `from`/`to` range back the admin investigation
+ * export (Appendix E). Within a field the values are OR'd; across fields they
+ * are AND'd. A singular and its plural may both be given — the union applies.
+ */
 export interface AuditFilter {
   action?: AuditLogEntry['action'];
+  /** Match any of these actions (OR). Combined with `action` as a union. */
+  actions?: AuditLogEntry['action'][];
   actorId?: string;
+  /** Match any of these actors (OR). Combined with `actorId` as a union. */
+  actorIds?: string[];
+  /** Inclusive lower bound, ISO timestamp. */
+  from?: string;
+  /** Inclusive upper bound, ISO timestamp. */
+  to?: string;
   limit?: number;
 }
 

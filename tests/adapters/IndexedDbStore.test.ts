@@ -388,6 +388,37 @@ describe('audit', () => {
     expect(await store.listAudit({ actorId: 'b' })).toHaveLength(2);
     expect(await store.listAudit({ limit: 1 })).toHaveLength(1);
   });
+
+  it('filters by an action / actor SET and by a timestamp range (export workflow)', async () => {
+    await store.appendAudit({ actorId: 'a', actorRole: 'admin', action: 'config.update' });
+    await tick();
+    await store.appendAudit({ actorId: 'b', actorRole: 'staff', action: 'loyalty.accrue' });
+    await tick();
+    await store.appendAudit({ actorId: 'c', actorRole: 'staff', action: 'loyalty.redeem' });
+
+    const all = await store.listAudit();
+    // Values within a field are OR'd…
+    const twoActions = await store.listAudit({
+      actions: ['loyalty.accrue', 'loyalty.redeem'],
+    });
+    expect(twoActions.map((e) => e.action).sort()).toEqual(['loyalty.accrue', 'loyalty.redeem']);
+    expect(await store.listAudit({ actorIds: ['b', 'c'] })).toHaveLength(2);
+    // …and across fields AND'd.
+    const both = await store.listAudit({ actions: ['loyalty.accrue'], actorIds: ['c'] });
+    expect(both).toHaveLength(0);
+
+    // A singular and its plural union together.
+    expect(
+      await store.listAudit({ action: 'config.update', actions: ['loyalty.accrue'] }),
+    ).toHaveLength(2);
+
+    // Range is inclusive on both ends and reads through the byTimestamp index.
+    const oldest = all[all.length - 1].timestamp;
+    const newest = all[0].timestamp;
+    expect(await store.listAudit({ from: oldest, to: newest })).toHaveLength(3);
+    expect(await store.listAudit({ from: newest })).toHaveLength(1);
+    expect(await store.listAudit({ to: oldest })).toHaveLength(1);
+  });
 });
 
 describe('stats & backup', () => {

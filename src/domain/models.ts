@@ -216,7 +216,13 @@ export type AuditAction =
   | 'loyalty.accrue'
   | 'loyalty.redeem'
   | 'loyalty.reverse'
-  | 'config.update';
+  | 'config.update'
+  /**
+   * An admin ran an activity export (Appendix E). Reading cross-account
+   * activity is itself an audited event — `details` carries the filter and the
+   * required reason. Never PII.
+   */
+  | 'audit.export';
 
 /**
  * Append-only action trail. Broader than the ledger: covers auth, staff/config

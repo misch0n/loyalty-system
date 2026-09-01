@@ -1,11 +1,15 @@
 /**
  * Admin — the reference-UI admin screen (Ckyka view 11, UX-SPEC §8).
  *
- * Single scroll: derived "This week" stats + editable program rows, a
- * "Needs a look" alert list, staff management, "Sign out all devices", and the
- * full activity log attributed to staff NAMES. All figures are DERIVED from the
- * ledger/audit trail — no new mutable state. Destructive/program changes go
- * through step-up PIN re-auth (StepUp → useAuth().unlock → service mutation).
+ * Single scroll: derived "This week" stats, a "Needs a look" alert list, staff
+ * management, "Sign out all devices" and "Export activity". All figures are
+ * DERIVED from the ledger/audit trail — no new mutable state. Destructive and
+ * program changes go through step-up PIN re-auth (StepUp → useAuth().unlock →
+ * service mutation).
+ *
+ * Appendix E: there is deliberately NO ambient activity feed here. Attributed,
+ * cross-account activity is reachable only through the Export sheet, which
+ * requires a stated reason and audits itself.
  *
  * GUARD: !ready → loading · locked → /staff/unlock · anon → /login ·
  * signed-in non-admin → "Admins only" notice. Wiring is reused from the old
@@ -38,6 +42,7 @@ import { ProgramEdit } from '../_parts/ProgramEdit/ProgramEdit';
 import { AccountSheet } from '../_parts/AccountSheet/AccountSheet';
 import { StatDetail } from '../_parts/StatDetail/StatDetail';
 import { AlertDetail } from '../_parts/AlertDetail/AlertDetail';
+import { Export } from '../_parts/Export/Export';
 import { usePager } from '../../../common/usePager';
 import { PersonIcon } from '../_parts/feedIcons';
 import type { MetricKind } from '../../../../domain/insights';
@@ -171,6 +176,8 @@ function AdminScreen({ actor }: { actor: Actor }) {
   const [selectedAlert, setSelectedAlert] = useState<AlertModel | null>(null);
   // Program-config popover (reward threshold, max coffees per scan, …).
   const [configureOpen, setConfigureOpen] = useState(false);
+  // Investigation/export popover — the ONLY route to cross-account activity.
+  const [exportOpen, setExportOpen] = useState(false);
 
   const alertPager = usePager(alerts?.length ?? 0, ALERT_PAGE);
   // The id of the profile whose management popover is open (null = closed). We
@@ -471,6 +478,13 @@ function AdminScreen({ actor }: { actor: Actor }) {
         >
           Sign out all devices
         </Button>
+        <Button
+          variant="line"
+          style={{ marginTop: 10 }}
+          onClick={() => setExportOpen(true)}
+        >
+          Export activity
+        </Button>
 
         <div className="admin-footer">
           <Button
@@ -487,6 +501,13 @@ function AdminScreen({ actor }: { actor: Actor }) {
       </div>
 
       <StatDetail metric={detailMetric} onClose={() => setDetailMetric(null)} />
+
+      <Export
+        open={exportOpen}
+        actor={actor}
+        staff={staff ?? []}
+        onClose={() => setExportOpen(false)}
+      />
 
       <AlertDetail
         alert={selectedAlert}
