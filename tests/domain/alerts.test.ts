@@ -3,6 +3,7 @@ import {
   deriveAlerts,
   DEFAULT_THRESHOLDS,
   type AlertThresholds,
+  type AttributedEvent,
 } from '../../src/domain/alerts';
 import type { LoyaltyTransaction } from '../../src/domain/models';
 
@@ -23,37 +24,111 @@ function tx(p: Partial<LoyaltyTransaction> & { staffId: string; at: string }): L
   };
 }
 
-/** A daytime base time (12:00 local) to avoid accidental off-hours flags. */
+/** Attributed audit event (the self-dealing detector's input). */
+function ev(staffId: string, customerId: string, kind: 'accrue' | 'redeem', at: string): AttributedEvent {
+  return { staffId, customerId, kind, at };
+}
+
+/** A daytime base time (12:00 local). */
 function at(minuteOffset: number): string {
   const base = new Date(2026, 0, 5, 12, 0, 0, 0).getTime();
   return new Date(base + minuteOffset * 60_000).toISOString();
+}
+
+/** Same base clock, offset in seconds (self-dealing works in seconds). */
+function atSec(secondOffset: number): string {
+  const base = new Date(2026, 0, 5, 12, 0, 0, 0).getTime();
+  return new Date(base + secondOffset * 1_000).toISOString();
 }
 
 function kinds(alerts: { kind: string }[]): Set<string> {
   return new Set(alerts.map((a) => a.kind));
 }
 
-describe('velocity', () => {
-  it('fires when one staff exceeds the cup limit inside the window', () => {
-    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, velocityCups: 3, velocityWindowMin: 10 };
+describe('detector set', () => {
+  it('exposes exactly the two Appendix E detectors and nothing else', () => {
+    // A ledger + event stream that would have tripped every retired detector:
+    // a burst of rapid credits, an over-cap multi-add, and a late-night credit.
+    const lateNight = new Date(2026, 0, 5, 23, 30, 0, 0).toISOString();
     const ledger = [
-      tx({ staffId: 's1', at: at(0) }),
-      tx({ staffId: 's1', at: at(2) }),
-      tx({ staffId: 's1', at: at(4) }),
-      tx({ staffId: 's1', at: at(6) }),
+      ...Array.from({ length: 20 }, (_, i) => tx({ staffId: 's1', customerId: `c${i}`, at: at(i) })),
+      tx({ staffId: 's1', customerId: 'cBig', points: 9, at: at(1) }),
+      tx({ staffId: 's1', customerId: 'cLate', at: lateNight }),
     ];
-    expect(kinds(deriveAlerts(ledger, t)).has('velocity')).toBe(true);
+    expect(deriveAlerts(ledger, [])).toEqual([]);
+  });
+});
+
+describe('self-dealing', () => {
+  const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, selfDealWindowSec: 30, selfDealCount: 3 };
+
+  it('fires when the same staff credits then redeems the same card, repeatedly', () => {
+    const events = [
+      ev('s1', 'c4', 'accrue', atSec(0)),
+      ev('s1', 'c4', 'redeem', atSec(5)),
+      ev('s1', 'c4', 'accrue', atSec(600)),
+      ev('s1', 'c4', 'redeem', atSec(610)),
+      ev('s1', 'c4', 'accrue', atSec(1200)),
+      ev('s1', 'c4', 'redeem', atSec(1205)),
+    ];
+    const found = deriveAlerts([], events, t).find((a) => a.kind === 'self-dealing');
+    expect(found?.staffId).toBe('s1');
+    expect(found?.customerId).toBe('c4');
+    expect(found?.detail).toContain('3 times');
   });
 
-  it('does not fire when spread beyond the window', () => {
-    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, velocityCups: 3, velocityWindowMin: 10 };
-    const ledger = [
-      tx({ staffId: 's1', at: at(0) }),
-      tx({ staffId: 's1', at: at(20) }),
-      tx({ staffId: 's1', at: at(40) }),
-      tx({ staffId: 's1', at: at(60) }),
+  it('stays quiet for a single close pair (a customer redeeming straight away is normal)', () => {
+    const events = [ev('s1', 'c4', 'accrue', atSec(0)), ev('s1', 'c4', 'redeem', atSec(5))];
+    expect(kinds(deriveAlerts([], events, t)).has('self-dealing')).toBe(false);
+  });
+
+  it('does not pair across different staff', () => {
+    const events = [
+      ev('s1', 'c4', 'accrue', atSec(0)),
+      ev('s2', 'c4', 'redeem', atSec(5)),
+      ev('s1', 'c4', 'accrue', atSec(600)),
+      ev('s2', 'c4', 'redeem', atSec(605)),
+      ev('s1', 'c4', 'accrue', atSec(1200)),
+      ev('s2', 'c4', 'redeem', atSec(1205)),
     ];
-    expect(kinds(deriveAlerts(ledger, t)).has('velocity')).toBe(false);
+    expect(kinds(deriveAlerts([], events, t)).has('self-dealing')).toBe(false);
+  });
+
+  it('does not pair across different cards', () => {
+    const events = [
+      ev('s1', 'c1', 'accrue', atSec(0)),
+      ev('s1', 'c2', 'redeem', atSec(5)),
+      ev('s1', 'c3', 'accrue', atSec(600)),
+      ev('s1', 'c4', 'redeem', atSec(605)),
+      ev('s1', 'c5', 'accrue', atSec(1200)),
+      ev('s1', 'c6', 'redeem', atSec(1205)),
+    ];
+    expect(kinds(deriveAlerts([], events, t)).has('self-dealing')).toBe(false);
+  });
+
+  it('does not fire when each redeem is outside the proximity window', () => {
+    const events = [
+      ev('s1', 'c4', 'accrue', atSec(0)),
+      ev('s1', 'c4', 'redeem', atSec(120)),
+      ev('s1', 'c4', 'accrue', atSec(600)),
+      ev('s1', 'c4', 'redeem', atSec(900)),
+      ev('s1', 'c4', 'accrue', atSec(1200)),
+      ev('s1', 'c4', 'redeem', atSec(1500)),
+    ];
+    expect(kinds(deriveAlerts([], events, t)).has('self-dealing')).toBe(false);
+  });
+
+  it('flags an admin actor the same as staff — no role exemption', () => {
+    const events = [
+      ev('admin1', 'c4', 'accrue', atSec(0)),
+      ev('admin1', 'c4', 'redeem', atSec(5)),
+      ev('admin1', 'c4', 'accrue', atSec(600)),
+      ev('admin1', 'c4', 'redeem', atSec(605)),
+      ev('admin1', 'c4', 'accrue', atSec(1200)),
+      ev('admin1', 'c4', 'redeem', atSec(1205)),
+    ];
+    const found = deriveAlerts([], events, t).find((a) => a.kind === 'self-dealing');
+    expect(found?.staffId).toBe('admin1');
   });
 });
 
@@ -65,7 +140,7 @@ describe('repeat-target', () => {
       tx({ staffId: 's1', customerId: 'c9', at: at(5) }),
       tx({ staffId: 's1', customerId: 'c9', at: at(10) }),
     ];
-    const a = deriveAlerts(ledger, t).find((x) => x.kind === 'repeat-target');
+    const a = deriveAlerts(ledger, [], t).find((x) => x.kind === 'repeat-target');
     expect(a?.customerId).toBe('c9');
   });
 
@@ -76,88 +151,17 @@ describe('repeat-target', () => {
       tx({ staffId: 's2', customerId: 'c9', at: at(5) }),
       tx({ staffId: 's3', customerId: 'c9', at: at(10) }),
     ];
-    expect(kinds(deriveAlerts(ledger, t)).has('repeat-target')).toBe(false);
+    expect(kinds(deriveAlerts(ledger, [], t)).has('repeat-target')).toBe(false);
   });
-});
 
-describe('oversized-multi-add', () => {
-  it('fires at the cap and flags over-cap distinctly', () => {
-    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, multiAddCap: 3 };
+  it('does not fire when the credits are spread beyond the window', () => {
+    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, repeatCount: 2, repeatWindowMin: 30 };
     const ledger = [
-      tx({ staffId: 's1', points: 3, at: at(0) }),
-      tx({ staffId: 's1', points: 5, at: at(1) }),
+      tx({ staffId: 's1', customerId: 'c9', at: at(0) }),
+      tx({ staffId: 's1', customerId: 'c9', at: at(60) }),
+      tx({ staffId: 's1', customerId: 'c9', at: at(120) }),
     ];
-    const found = deriveAlerts(ledger, t).filter((x) => x.kind === 'oversized-multi-add');
-    expect(found.length).toBe(2);
-    expect(found.some((x) => x.detail.includes('exceeds'))).toBe(true);
-  });
-
-  it('does not fire below the cap', () => {
-    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, multiAddCap: 3 };
-    const ledger = [tx({ staffId: 's1', points: 2, at: at(0) })];
-    expect(kinds(deriveAlerts(ledger, t)).has('oversized-multi-add')).toBe(false);
-  });
-});
-
-describe('off-hours', () => {
-  it('fires for a credit outside opening hours', () => {
-    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, hours: { open: 6, close: 20 } };
-    const lateNight = new Date(2026, 0, 5, 23, 30, 0, 0).toISOString();
-    const ledger = [tx({ staffId: 's1', at: lateNight })];
-    expect(kinds(deriveAlerts(ledger, t)).has('off-hours')).toBe(true);
-  });
-
-  it('does not fire during opening hours', () => {
-    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, hours: { open: 6, close: 20 } };
-    const ledger = [tx({ staffId: 's1', at: at(0) })]; // noon
-    expect(kinds(deriveAlerts(ledger, t)).has('off-hours')).toBe(false);
-  });
-});
-
-describe('outlier-share', () => {
-  it('fires when one staff dominates the period', () => {
-    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, outlierMinCredits: 5, outlierShare: 0.8 };
-    const ledger = [
-      ...Array.from({ length: 9 }, (_, i) => tx({ staffId: 's1', at: at(i) })),
-      tx({ staffId: 's2', at: at(10) }),
-    ];
-    const a = deriveAlerts(ledger, t).find((x) => x.kind === 'outlier-share');
-    expect(a?.staffId).toBe('s1');
-  });
-
-  it('does not fire below the minimum credit count', () => {
-    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, outlierMinCredits: 50, outlierShare: 0.8 };
-    const ledger = [tx({ staffId: 's1', at: at(0) }), tx({ staffId: 's1', at: at(1) })];
-    expect(kinds(deriveAlerts(ledger, t)).has('outlier-share')).toBe(false);
-  });
-});
-
-describe('earn-then-redeem', () => {
-  it('fires when a redemption closely follows an accrual by the same staff/customer', () => {
-    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, earnThenRedeemWindowMin: 2 };
-    const ledger = [
-      tx({ staffId: 's1', customerId: 'c4', points: 3, at: at(0) }),
-      tx({ staffId: 's1', customerId: 'c4', type: 'redemption', points: -9, at: at(1) }),
-    ];
-    expect(kinds(deriveAlerts(ledger, t)).has('earn-then-redeem')).toBe(true);
-  });
-
-  it('does not fire when the redemption is by a different staff', () => {
-    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, earnThenRedeemWindowMin: 2 };
-    const ledger = [
-      tx({ staffId: 's1', customerId: 'c4', points: 3, at: at(0) }),
-      tx({ staffId: 's2', customerId: 'c4', type: 'redemption', points: -9, at: at(1) }),
-    ];
-    expect(kinds(deriveAlerts(ledger, t)).has('earn-then-redeem')).toBe(false);
-  });
-
-  it('does not fire when the redemption is outside the window', () => {
-    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, earnThenRedeemWindowMin: 2 };
-    const ledger = [
-      tx({ staffId: 's1', customerId: 'c4', points: 3, at: at(0) }),
-      tx({ staffId: 's1', customerId: 'c4', type: 'redemption', points: -9, at: at(30) }),
-    ];
-    expect(kinds(deriveAlerts(ledger, t)).has('earn-then-redeem')).toBe(false);
+    expect(kinds(deriveAlerts(ledger, [], t)).has('repeat-target')).toBe(false);
   });
 });
 
@@ -167,10 +171,23 @@ describe('decoration + cleanliness', () => {
       tx({ staffId: 's1', customerId: 'c1', points: 1, at: at(0) }),
       tx({ staffId: 's2', customerId: 'c2', points: 1, at: at(120) }),
     ];
-    expect(deriveAlerts(ledger)).toEqual([]);
+    expect(deriveAlerts(ledger, [])).toEqual([]);
     // Force one alert and check the name decoration.
-    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, multiAddCap: 1 };
-    const withName = deriveAlerts(ledger, t, { s1: 'Sam' }).find((a) => a.staffId === 's1');
+    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, repeatCount: 0, repeatWindowMin: 30 };
+    const withName = deriveAlerts(ledger, [], t, { s1: 'Sam' }).find((a) => a.staffId === 's1');
     expect(withName?.staffName).toBe('Sam');
+  });
+
+  it('surfaces alerts newest-first and never blocks (pure derivation, no writes)', () => {
+    const t: AlertThresholds = { ...DEFAULT_THRESHOLDS, repeatCount: 1, repeatWindowMin: 30 };
+    const ledger = [
+      tx({ staffId: 's1', customerId: 'cA', at: at(0) }),
+      tx({ staffId: 's1', customerId: 'cA', at: at(1) }),
+      tx({ staffId: 's2', customerId: 'cB', at: at(10) }),
+      tx({ staffId: 's2', customerId: 'cB', at: at(11) }),
+    ];
+    const found = deriveAlerts(ledger, [], t);
+    expect(found.length).toBe(2);
+    expect(found[0].at >= found[1].at).toBe(true);
   });
 });

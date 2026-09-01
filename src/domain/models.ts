@@ -43,6 +43,19 @@ export interface ProgramConfig {
    * out of `getAlerts`. See `alertKey` in `domain/alerts.ts`.
    */
   dismissedAlerts?: string[];
+  /**
+   * Detector thresholds (Appendix E), tunable by the admin in Configure so a
+   * small café can curb false positives. Absent fields fall back to
+   * `DEFAULT_THRESHOLDS` in `domain/alerts.ts`.
+   */
+  /** Self-dealing: a redeem within this many seconds of an accrual… */
+  selfDealWindowSec?: number;
+  /** …by the same staff on the same card, flagged at this many occurrences. */
+  selfDealCount?: number;
+  /** Repeat-target: same card credited more than this many times… */
+  repeatCount?: number;
+  /** …within this many minutes by the same staff member. */
+  repeatWindowMin?: number;
 }
 
 export interface StaffAccount {

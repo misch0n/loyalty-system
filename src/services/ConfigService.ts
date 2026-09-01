@@ -40,5 +40,15 @@ function sanitizeConfig(patch: Partial<ProgramConfig>): Partial<ProgramConfig> {
     out.sessionEpoch = Math.max(0, Math.floor(patch.sessionEpoch));
   if (patch.rewardDescription !== undefined)
     out.rewardDescription = patch.rewardDescription.trim() || 'Free regular coffee';
+  // Detector thresholds (Appendix E). All are positive whole numbers; a count of
+  // 0 would flag on every single action, so the floor is 1.
+  if (patch.selfDealWindowSec !== undefined)
+    out.selfDealWindowSec = Math.max(1, Math.floor(patch.selfDealWindowSec));
+  if (patch.selfDealCount !== undefined)
+    out.selfDealCount = Math.max(1, Math.floor(patch.selfDealCount));
+  if (patch.repeatCount !== undefined)
+    out.repeatCount = Math.max(1, Math.floor(patch.repeatCount));
+  if (patch.repeatWindowMin !== undefined)
+    out.repeatWindowMin = Math.max(1, Math.floor(patch.repeatWindowMin));
   return out;
 }

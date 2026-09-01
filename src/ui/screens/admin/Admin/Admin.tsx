@@ -41,7 +41,7 @@ import { AlertDetail } from '../_parts/AlertDetail/AlertDetail';
 import { usePager } from '../../../common/usePager';
 import { PersonIcon, feedIcon } from '../_parts/feedIcons';
 import type { MetricKind } from '../../../../domain/insights';
-import { alertKey } from '../../../../domain/alerts';
+import { alertKey, DEFAULT_THRESHOLDS } from '../../../../domain/alerts';
 import { auditTone, auditVerb, isSameDay, relativeTime } from './format';
 import './Admin.css';
 
@@ -54,10 +54,60 @@ interface Stats {
 const ACTIVITY_PAGE = 8;
 const ALERT_PAGE = 4;
 
-type EditTarget =
-  | { kind: 'pointsPerReward' }
-  | { kind: 'maxPointsPerTransaction' }
-  | { kind: 'revokeAll' };
+/**
+ * Numeric program-config fields the Configure panel can edit. Each carries the
+ * copy for the value+PIN `ProgramEdit` sheet and how the current value reads on
+ * the row. Add a field here and it appears in Configure — nothing else to wire.
+ */
+const PROGRAM_FIELDS = {
+  pointsPerReward: {
+    rowLabel: 'Reward earned at',
+    title: 'Reward threshold',
+    fieldLabel: 'Reward earned at how many coffees?',
+    format: (v: number) => `${v} coffees`,
+  },
+  maxPointsPerTransaction: {
+    rowLabel: 'Max coffees per scan',
+    title: 'Max coffees per scan',
+    fieldLabel: 'Most coffees per scan?',
+    format: (v: number) => String(v),
+  },
+  selfDealWindowSec: {
+    rowLabel: 'Self-dealing window',
+    title: 'Self-dealing window',
+    fieldLabel: 'Redeem within how many seconds of a credit?',
+    format: (v: number) => `${v}s`,
+  },
+  selfDealCount: {
+    rowLabel: 'Self-dealing flags at',
+    title: 'Self-dealing count',
+    fieldLabel: 'Flag after how many close credit-then-redeem pairs?',
+    format: (v: number) => `${v} times`,
+  },
+  repeatWindowMin: {
+    rowLabel: 'Repeat-target window',
+    title: 'Repeat-target window',
+    fieldLabel: 'Same card credited within how many minutes?',
+    format: (v: number) => `${v} min`,
+  },
+  repeatCount: {
+    rowLabel: 'Repeat-target flags above',
+    title: 'Repeat-target count',
+    fieldLabel: 'Flag above how many credits to the same card?',
+    format: (v: number) => `${v} times`,
+  },
+} as const;
+
+type ProgramField = keyof typeof PROGRAM_FIELDS;
+
+const ALERT_FIELDS: ProgramField[] = [
+  'selfDealWindowSec',
+  'selfDealCount',
+  'repeatWindowMin',
+  'repeatCount',
+];
+
+type EditTarget = { kind: ProgramField } | { kind: 'revokeAll' };
 
 export function Admin() {
   const { actor, status, ready } = useAuth();
@@ -200,7 +250,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
   // Program config save — value + PIN are collected in-app by ProgramEdit (no
   // more window.prompt, which mobile Safari suppressed); this just persists it.
   const saveProgram = async (value: number) => {
-    if (edit?.kind !== 'pointsPerReward' && edit?.kind !== 'maxPointsPerTransaction') return;
+    if (!edit || edit.kind === 'revokeAll') return;
     try {
       const saved = await services.config.update(actor, { [edit.kind]: value });
       setConfig(saved);
@@ -212,12 +262,15 @@ function AdminScreen({ actor }: { actor: Actor }) {
     }
   };
 
-  const isProgramEdit =
-    edit?.kind === 'pointsPerReward' || edit?.kind === 'maxPointsPerTransaction';
-  const programEditCopy =
-    edit?.kind === 'pointsPerReward'
-      ? { title: 'Reward threshold', fieldLabel: 'Reward earned at how many coffees?' }
-      : { title: 'Max coffees per scan', fieldLabel: 'Most coffees per scan?' };
+  const programField: ProgramField | null =
+    edit && edit.kind !== 'revokeAll' ? edit.kind : null;
+  const programEditCopy = programField
+    ? PROGRAM_FIELDS[programField]
+    : PROGRAM_FIELDS.pointsPerReward;
+
+  /** Current value of a config field, falling back to the detector defaults. */
+  const fieldValue = (field: ProgramField): number | undefined =>
+    config ? (config[field] ?? DEFAULT_THRESHOLDS[field as keyof typeof DEFAULT_THRESHOLDS]) : undefined;
 
   const resetCreateForm = () => {
     setNewName('');
@@ -509,16 +562,39 @@ function AdminScreen({ actor }: { actor: Actor }) {
         <div className="admin-configure">
           <Title className="admin-create__title">Configure program</Title>
           <div className="stats">
-            <StatWide
-              setLabel="Reward earned at"
-              setVal={config ? `${config.pointsPerReward} coffees` : '—'}
-              onEdit={() => setEdit({ kind: 'pointsPerReward' })}
-            />
-            <StatWide
-              setLabel="Max coffees per scan"
-              setVal={config ? String(config.maxPointsPerTransaction) : '—'}
-              onEdit={() => setEdit({ kind: 'maxPointsPerTransaction' })}
-            />
+            {(['pointsPerReward', 'maxPointsPerTransaction'] as ProgramField[]).map((field) => {
+              const value = fieldValue(field);
+              return (
+                <StatWide
+                  key={field}
+                  setLabel={PROGRAM_FIELDS[field].rowLabel}
+                  setVal={value === undefined ? '—' : PROGRAM_FIELDS[field].format(value)}
+                  onEdit={() => setEdit({ kind: field })}
+                />
+              );
+            })}
+          </div>
+
+          {/* Detector thresholds (Appendix E). Alerts surface, never block —
+              tuning these changes what an admin is shown, not what staff may do. */}
+          <p className="admin-configure__group">Activity alerts</p>
+          <p className="admin-empty">
+            Two checks run on counter activity: a card credited then redeemed by the same
+            person within moments, repeatedly; and the same card credited over and over in a
+            short window. Both only flag for review — neither ever blocks a sale.
+          </p>
+          <div className="stats">
+            {ALERT_FIELDS.map((field) => {
+              const value = fieldValue(field);
+              return (
+                <StatWide
+                  key={field}
+                  setLabel={PROGRAM_FIELDS[field].rowLabel}
+                  setVal={value === undefined ? '—' : PROGRAM_FIELDS[field].format(value)}
+                  onEdit={() => setEdit({ kind: field })}
+                />
+              );
+            })}
           </div>
         </div>
       </Sheet>
@@ -532,11 +608,11 @@ function AdminScreen({ actor }: { actor: Actor }) {
       />
 
       <ProgramEdit
-        open={isProgramEdit}
+        open={programField !== null}
         onClose={() => setEdit(null)}
         title={programEditCopy.title}
         fieldLabel={programEditCopy.fieldLabel}
-        current={config && isProgramEdit ? config[(edit as { kind: 'pointsPerReward' | 'maxPointsPerTransaction' }).kind] : 1}
+        current={(programField && fieldValue(programField)) || 1}
         onConfirm={saveProgram}
       />
 

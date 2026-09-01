@@ -35,11 +35,12 @@ function fakeServices(role: 'admin' | 'staff'): Services {
       }),
       getAlerts: vi.fn().mockResolvedValue([
         {
-          kind: 'velocity',
+          kind: 'self-dealing',
           staffId: 's1',
           staffName: 'aya',
+          customerId: 'c1',
           at: new Date().toISOString(),
-          detail: '28 cups added in 12 min.',
+          detail: 'Credited then redeemed on the same card within 30s, 3 times (limit 3).',
         },
       ]),
     },
@@ -183,6 +184,26 @@ describe('Admin screen', () => {
     });
     expect(container.querySelector('.sheet')).not.toBeNull();
     expect(container.querySelector('.pin-dots')).not.toBeNull();
+  });
+
+  it('Configure exposes the two detector thresholds as editable rows', async () => {
+    await mountAdmin('admin');
+    const configure = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent === 'Configure program',
+    ) as HTMLButtonElement | undefined;
+    await act(async () => {
+      configure!.click();
+    });
+
+    const labels = Array.from(container.querySelectorAll('.stats .setlabel')).map(
+      (n) => n.textContent,
+    );
+    expect(labels).toContain('Self-dealing window');
+    expect(labels).toContain('Self-dealing flags at');
+    expect(labels).toContain('Repeat-target window');
+    expect(labels).toContain('Repeat-target flags above');
+    // Alerts surface, never block — the panel says so.
+    expect(container.textContent).toContain('only flag for review');
   });
 });
 

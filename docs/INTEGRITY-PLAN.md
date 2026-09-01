@@ -28,7 +28,7 @@ Written so work can continue **with context cleared between tasks**. Each phase 
 
 - [x] **Phase 0** — Staff Scan: 3-second deferred (pre-)commit
 - [x] **Phase 1** — Remove the old post-commit undo machinery
-- [ ] **Phase 2** — Detectors: prune to two + rebuild self-dealing + configurable thresholds
+- [x] **Phase 2** — Detectors: prune to two + rebuild self-dealing + configurable thresholds
 - [ ] **Phase 3** — Activity surfacing: staff terminal · admin home · StatDetail · per-account
 - [ ] **Phase 4** — Investigation & export workflow (filter → reason → JSON)
 - [ ] **Phase 5** — Docs (STATUS divergences + acceptance rows)

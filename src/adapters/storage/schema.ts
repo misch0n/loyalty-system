@@ -119,6 +119,11 @@ export const DEFAULT_CONFIG: ProgramConfig = {
   pointsPerPurchase: 1,
   maxPointsPerTransaction: 3,
   cardInactivityDays: 0,
+  // Detector thresholds (Appendix E) — admin-tunable in Configure.
+  selfDealWindowSec: 30,
+  selfDealCount: 3,
+  repeatCount: 3,
+  repeatWindowMin: 30,
 };
 
 /**

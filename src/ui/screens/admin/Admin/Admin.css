@@ -206,3 +206,14 @@
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* Section heading inside the Configure sheet, separating the program fields
+   from the Appendix E alert thresholds. */
+.admin-configure__group {
+  margin: 22px 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}

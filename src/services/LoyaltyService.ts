@@ -4,7 +4,7 @@
  * stored. Staff initiate every credit; redemption is atomic in the store.
  */
 
-import type { Customer, CustomerState, LoyaltyTransaction } from '../domain/models';
+import type { Customer, CustomerState, LoyaltyTransaction, ProgramConfig } from '../domain/models';
 import type {
   CommitResult,
   CounterTransaction,
@@ -19,6 +19,7 @@ import {
   DEFAULT_THRESHOLDS,
   type Alert,
   type AlertThresholds,
+  type AttributedEvent,
 } from '../domain/alerts';
 import { appUrl } from '../config/links';
 import type { AuditService } from './AuditService';
@@ -128,26 +129,44 @@ export class LoyaltyService {
   }
 
   /**
-   * Derive the suspicious-activity alerts for the admin view (UX §8.1). Pulls
-   * the whole ledger + config + staff names and runs the pure heuristics. The
-   * multi-add cap defaults to the program's `maxPointsPerTransaction`; pass
-   * `thresholds` to override any field. Monitoring only — never blocks.
+   * Derive the suspicious-activity alerts for the admin view (Appendix E).
+   * Two detectors only: self-dealing proximity and repeat-target. Thresholds
+   * come from the program config (admin-tunable in Configure) and fall back to
+   * `DEFAULT_THRESHOLDS`; pass `thresholds` to override any field.
+   *
+   * Repeat-target reads the ledger. Self-dealing reads the attributed
+   * `loyalty.accrue` / `loyalty.redeem` AUDIT rows — the ledger no longer
+   * carries a `redemption` type, so pairing there would match nothing.
+   * Admins are not exempt. Monitoring only — never blocks.
    */
   async getAlerts(thresholds?: Partial<AlertThresholds>): Promise<Alert[]> {
-    const [transactions, config, staff] = await Promise.all([
+    const [transactions, config, staff, accrued, redeemed] = await Promise.all([
       this.store.listAllTransactions(),
       this.store.getConfig(),
       this.store.listStaff(),
+      this.store.listAudit({ action: 'loyalty.accrue' }),
+      this.store.listAudit({ action: 'loyalty.redeem' }),
     ]);
     const resolved: AlertThresholds = {
       ...DEFAULT_THRESHOLDS,
-      multiAddCap: config.maxPointsPerTransaction,
+      ...pickThresholds(config),
       ...thresholds,
     };
+    const events: AttributedEvent[] = [];
+    for (const row of accrued) {
+      if (row.targetId) {
+        events.push({ staffId: row.actorId, customerId: row.targetId, at: row.timestamp, kind: 'accrue' });
+      }
+    }
+    for (const row of redeemed) {
+      if (row.targetId) {
+        events.push({ staffId: row.actorId, customerId: row.targetId, at: row.timestamp, kind: 'redeem' });
+      }
+    }
     const staffNames: Record<string, string> = {};
     for (const member of staff) staffNames[member.id] = member.username;
     const dismissed = new Set(config.dismissedAlerts ?? []);
-    return deriveAlerts(transactions, resolved, staffNames).filter(
+    return deriveAlerts(transactions, events, resolved, staffNames).filter(
       (a) => !dismissed.has(alertKey(a)),
     );
   }
@@ -301,4 +320,17 @@ export class LoyaltyService {
   async getState(customerId: string): Promise<CustomerState> {
     return this.store.getCustomerState(customerId);
   }
+}
+
+/**
+ * The detector-threshold slice of the program config, with unset fields left out
+ * so they fall through to `DEFAULT_THRESHOLDS`.
+ */
+function pickThresholds(config: ProgramConfig): Partial<AlertThresholds> {
+  const out: Partial<AlertThresholds> = {};
+  if (config.selfDealWindowSec != null) out.selfDealWindowSec = config.selfDealWindowSec;
+  if (config.selfDealCount != null) out.selfDealCount = config.selfDealCount;
+  if (config.repeatCount != null) out.repeatCount = config.repeatCount;
+  if (config.repeatWindowMin != null) out.repeatWindowMin = config.repeatWindowMin;
+  return out;
 }
