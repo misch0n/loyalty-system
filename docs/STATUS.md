@@ -575,10 +575,12 @@ unit tests cannot.
   ≥600ms → staff sign-in. The Prototype/developer panel is opened by a separate
   hidden top-left `DevTrigger` (gated on `isPrototype`, not `import.meta.env.PROD`),
   not a logo tap. There is no global "Staff sign-in" subtitle in the shell.
-- **Reward threshold is 8** (`pointsPerReward: 8` in `adapters/storage/schema.ts`
-  seed) — eight coffees earn the reward. The card still renders a **10-cup
-  showcase** (`CupStamps showcase`): a welcome sticker cup, the 8 earnable cups,
-  and a FREE reward cup. No "Gold" tier badge.
+- **Reward threshold is 9** (`pointsPerReward: 9` in `adapters/storage/schema.ts`
+  seed) — nine purchases earn the reward. The card renders a fixed **10-cup
+  showcase** (`CupStamps showcase`): the 9 earnable cups plus a FREE reward cup
+  that is **pre-stamped** as the prize. There is **no welcome cup** — the first
+  stamp is earned, not on the house — so a brand-new card shows 1 of 10 lit and
+  "9 more for a free coffee". No "Gold" tier badge.
 
 ## Known gaps / not built (by design or deferred)
 
