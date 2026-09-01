@@ -308,47 +308,6 @@ describe('unified commit (rewards-as-objects)', () => {
     expect(stats.rewardsRedeemed).toBe(1);
     expect(stats.pointsIssued).toBe(9); // three +3 accruals
   });
-
-  it('undo re-mints a replacement for a spent reward (spent stays spent) and audits the reversal', async () => {
-    const services = freshServices();
-    const shell = await services.customers.issueCard(STAFF);
-    const id = shell.id;
-    for (let i = 0; i < 2; i++) {
-      await services.loyalty.commit(STAFF, {
-        customerId: id,
-        pointsDelta: 3,
-        redeemRewardIds: [],
-        idempotencyKey: `u-${i}`,
-        source: 'a',
-      });
-    }
-    const cross = await services.loyalty.commit(STAFF, {
-      customerId: id,
-      pointsDelta: 3, // 6 → 9, mints one reward
-      redeemRewardIds: [],
-      idempotencyKey: 'u-cross',
-      source: 'a',
-    });
-    if (!cross.ok) return;
-    await services.loyalty.commit(STAFF, {
-      customerId: id,
-      pointsDelta: 0,
-      redeemRewardIds: [cross.minted[0].id],
-      idempotencyKey: 'u-redeem',
-      source: 'a',
-    });
-    expect((await services.loyalty.getState(id)).rewards).toHaveLength(0);
-
-    const undo = await services.loyalty.undo(STAFF, 'u-redeem');
-    expect(undo.ok).toBe(true);
-    if (!undo.ok) return;
-    expect(undo.minted).toHaveLength(1); // a fresh replacement reward
-    expect((await services.loyalty.getState(id)).rewards).toHaveLength(1);
-
-    // The undo writes a loyalty.reverse audit row for the acting staff.
-    const reversals = await services.audit.list({ action: 'loyalty.reverse' });
-    expect(reversals.some((e) => e.details === 'undo' && e.actorId === STAFF.id)).toBe(true);
-  });
 });
 
 describe('reversal', () => {

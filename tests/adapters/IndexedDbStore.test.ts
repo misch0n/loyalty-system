@@ -169,7 +169,7 @@ describe('loyalty ledger', () => {
   });
 });
 
-describe('rewards-as-objects (commitCounterTransaction / undo)', () => {
+describe('rewards-as-objects (commitCounterTransaction)', () => {
   // Pin the threshold so these mechanics tests are independent of the product
   // default (now 9 — nine stamps, tenth coffee free).
   beforeEach(async () => {
@@ -301,68 +301,6 @@ describe('rewards-as-objects (commitCounterTransaction / undo)', () => {
     const r = await store.commitCounterTransaction(
       counter({ customerId: 'nobody', pointsDelta: 1 }),
     );
-    expect(r).toEqual({ ok: false, error: 'customer_not_found' });
-  });
-
-  it('undo reverses points and voids a freshly-minted reward', async () => {
-    await widenCap();
-    const c = await store.createCustomer({ token: 't' });
-    const txn = counter({ customerId: c.id, pointsDelta: 8 });
-    const committed = await store.commitCounterTransaction(txn);
-    if (!committed.ok) throw new Error('commit failed');
-
-    const undo = await store.undoCommit(txn.idempotencyKey);
-    expect(undo.ok).toBe(true);
-    if (!undo.ok) return;
-    // Minted reward voided, balance back to the pre-commit value.
-    expect(await store.listRewards(c.id, 'unspent')).toHaveLength(0);
-    expect(await store.listRewards(c.id, 'voided')).toHaveLength(1);
-    expect((await store.getCustomerState(c.id)).balance).toBe(0);
-  });
-
-  it('undo of a points-only commit reverses the balance', async () => {
-    const c = await store.createCustomer({ token: 't' });
-    const txn = counter({ customerId: c.id, pointsDelta: 3 });
-    await store.commitCounterTransaction(txn);
-    await store.undoCommit(txn.idempotencyKey);
-    expect((await store.getCustomerState(c.id)).balance).toBe(0);
-  });
-
-  it('undo of a redemption re-mints a replacement and leaves the original spent', async () => {
-    await widenCap();
-    const c = await store.createCustomer({ token: 't' });
-    const minted = await store.commitCounterTransaction(
-      counter({ customerId: c.id, pointsDelta: 8 }),
-    );
-    if (!minted.ok) throw new Error('mint failed');
-    const original = minted.minted[0].id;
-
-    const redeemTxn = counter({ customerId: c.id, redeemRewardIds: [original] });
-    await store.commitCounterTransaction(redeemTxn);
-    expect(await store.listRewards(c.id, 'unspent')).toHaveLength(0);
-
-    const undo = await store.undoCommit(redeemTxn.idempotencyKey);
-    expect(undo.ok).toBe(true);
-    if (!undo.ok) return;
-    // The spent reward STAYS spent; a fresh replacement is minted.
-    expect(undo.minted).toHaveLength(1);
-    expect(undo.minted[0].id).not.toBe(original);
-    expect(await store.listRewards(c.id, 'spent')).toHaveLength(1);
-    expect(await store.listRewards(c.id, 'unspent')).toHaveLength(1);
-  });
-
-  it('undo is itself idempotent (a second undo replays the cached result)', async () => {
-    const c = await store.createCustomer({ token: 't' });
-    const txn = counter({ customerId: c.id, pointsDelta: 3 });
-    await store.commitCounterTransaction(txn);
-    const first = await store.undoCommit(txn.idempotencyKey);
-    const second = await store.undoCommit(txn.idempotencyKey);
-    expect(second).toEqual(first);
-    expect((await store.getCustomerState(c.id)).balance).toBe(0);
-  });
-
-  it('undo of an unknown key reports nothing to undo', async () => {
-    const r = await store.undoCommit('never-committed');
     expect(r).toEqual({ ok: false, error: 'customer_not_found' });
   });
 });

@@ -301,20 +301,4 @@ export class LoyaltyService {
   async getState(customerId: string): Promise<CustomerState> {
     return this.store.getCustomerState(customerId);
   }
-
-  /**
-   * Undo a commit within its window: the store reverses the net points, voids
-   * any freshly-minted (unspent) reward, and re-mints a point-neutral
-   * replacement for each reward the commit spent (a spent reward is never
-   * un-spent). Itself idempotent. Writes a `loyalty.reverse` audit row for the
-   * actor performing the undo; sends no notification (a reissue is not a fresh
-   * threshold crossing).
-   */
-  async undo(actor: Actor, idempotencyKey: string): Promise<CommitResult> {
-    const result = await this.store.undoCommit(idempotencyKey);
-    if (result.ok) {
-      await this.audit.log(actor, 'loyalty.reverse', result.state.customer.id, 'undo');
-    }
-    return result;
-  }
 }

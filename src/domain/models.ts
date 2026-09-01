@@ -157,7 +157,7 @@ export interface RewardEvent {
   customerId: string;
   staffId?: string;
   timestamp: string;
-  /** Free-form context, e.g. `{ reason: 'mint_reversed' | 'undo_reissue' }`. Never PII. */
+  /** Free-form context, e.g. `{ reason: 'correction' }`. Never PII. */
   details?: Record<string, string>;
 }
 

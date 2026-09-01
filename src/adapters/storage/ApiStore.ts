@@ -118,9 +118,6 @@ export class ApiStore implements DataStore {
   getCustomerState(customerId: string): Promise<CustomerState> {
     return this.request('GET', `/customers/${customerId}/state`);
   }
-  undoCommit(idempotencyKey: string): Promise<CommitResult> {
-    return this.request('POST', '/commits/undo', { idempotencyKey });
-  }
 
   createRecoveryCode(input: CreateRecoveryCodeInput): Promise<void> {
     return this.request('POST', '/recovery-codes', input);

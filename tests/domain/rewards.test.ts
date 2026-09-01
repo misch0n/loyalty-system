@@ -5,7 +5,6 @@ import {
   mintFold,
   validateRedemption,
   isOverCap,
-  planUndo,
 } from '../../src/domain/rewards';
 import type { ProgramConfig, Reward } from '../../src/domain/models';
 
@@ -146,43 +145,5 @@ describe('isOverCap', () => {
   it('rejects negative or non-integer deltas', () => {
     expect(isOverCap(-1, config)).toBe(true);
     expect(isOverCap(1.5, config)).toBe(true);
-  });
-});
-
-describe('planUndo', () => {
-  it('reverses a plain accrual with no mints or redeems', () => {
-    expect(
-      planUndo({ pointsDelta: 3, threshold: 8, mintedRewardIds: [], spentRewardIds: [] }),
-    ).toEqual({ reversePoints: -3, voidRewardIds: [], reissueForSpentRewardIds: [] });
-  });
-  it('voids a freshly-minted reward and nets the points back to pre-commit', () => {
-    // pre-balance 5, +5 → 10, mints 1 (−8), settles to 2. Undo must return to 5.
-    expect(
-      planUndo({ pointsDelta: 5, threshold: 8, mintedRewardIds: ['r-new'], spentRewardIds: [] }),
-    ).toEqual({ reversePoints: 3, voidRewardIds: ['r-new'], reissueForSpentRewardIds: [] });
-  });
-  it('re-mints a replacement for each spent reward (a spent reward stays spent)', () => {
-    expect(
-      planUndo({
-        pointsDelta: 0,
-        threshold: 8,
-        mintedRewardIds: [],
-        spentRewardIds: ['r1', 'r2'],
-      }),
-    ).toEqual({ reversePoints: 0, voidRewardIds: [], reissueForSpentRewardIds: ['r1', 'r2'] });
-  });
-  it('handles a commit that both minted and redeemed in one step', () => {
-    expect(
-      planUndo({
-        pointsDelta: 5,
-        threshold: 8,
-        mintedRewardIds: ['r-new'],
-        spentRewardIds: ['r-old1', 'r-old2'],
-      }),
-    ).toEqual({
-      reversePoints: 3,
-      voidRewardIds: ['r-new'],
-      reissueForSpentRewardIds: ['r-old1', 'r-old2'],
-    });
   });
 });

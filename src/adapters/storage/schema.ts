@@ -48,28 +48,17 @@ export interface RecoveryCodeRecord {
  * Idempotency-dedup record (rewards-as-objects, REWARDS-PLAN §3.3 / Q5). Maps a
  * commit's `idempotencyKey` to its cached {@link CommitResult} so a retried RPC
  * commit (the paired-device path has a 10s retry) returns the same result with
- * NO re-writes. Also carries the minimal effect of the commit so `undoCommit`
- * can reverse it without re-deriving (points reversed, fresh mints voided, spent
- * rewards re-minted). All ids only — never PII.
+ * NO re-writes. Ids only — never PII.
+ *
+ * Appendix E dropped the post-commit undo, so the record no longer carries the
+ * commit's effect (staff, points, minted/spent ids): dedup is all it is for.
+ * Corrections are `LoyaltyService.reverse` ledger entries, and a mistake is
+ * caught by the staff Scan's pre-commit hold before anything is written.
  */
 export interface IdempotencyRecord {
   key: string;
   /** The original commit's result, replayed verbatim on a same-key retry. */
   result: CommitResult;
-  /** Staff member who committed it (attribution for the undo's reversal/reissue). */
-  staffId: string;
-  /** Points the commit accrued (to compute the reversal). */
-  pointsDelta: number;
-  /** Threshold in force at commit time (pointsPerReward). */
-  threshold: number;
-  /** Ids of rewards the commit minted (voided on undo). */
-  mintedRewardIds: string[];
-  /** Ids of rewards the commit redeemed (each re-minted on undo). */
-  spentRewardIds: string[];
-  /** Set once the commit has been undone (a second undo is a cached no-op). */
-  undone?: boolean;
-  /** Cached undo outcome, so a repeat `undoCommit` is idempotent. */
-  undoResult?: CommitResult;
 }
 
 export interface LoyaltyDB extends DBSchema {

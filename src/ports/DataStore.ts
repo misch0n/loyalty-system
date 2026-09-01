@@ -164,12 +164,6 @@ export interface DataStore {
   listRewards(customerId: string, status?: RewardStatus): Promise<Reward[]>;
   /** Full derived read-model: settled balance + unspent rewards. */
   getCustomerState(customerId: string): Promise<CustomerState>;
-  /**
-   * Reverse a commit within the undo window: reverse the points, void any
-   * freshly-minted (unspent) reward, and re-mint a replacement for each reward
-   * spent in that commit. A spent reward is never un-spent.
-   */
-  undoCommit(idempotencyKey: string): Promise<CommitResult>;
 
   // ── staff & config ─────────────────────────────────────────────────────────
   createStaff(input: CreateStaffInput): Promise<StaffAccount>;
