@@ -1,8 +1,8 @@
 # Staff integrity & observability — build plan (Appendix E)
 
-> **Active initiative.** Reshapes how staff/admin actions are *surfaced, reached, and
-> corrected* — collection is unchanged; presentation changes. One line: **the system
-> remembers everything, judges almost nothing, and announces the little it judges.**
+> **✅ Complete — all phases 0–5 done.** Reshapes how staff/admin actions are *surfaced,
+> reached, and corrected* — collection is unchanged; presentation changes. One line: **the
+> system remembers everything, judges almost nothing, and announces the little it judges.**
 > **Supersedes** the SPEC §6 audit-log surfacing, the §8.7 activity views, and the
 > rewards-as-objects **5-second post-commit undo** (redesigned here as a *pre*-commit hold).
 > Appendix E text was provided in-session; the actionable distillation below is sufficient to build.
@@ -31,7 +31,9 @@ Written so work can continue **with context cleared between tasks**. Each phase 
 - [x] **Phase 2** — Detectors: prune to two + rebuild self-dealing + configurable thresholds
 - [x] **Phase 3** — Activity surfacing: staff terminal · admin home · StatDetail · per-account
 - [x] **Phase 4** — Investigation & export workflow (filter → reason → JSON)
-- [ ] **Phase 5** — Docs (STATUS divergences + acceptance rows)
+- [x] **Phase 5** — Docs (STATUS divergences + acceptance rows)
+
+**✅ All phases complete — the staff integrity & observability rework is done.**
 
 Phase 0 must land **before** Phase 1 (the UI stops calling `undo` first, then the dead code is removed).
 Phases 2–4 are independent of each other and of 0/1.

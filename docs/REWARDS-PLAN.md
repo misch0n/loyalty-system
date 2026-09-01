@@ -4,6 +4,14 @@
 > into discrete, countable, ownable **`Reward` objects**, plus a unified scan/commit
 > contract and customer-driven **multi-reward composite redemption**.
 > **Supersedes** SPEC §6 (reward derivation), §8.2/§8.3 (scan/commit), and refines B2.
+>
+> **⚠️ Superseded in part:** the **5-second post-commit undo** built in Phase 5 below (and its
+> Phase 8 acceptance rows) was **replaced** by a **3-second pre-commit hold** in the Appendix E
+> (staff integrity & observability) rework — see [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md) §2
+> "Undo → pre-commit hold". `DataStore.undoCommit` / `LoyaltyService.undo` / `domain/rewards.ts
+> planUndo` no longer exist. Everything else in this plan (mint-on-cross, atomic/idempotent
+> commit, multi-reward redemption, reward objects/events) is unaffected and still describes the
+> shipped system.
 
 ---
 

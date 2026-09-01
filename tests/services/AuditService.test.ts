@@ -106,8 +106,12 @@ describe('exportActivity (Appendix E investigation workflow)', () => {
       { actions: record?.actions },
       `Re-run: ${record?.reason}`,
     );
+    // Two rows, both audited. Don't assert on their relative order — they can
+    // land in the same millisecond, and listAudit sorts by timestamp only.
     const both = await audit.list({ action: 'audit.export' });
     expect(both).toHaveLength(2);
-    expect(parseExportRecord(both[0].details)?.reason).toBe('Re-run: first look');
+    const reasons = both.map((e) => parseExportRecord(e.details)?.reason);
+    expect(reasons).toContain('first look');
+    expect(reasons).toContain('Re-run: first look');
   });
 });
