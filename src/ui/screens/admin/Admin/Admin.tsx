@@ -28,10 +28,10 @@ import { useAuth } from '../../../app/AuthContext';
 import { ROUTES } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
 import type { Actor } from '../../../../services/types';
-import type { AuditLogEntry, ProgramConfig, StaffAccount } from '../../../../domain/models';
+import type { ProgramConfig, StaffAccount } from '../../../../domain/models';
 import type { Alert as AlertModel } from '../../../../domain/alerts';
 import { Stat, StatWide } from '../_parts/Stat/Stat';
-import { Feed, FeedRow, SectionH } from '../_parts/FeedRow/FeedRow';
+import { SectionH } from '../_parts/FeedRow/FeedRow';
 import { Alert } from '../_parts/Alert/Alert';
 import { StepUp } from '../_parts/StepUp/StepUp';
 import { ProgramEdit } from '../_parts/ProgramEdit/ProgramEdit';
@@ -39,10 +39,10 @@ import { AccountSheet } from '../_parts/AccountSheet/AccountSheet';
 import { StatDetail } from '../_parts/StatDetail/StatDetail';
 import { AlertDetail } from '../_parts/AlertDetail/AlertDetail';
 import { usePager } from '../../../common/usePager';
-import { PersonIcon, feedIcon } from '../_parts/feedIcons';
+import { PersonIcon } from '../_parts/feedIcons';
 import type { MetricKind } from '../../../../domain/insights';
 import { alertKey, DEFAULT_THRESHOLDS } from '../../../../domain/alerts';
-import { auditTone, auditVerb, isSameDay, relativeTime } from './format';
+import { isSameDay, relativeTime } from './format';
 import './Admin.css';
 
 interface Stats {
@@ -51,7 +51,6 @@ interface Stats {
   rewardsRedeemed: number;
 }
 
-const ACTIVITY_PAGE = 8;
 const ALERT_PAGE = 4;
 
 /**
@@ -162,7 +161,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
   const [config, setConfig] = useState<ProgramConfig | null>(null);
   const [alerts, setAlerts] = useState<AlertModel[] | null>(null);
   const [staff, setStaff] = useState<StaffAccount[] | null>(null);
-  const [entries, setEntries] = useState<AuditLogEntry[] | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
 
   const [edit, setEdit] = useState<EditTarget | null>(null);
@@ -174,7 +172,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
   // Program-config popover (reward threshold, max coffees per scan, …).
   const [configureOpen, setConfigureOpen] = useState(false);
 
-  const activityPager = usePager(entries?.length ?? 0, ACTIVITY_PAGE);
   const alertPager = usePager(alerts?.length ?? 0, ALERT_PAGE);
   // The id of the profile whose management popover is open (null = closed). We
   // derive the live account from `staff` so edits (disable, delete…) reflect
@@ -199,7 +196,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
       services.config.get(),
       services.loyalty.getAlerts(),
       services.staff.list(),
-      services.audit.list({}), // all entries; the Activity feed pages client-side
+      services.audit.list({}), // aggregate only — used for the 'active today' count
     ]).then(([s, accruals, cfg, alertList, staffList, log]) => {
       if (cancelled) return;
       setStats(s);
@@ -222,7 +219,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
       const map: Record<string, string> = {};
       for (const member of staffList) map[member.id] = member.name ?? member.username;
       setNames(map);
-      setEntries(log);
     });
     return () => {
       cancelled = true;
@@ -323,11 +319,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
       setSelectedAlert(null);
       load(); // re-derive alerts without the dismissed one
     }
-  };
-
-  const actorName = (entry: AuditLogEntry): string => {
-    if (entry.actorRole === 'system') return 'System';
-    return names[entry.actorId] ?? 'Unknown staff';
   };
 
   return (
@@ -481,41 +472,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
           Sign out all devices
         </Button>
 
-        <SectionH>Activity</SectionH>
-        <Feed>
-          {entries?.slice(0, activityPager.count).map((entry) => {
-            const tone = auditTone(entry.action);
-            return (
-              <FeedRow
-                key={entry.id}
-                tone={tone}
-                icon={feedIcon(tone)}
-                text={
-                  <>
-                    {actorName(entry)} <span>· {auditVerb(entry.action)}</span>
-                  </>
-                }
-                time={relativeTime(entry.timestamp)}
-              />
-            );
-          })}
-          {entries && entries.length === 0 && (
-            <p className="admin-empty">Nothing yet — actions will appear here as staff work.</p>
-          )}
-        </Feed>
-        {activityPager.canMore && (
-          <div className="admin-more">
-            <button type="button" className="admin-more-btn" onClick={activityPager.more}>
-              Load more
-            </button>
-            {activityPager.showLoadAll && (
-              <button type="button" className="admin-more-all" onClick={activityPager.loadAll}>
-                Load all {entries?.length}
-              </button>
-            )}
-          </div>
-        )}
-
         <div className="admin-footer">
           <Button
             variant="ghost"
@@ -530,11 +486,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
         </div>
       </div>
 
-      <StatDetail
-        metric={detailMetric}
-        names={names}
-        onClose={() => setDetailMetric(null)}
-      />
+      <StatDetail metric={detailMetric} onClose={() => setDetailMetric(null)} />
 
       <AlertDetail
         alert={selectedAlert}

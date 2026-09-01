@@ -20,25 +20,27 @@ import { useAuth } from '../../../app/AuthContext';
 import { ROUTES } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
 import { usePairing } from '../../../common/PairingContext';
-import { usePager } from '../../../common/usePager';
 import { TopBar, OnShift } from '../_parts';
 import { useStaffGuard } from '../useStaffGuard';
 import { actionLabel, isLoyaltyAction, relativeTime } from '../activity';
 import './Panel.css';
 
-/** Initial number of "Today on this terminal" rows before "Load more". */
-const RECENT_PAGE = 5;
+/**
+ * Appendix E — "recent and local". The counter's activity list is bounded to the
+ * SIGNED-IN actor's own actions in the LAST HOUR, hard-capped at this many rows,
+ * with no pager and no "Load all": the bound IS the safeguard. A terminal is for
+ * catching a mistake you just made, not for browsing the shop's history — that
+ * lives behind the admin export workflow. Actor+time scoping also means a
+ * logout/login still only ever shows that staffer's own last hour.
+ */
+const RECENT_CAP = 10;
+const RECENT_WINDOW_MS = 60 * 60 * 1000;
 
-/** True when an ISO timestamp falls on the same calendar day as now. */
-function isToday(iso: string): boolean {
-  const then = new Date(iso);
-  if (Number.isNaN(then.getTime())) return false;
-  const now = new Date();
-  return (
-    then.getFullYear() === now.getFullYear() &&
-    then.getMonth() === now.getMonth() &&
-    then.getDate() === now.getDate()
-  );
+/** True when an ISO timestamp falls inside the trailing one-hour window. */
+function withinWindow(iso: string): boolean {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return false;
+  return Date.now() - then <= RECENT_WINDOW_MS;
 }
 
 interface ActivityItem {
@@ -71,14 +73,17 @@ export function Panel(): JSX.Element {
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [recentOpen, setRecentOpen] = useState(true);
-  const recentPager = usePager(items.length, RECENT_PAGE);
 
   const actorId = guard.actor?.id;
 
   const loadActivity = useCallback(async () => {
-    // All audit (newest first); keep only TODAY's loyalty activity on this terminal.
-    const entries = await services.audit.list({});
-    const loyalty = entries.filter((e) => isLoyaltyAction(e.action) && isToday(e.timestamp));
+    if (!actorId) return [];
+    // Scoped to THIS actor (newest first), then trimmed to the last hour and
+    // capped — see RECENT_CAP. No pager: there is deliberately no way to widen it.
+    const entries = await services.audit.list({ actorId });
+    const loyalty = entries
+      .filter((e) => isLoyaltyAction(e.action) && withinWindow(e.timestamp))
+      .slice(0, RECENT_CAP);
 
     // Resolve customer names for targets (read-only; never written to the log).
     const customerNames = new Map<string, string>();
@@ -98,7 +103,7 @@ export function Panel(): JSX.Element {
       customerName: e.targetId ? customerNames.get(e.targetId) : undefined,
       timestamp: e.timestamp,
     }));
-  }, [services]);
+  }, [services, actorId]);
 
   useEffect(() => {
     if (!actorId) return;
@@ -156,7 +161,7 @@ export function Panel(): JSX.Element {
           aria-expanded={recentOpen}
           onClick={() => setRecentOpen((o) => !o)}
         >
-          <span className="section-h">Today on this terminal</span>
+          <span className="section-h">Your last hour</span>
           <span className="staff-panel__chev" aria-hidden="true">
             {recentOpen ? '⌄' : '›'}
           </span>
@@ -166,45 +171,21 @@ export function Panel(): JSX.Element {
             <p className="staff-panel__empty">Loading…</p>
           ) : items.length === 0 ? (
             <p className="staff-panel__empty">
-              Nothing today yet. Scan a customer’s code to add their first coffee.
+              Nothing in the last hour. Scan a customer’s code to add their first coffee.
             </p>
           ) : (
-            <>
-              <div className="feed">
-                {items.slice(0, recentPager.count).map((item) => (
-                  <div key={item.id} className={`row ${item.kind}`}>
-                    <span className="ri">
-                      {item.kind === 'red' ? <StarIcon /> : <PlusIcon />}
-                    </span>
-                    <div className="rt">
-                      {capitalize(item.action)}
-                      {item.customerName ? <span> · {item.customerName}</span> : null}
-                    </div>
-                    <span className="rtime">{relativeTime(item.timestamp)}</span>
+            <div className="feed">
+              {items.map((item) => (
+                <div key={item.id} className={`row ${item.kind}`}>
+                  <span className="ri">{item.kind === 'red' ? <StarIcon /> : <PlusIcon />}</span>
+                  <div className="rt">
+                    {capitalize(item.action)}
+                    {item.customerName ? <span> · {item.customerName}</span> : null}
                   </div>
-                ))}
-              </div>
-              {recentPager.canMore && (
-                <div className="staff-panel__more">
-                  <button
-                    type="button"
-                    className="staff-panel__more-btn"
-                    onClick={recentPager.more}
-                  >
-                    Load more
-                  </button>
-                  {recentPager.showLoadAll && (
-                    <button
-                      type="button"
-                      className="staff-panel__more-all"
-                      onClick={recentPager.loadAll}
-                    >
-                      Load all {items.length}
-                    </button>
-                  )}
+                  <span className="rtime">{relativeTime(item.timestamp)}</span>
                 </div>
-              )}
-            </>
+              ))}
+            </div>
           ))}
 
         <div className="spacer" />

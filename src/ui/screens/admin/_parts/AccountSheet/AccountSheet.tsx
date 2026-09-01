@@ -3,21 +3,24 @@
  *
  * Tapping a profile in the account list opens this shared `Sheet`. It shows the
  * profile (name · username · role), the actions an admin can take on it —
- * enable/disable, reset password, reset PIN, delete — and that profile's own
- * action history (the audit log filtered to this actor).
+ * enable/disable, reset password, reset PIN, delete.
+ *
+ * Appendix E: the profile's action-history list was REMOVED. Reading one
+ * person's activity is an investigation, not a casual glance, so it is reachable
+ * only through the admin export workflow — which requires a stated reason and is
+ * itself audited.
  *
  * Per the current product decision these actions are NOT step-up gated: a
  * signed-in admin on the device can perform them directly. Password/PIN entry
  * uses prompt() (the prototype's lightweight input, matching the rest of admin).
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Sheet } from '../../../../components/Sheet/Sheet';
 import { Toggle } from '../../../../components/Field/Field';
 import { useServices } from '../../../../common/ServicesContext';
 import { useToast } from '../../../../components/Toast/Toast';
 import type { Actor } from '../../../../../services/types';
-import type { AuditLogEntry, StaffAccount } from '../../../../../domain/models';
-import { auditVerb, relativeTime } from '../../Admin/format';
+import type { StaffAccount } from '../../../../../domain/models';
 import './AccountSheet.css';
 
 export interface AccountSheetProps {
@@ -29,28 +32,10 @@ export interface AccountSheetProps {
   onChanged: () => void;
 }
 
-const HISTORY_LIMIT = 20;
-
 export function AccountSheet({ account, actor, onClose, onChanged }: AccountSheetProps) {
   const services = useServices();
   const toast = useToast();
-  const [history, setHistory] = useState<AuditLogEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const accountId = account?.id;
-
-  const loadHistory = useCallback(() => {
-    if (!accountId) return;
-    setHistory(null);
-    void services.audit
-      .list({ actorId: accountId, limit: HISTORY_LIMIT })
-      .then(setHistory)
-      .catch(() => setHistory([]));
-  }, [services, accountId]);
-
-  useEffect(() => {
-    if (accountId) loadHistory();
-  }, [accountId, loadHistory]);
 
   if (!account) return null;
 
@@ -135,21 +120,6 @@ export function AccountSheet({ account, actor, onClose, onChanged }: AccountShee
           </button>
         </div>
 
-        <div className="acct-h">Activity</div>
-        {history == null ? (
-          <p className="acct-empty">Loading…</p>
-        ) : history.length === 0 ? (
-          <p className="acct-empty">No recorded actions for this profile yet.</p>
-        ) : (
-          <ul className="acct-feed">
-            {history.map((entry) => (
-              <li key={entry.id}>
-                <span className="acct-verb">{auditVerb(entry.action)}</span>
-                <span className="acct-time">{relativeTime(entry.timestamp)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
     </Sheet>
   );
