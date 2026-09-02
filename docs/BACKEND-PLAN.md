@@ -3,8 +3,8 @@
 > **Active initiative.** Replaces the prototype's browser-local backing (IndexedDB +
 > localStorage + PeerJS pairing) with a real **Node + TypeScript + Fastify + PostgreSQL**
 > backend, shipped as a **Docker Compose bundle**. Executes SPEC §14 (Prototype →
-> Production Migration) steps 1, 2, 4 and 5; step 3 (Wallet) is gated on Apple/Google
-> credentials and is planned but deferred.
+> Production Migration) steps 1, 2, 4 and 5. Step 3 (Wallet) is **out of scope entirely** — the
+> triage dropped wallet, retiring the `WalletProvider` port with it.
 >
 > **The promise this plan must keep:** *no UI or service rewrite.* Every screen and every
 > `services/` call site stays byte-for-byte identical; only adapters and the composition
@@ -29,11 +29,17 @@ context cleared between tasks.
 6. Stop. The next session picks up the next box.
 
 **Parallel work warning.** A separate agent is finishing frontend work on `src/` at the
-same time as this initiative. **Phases 0–10 deliberately do not move or rewrite a single
+same time as this initiative. **Phases 0–9 deliberately do not move or rewrite a single
 existing frontend file** — new code lands in `packages/server/`, and the only edits to
 `src/` are the two additive adapter changes in Phase 6. The monorepo file move that would
-conflict with every frontend diff is isolated into **Phase 11**, to be run *after* the
+conflict with every frontend diff is isolated into **Phase 10**, to be run *after* the
 frontend work lands. Divergences get reconciled then.
+
+**Scope.** The maintainer's feature triage (2026-09-02) is recorded in
+[`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) and **supersedes this plan wherever they differ** —
+it retires the wallet and transport seams, drops every admin stats/export surface, makes name and
+email mandatory, and reshapes recovery. The wallet phase is deleted and §3 below is trimmed accordingly.
+Read that file before starting any phase.
 
 **Baseline.** Written against `main` at **`8588e44`**, which includes the completed
 **Appendix E** rework ([`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md) — pre-commit hold, two
@@ -56,12 +62,11 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 - [ ] **Phase 7** — Realtime push (SSE) — replaces what device pairing provided
 - [ ] **Phase 8** — Docker Compose bundle + ops (backups, health, logging)
 - [ ] **Phase 9** — CI + integration tests against a real Postgres
-- [ ] **Phase 10** — `ServerWalletProvider` (PassKit + APNs, Google REST) — credential-gated
-- [ ] **Phase 11** — Monorepo flip (`packages/shared` + `packages/web`) — **after** frontend lands
-- [ ] **Phase 12** — Docs (STATUS divergences, README, CLAUDE.md, SPEC §15 rows)
+- [ ] **Phase 10** — Monorepo flip (`packages/shared` + `packages/web`) — **after** frontend lands
+- [ ] **Phase 11** — Docs (STATUS divergences, README, CLAUDE.md, SPEC §15 rows)
 
-Phase 2 is the big one and everything from 4 onward depends on it. Phases 0+1 can land
-together. Phase 10 can be skipped indefinitely without blocking a working deployment.
+Phase 2 is the big one and everything from 4 onward depends on it. Phases 0+1 can land together.
+The wallet phase is gone — the triage dropped wallet entirely.
 
 ---
 
@@ -70,7 +75,7 @@ together. Phase 10 can be skipped indefinitely without blocking a working deploy
 | # | Decision | Rationale |
 |---|---|---|
 | Code layout | **npm workspaces monorepo** — `packages/shared` (domain + ports), `packages/web` (the SPA), `packages/server`. One source of truth for the contract; no drift. | Chosen over a path-alias `server/` and over a duplicated copy. A drifting copy of `ports/DataStore.ts` is exactly the failure the ports architecture exists to prevent. |
-| Move timing | The **physical file move is Phase 11**, last. Phases 0–10 build the server at `packages/server` importing `domain`/`ports` **through the workspace alias `@cafe/shared`, resolved for now to the existing `src/domain` + `src/ports`**. Phase 11 moves those two folders into `packages/shared` and `src/` into `packages/web/src` — a pure move, no logic change. | A restructure that renames every frontend file would conflict with every diff the parallel frontend agent produces. Destination is unchanged; only the ordering is chosen to avoid a merge disaster. |
+| Move timing | The **physical file move is Phase 10**, last. Phases 0–9 build the server at `packages/server` importing `domain`/`ports` **through the workspace alias `@cafe/shared`, resolved for now to the existing `src/domain` + `src/ports`**. Phase 10 moves those two folders into `packages/shared` and `src/` into `packages/web/src` — a pure move, no logic change. | A restructure that renames every frontend file would conflict with every diff the parallel frontend agent produces. Destination is unchanged; only the ordering is chosen to avoid a merge disaster. |
 | HTTP + DB | **Fastify + `pg` + hand-written numbered SQL migrations.** No ORM. | Matches the repo's "small and boring" rule. The commit transaction is the one piece of logic that must be *obvious* — explicit `BEGIN` / `SELECT … FOR UPDATE` / `COMMIT` beats an ORM's transaction abstraction. Fastify's JSON-schema route validation covers the boundary without a validation dependency. |
 | Sessions | **HttpOnly, `Secure`, `SameSite=Lax` cookie sessions for both staff and customers**, server-side session rows. CSRF via double-submit token on all mutating routes. | Server-set HttpOnly cookies are the **only** customer recognition that survives iOS ITP — the durability gap [`COLLAB-NOTES.md`](COLLAB-NOTES.md) records as unsolvable client-side, and a large part of why the backend is worth building. Cookie sessions also make `sessionEpoch` revocation real (delete the rows) rather than "wait for the JWT to expire". |
 | Passwords/PINs | **argon2id**, hashed **server-side from the plaintext**. The client never hashes. | See §4-A: `setStaffPassword(id, passwordHash)` as written would make the hash itself the password. |
@@ -79,13 +84,13 @@ together. Phase 10 can be skipped indefinitely without blocking a working deploy
 | Migrations | Numbered, forward-only `.sql` files applied by a one-shot `migrate` container before `api` starts. No down-migrations. | Restores are from backups, not from down-migrations. |
 | Prototype path | The IndexedDB prototype **stays fully working and is not deleted**. Both stores must pass the same conformance suite. | The prototype is the demo and the reference implementation. It is also how we prove the swap is behaviour-preserving. |
 | Corrections | **No post-commit undo, server-side or otherwise.** The staff counter's 3-second **pre-commit hold** is purely client-side and survives the swap untouched; the only correction primitive is `LoyaltyService.reverse` (a ledger entry). | Appendix E decision — a "reverse an already-committed transaction" endpoint is exactly the affordance staff misuse. `CLAUDE.md`: do not reintroduce `undo`/`undoCommit`/`planUndo`. The backend must not add one back under a new name. |
-| Cross-account reads | The API exposes **no browsable cross-account activity endpoint**. The only path to another account's activity is the **audited export** (`POST /audit/export`: filter + required reason → rows, with an `audit.export` row written server-side in the same operation). | Appendix E deliberately deleted every ambient feed from the UI. An API that still offers the read would quietly restore what the product decision removed — a backend makes it *easy* to re-expose, which is why it's locked here. |
+| Cross-account reads | The API exposes **no cross-account activity endpoint at all** — the triage dropped the export surface too (SCOPE-DECISIONS §1). Audit rows are collected and reachable only by querying the database directly. The ranged audit query survives as an **internal** server function feeding the detectors, with no route attached. | Appendix E deleted every ambient feed; the triage went further and deleted the sanctioned export as well. A backend makes both *easy* to re-expose, which is why it's locked here. |
 
 ---
 
 ## 3 · What the backend has to cover (the scope list)
 
-This is the answer to "what do we have to cover" — 18 areas, each mapped to its phase.
+Trimmed to the triage outcome ([`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md)). Each area maps to a phase.
 
 ### A · Data & storage
 
@@ -163,22 +168,30 @@ This is the answer to "what do we have to cover" — 18 areas, each mapped to it
 
 13. **Server-side `Mailer`** — Resend/SES/Brevo behind the existing `Mailer` port; EmailJS
     (which exposes its public key in the bundle and can be driven by anyone) is dropped in
-    the server build. Recovery, reward-available and card-created templates. *(Phase 5)*
-14. **Recovery** — codes hashed at rest, single-use consume in one transaction, short
-    expiry, constant-time/constant-shape response. *(Phase 5)*
+    the server build. Recovery, reward-available and card-created templates. Email is now
+    **mandatory at registration**, so the welcome mail is guaranteed, not best-effort.
+    *(Phase 5)*
+14. **Recovery by typed code** (reshaped — SCOPE-DECISIONS §2.3) — email → the page waits →
+    a short single-use code arrives by mail → the customer types it on the device in their
+    hand → the server sets the identity cookie. Codes hashed at rest, single-use, short
+    expiry, constant-shape response. A typed code is short, so **rate limiting and lockout
+    carry the security that length no longer does**. *(Phase 5)*
 15. **Realtime push** — the prototype's PeerJS pairing layer (`src/adapters/sync/`) is
     **dropped entirely** in the server build, and with it the live cross-device refresh it
     provided. Replacement: an **SSE** channel (`GET /events`) pushing a `changed` signal
     per customer and per till, feeding the same `dataVersion` refresh the screens already
     use. Without this, a customer's phone won't update when staff commits. *(Phase 7)*
-16. **`ServerTransport`** — the registration-handoff seam. Note it is close to vacuous now:
-    staff-initiated registration was removed (STATUS), so registration is customer
-    self-service against a real URL and the seam needs little more than that. Confirm and
-    either implement thinly or record it as retired. *(Phase 4)*
-17. **`ServerWalletProvider`** — PassKit web service (device register/unregister, serial
-    list, pass fetch, log endpoint), `.pkpass` signing, APNs push; Google Wallet REST
-    (signed JWT + object patch). Requires an Apple Developer certificate and a Google
-    service account before any of it can be verified end-to-end. *(Phase 10)*
+16. **Server-side detection** — the two detectors run on the server (BE-S-09), reading the
+    internal ranged audit query. `domain/alerts.ts` stays pure and moves server-side
+    unchanged. *(Phase 4)*
+17. **Deletion that actually deletes** — a customer's delete is a server operation that keeps
+    the row as a tombstone (`id`, `createdAt`, `status`) and erases name, email, token and
+    short code, leaving the ledger internally consistent and anonymous. Frees the email for
+    re-registration. See SCOPE-DECISIONS §3.3. *(Phase 4)*
+
+**Retired by the triage, formerly in this section:** the wallet service (Apple PassKit +
+APNs, Google REST), the server registration handoff, and bounded stats reads. The
+`WalletProvider` and `Transport` ports go with them — **five seams become three**.
 
 ### D · Delivery
 
@@ -310,16 +323,12 @@ Extend `.github/workflows/` to build/test the server against a Postgres service 
 and build the images.
 Done when: CI is green on this branch.
 
-### Phase 10 — `ServerWalletProvider` (credential-gated)
-PassKit web service + APNs, Google Wallet REST. **Blocked** until an Apple certificate and a
-Google service account exist; until then it stays the throwing placeholder it is today.
-
-### Phase 11 — Monorepo flip (after the frontend work lands)
+### Phase 10 — Monorepo flip (after the frontend work lands)
 Move `src/domain` + `src/ports` → `packages/shared/src`, `src/` → `packages/web/src`; point
 the alias at the real package. Pure move, no logic change. Reconcile frontend divergences here.
 Done when: root `npm test` + `npm run build` + the server suite are all green post-move.
 
-### Phase 12 — Docs
+### Phase 11 — Docs
 STATUS divergences (§4 A–F, the PIN-semantics change, offline posture, the scaling note),
 close divergence `l`, README architecture + diagrams, `CLAUDE.md` stack/adapters,
 SPEC §15 rows, and the Appendix E guarantees restated as server-side invariants. Per the
@@ -351,7 +360,7 @@ SPEC §15 rows, and the Appendix E guarantees restated as server-side invariants
 - **The parallel frontend agent** is the biggest practical risk, and it is a live one: the
   Appendix E rework landed on `main` between this plan being written and any code being
   written, and it changed the `DataStore` port. Mitigated by deferring the file move to
-  Phase 11 and keeping Phases 0–10 additive — that first merge came through clean. **Merge
+  Phase 10 and keeping Phases 0–9 additive — that first merge came through clean. **Merge
   `main` at the start of every phase** and re-check §3/§4 against the port before building;
   do not "helpfully" restructure early.
 - **Appendix E's guarantees are product decisions, not implementation details.** No undo, no
@@ -363,8 +372,8 @@ SPEC §15 rows, and the Appendix E guarantees restated as server-side invariants
   pressure. Decide it in Phase 6 deliberately; don't let it leak into per-screen changes.
 - **The PIN semantics change** (§4-B) is a real, unavoidable divergence from prototype
   behaviour, not a refactor. Flag it to the maintainer rather than silently changing it.
-- **Wallet** (Phase 10) cannot be finished without third-party credentials. Everything else
-  ships without it.
+- **Scope is now the triage's, not this plan's.** [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md)
+  is authoritative on what gets built; re-read it at the start of every phase alongside `main`.
 - **Scope discipline.** `CLAUDE.md`: no money handling, no gifting, no marketing automation,
   no multi-tenant, no dependencies the spec didn't call for. A backend makes all of those
   *newly easy to build*, which is exactly why the restraint matters more here, not less.
