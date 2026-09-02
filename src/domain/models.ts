@@ -43,6 +43,19 @@ export interface ProgramConfig {
    * out of `getAlerts`. See `alertKey` in `domain/alerts.ts`.
    */
   dismissedAlerts?: string[];
+  /**
+   * Detector thresholds (Appendix E), tunable by the admin in Configure so a
+   * small café can curb false positives. Absent fields fall back to
+   * `DEFAULT_THRESHOLDS` in `domain/alerts.ts`.
+   */
+  /** Self-dealing: a redeem within this many seconds of an accrual… */
+  selfDealWindowSec?: number;
+  /** …by the same staff on the same card, flagged at this many occurrences. */
+  selfDealCount?: number;
+  /** Repeat-target: same card credited more than this many times… */
+  repeatCount?: number;
+  /** …within this many minutes by the same staff member. */
+  repeatWindowMin?: number;
 }
 
 export interface StaffAccount {
@@ -157,7 +170,7 @@ export interface RewardEvent {
   customerId: string;
   staffId?: string;
   timestamp: string;
-  /** Free-form context, e.g. `{ reason: 'mint_reversed' | 'undo_reissue' }`. Never PII. */
+  /** Free-form context, e.g. `{ reason: 'correction' }`. Never PII. */
   details?: Record<string, string>;
 }
 
@@ -203,7 +216,13 @@ export type AuditAction =
   | 'loyalty.accrue'
   | 'loyalty.redeem'
   | 'loyalty.reverse'
-  | 'config.update';
+  | 'config.update'
+  /**
+   * An admin ran an activity export (Appendix E). Reading cross-account
+   * activity is itself an audited event — `details` carries the filter and the
+   * required reason. Never PII.
+   */
+  | 'audit.export';
 
 /**
  * Append-only action trail. Broader than the ledger: covers auth, staff/config

@@ -7,13 +7,66 @@
 >
 > **✓ Completed initiative:** the rewards-as-objects rework (Appendices C+D + multi-reward) is
 > **complete — all phases 0–8 done**. Rewards are now discrete, countable `Reward` objects behind a
-> single atomic/idempotent commit (accrue + mint + multi-reward subset redeem) with a 5-second undo;
-> see the **"Rewards-as-objects acceptance (C9/D10)"** table + formats/undo subsection below.
-> Phase-by-phase record in [`REWARDS-PLAN.md`](REWARDS-PLAN.md), the reasoning behind every decision
-> in [`REWARDS-DECISIONS.md`](REWARDS-DECISIONS.md). Maintainer preferences, assistant conventions,
-> and iOS/deploy/IndexedDB gotchas are in [`COLLAB-NOTES.md`](COLLAB-NOTES.md).
+> single atomic/idempotent commit (accrue + mint + multi-reward subset redeem); see the
+> **"Rewards-as-objects acceptance (C9/D10)"** table + formats subsection below. **Its 5-second
+> post-commit undo has since been retired**, replaced by a 3-second pre-commit hold — see the
+> Appendix E entry immediately below. Phase-by-phase record in [`REWARDS-PLAN.md`](REWARDS-PLAN.md),
+> the reasoning behind every decision in [`REWARDS-DECISIONS.md`](REWARDS-DECISIONS.md). Maintainer
+> preferences, assistant conventions, and iOS/deploy/IndexedDB gotchas are in
+> [`COLLAB-NOTES.md`](COLLAB-NOTES.md).
+>
+> **✓ Completed initiative:** the **Appendix E — staff integrity & observability** rework (branch
+> `claude/github-pages-deploy-ku4gkj`) is **complete — all phases 0–5 done**. A 3-second
+> **pre-commit** hold on the staff counter replaces the old 5-second post-commit undo; suspicious-
+> activity detectors are pruned to two (self-dealing, repeat-target), rebuilt against real
+> attributed audit events, and their thresholds are admin-configurable; ambient activity feeds
+> (admin home, StatDetail, per-account history) are removed in favour of a bounded staff "last
+> hour" view and an admin **reason-gated JSON export** workflow (itself audited). See the
+> **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
+> [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-06-25 (**Rewards-as-objects — Phase 8 (docs).** Final step of the
+**Last updated:** 2026-09-01 (**Appendix E — staff integrity & observability — COMPLETE, all
+phases 0–5** (branch `claude/github-pages-deploy-ku4gkj`)). **Phase 0** replaced the staff Scan's
+post-commit undo with a **3-second pre-commit hold**: the counter panel STAGES a transaction and
+blocks on a countdown summarizing exactly what's about to be written (points, redemptions, and
+rewards it will mint — previewed client-side via `domain/rewards.ts` `mintFold`) with Cancel /
+"Commit now"; nothing touches the store until the window elapses, the idempotency key is
+allocated at stage time (no double-write race between an early commit and the timeout), and on
+success the terminal auto-advances to the scanner. **Phase 1** deleted the now-dead post-commit
+undo machinery — `DataStore.undoCommit` (+ `ApiStore`/`IndexedDbStore` impls), `LoyaltyService.undo`,
+`domain/rewards.ts` `planUndo`/`UndoPlan`/`CommittedEffect`, and the sync allow-list entry — while
+keeping `LoyaltyService.reverse` (the §6 correction primitive, confirmed independent of `planUndo`)
+and the `idempotencyKeys` store (still guards paired-device RPC retries). The `reward.voided` event
+type is kept per the locked decision but **currently has no producer** in the prototype (a
+production `reverse` would void) — see Known gaps. **Phase 2** rebuilt the alert detectors: `AlertKind`
+shrank from six to **`'self-dealing' | 'repeat-target'`** (velocity/oversized-multi-add/off-hours/
+outlier-share deleted — they fired on ordinary one-café trading); self-dealing is rebuilt against a
+real source (the old `type==='redemption'` ledger match had been silently firing on nothing since the
+rewards-as-objects rework stopped writing that type — the bug this phase fixes) by pairing attributed
+`loyalty.accrue`/`loyalty.redeem` audit rows via a new `AttributedEvent` list assembled in
+`LoyaltyService.getAlerts`; thresholds (`selfDealWindowSec`/`selfDealCount`/`repeatWindowMin`/
+`repeatCount`) moved onto `ProgramConfig`, defaulted in `DEFAULT_CONFIG`, sanitized in
+`ConfigService`, and editable in the admin Configure panel's new "Activity alerts" group. No role
+exemption; alerts still only surface, never block. **Phase 3** re-scoped activity surfacing: the
+staff terminal's "Today on this terminal" became **"Your last hour"** (actor-scoped, ≤10 rows, no
+pager/"Load all"); the admin home's cross-account Activity feed is deleted (the all-audit read
+survives only as the aggregate behind "active members today"); `StatDetail` dropped its per-action
+`EntryList`; `AccountSheet` lost its per-profile activity history (keeps enable/disable/reset/delete).
+**Phase 4** added an investigation & export workflow: `AuditFilter` gained `actions`/`actorIds`
+(OR-within/AND-across, unioned with the singular forms) and an inclusive `from`/`to` range read
+through the previously-unused `byTimestamp` index; a new `audit.export` `AuditAction`; new
+`AuditService.exportActivity(actor, filter, reason)` (refuses an empty reason, trims/caps it at 300
+chars, writes an `audit.export` row recording reason + filter + row count); a new admin **Export**
+sheet — blank by default, Run disabled until a reason is typed, accounts include admins, results
+download as JSON (not an on-screen feed), past exports are listed and re-runnable (a re-run is a new
+audited export prefixed "Re-run:"). Admin-only, not step-up gated. **Deferred (not dropped):** the
+staff-facing disclosure surface, notify-on-export, retention/compaction (all data kept, unbounded),
+device-ID per-terminal scoping (inherited at the production move), and geofence/out-of-hours lock —
+see Known gaps. **448 Vitest tests** (up from 435: +6 Scan hold, −10 undo, +3 net
+detector/config, +4 activity-surfacing, +10 export), tsc + production build green. **Phase 5
+(this pass) is docs only** — see the new **"Staff integrity & observability acceptance (E9)"**
+table, the retired/updated C9·D10 undo rows, divergences **m–o**, and the refreshed Known gaps
+below. Prior — **Rewards-as-objects — Phase 8 (docs).** Final step of the
 [`REWARDS-PLAN`](REWARDS-PLAN.md) rework — **docs only, no code**. Recorded the rewards-as-objects
 model across the docs: the SPEC §15 acceptance rows the rework touched now point at the unified
 commit (`LoyaltyService.commit` → `DataStore.commitCounterTransaction`) instead of the retired
@@ -130,7 +183,7 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 - React + TypeScript + Vite SPA, IndexedDB storage, deployed to GitHub Pages.
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
-- **435 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
+- **448 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
 - **Puppeteer e2e suite** (`e2e/`, run with `npm run e2e`) drives the built app in headless Chrome: welcome, register→card, staff PIN, prototype panel, and the reference bug-list regressions (13 checks).
 - CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`,
   `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets) → deploys on push to `main`.
@@ -153,13 +206,13 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 | Atomic redemption (no double-spend) | ✅ now a **commit-time, idempotent, subset redeem** — every `redeemRewardId` is re-validated (`not_owner`/`already_spent`/`reward_invalid` → `rejected[]`, valid ones still redeem); a 2nd commit with the same `idempotencyKey` returns the cached result with no writes (atomicity = single IDB-tx scope — see divergence **l**) | `adapters/storage/IndexedDbStore.ts` (`commitCounterTransaction`; internal `redeemReward` helper) |
 | Self-service recovery via single-use expiring link (EmailJS) | ✅ impl; needs live verification | `services/RecoveryService.ts`, `ui/screens/customer/LostCard/LostCard.tsx`, `ui/screens/customer/RecoverConsume/RecoverConsume.tsx`, `adapters/email/EmailJsMailer.ts` |
 | Recovery is **email-only** | ✅ | `ui/screens/customer/LostCard/LostCard.tsx` — the single recovery vector is the emailed single-use link (`RecoveryService`). Staff/name-based recovery removed (a name isn't distinguishing enough). LostCard now explains the **no-email consequence** (a card with no email can't be recovered); the registration caveat (`Register.tsx`) says the same up front |
-| Correction/reversal, logged | ✅ | `LoyaltyService.reverse`; the rewards-as-objects rework adds a **5-second commit Undo** (`LoyaltyService.undo` → `DataStore.undoCommit`): reverse net points, void any freshly-minted unspent reward, and re-mint a point-neutral replacement per reward the commit spent (a spent reward is never un-spent), writing a `loyalty.reverse` audit row — see the formats + undo subsection below |
+| Correction/reversal, logged | ✅ | `LoyaltyService.reverse` writes an offsetting `reversal` entry + `loyalty.reverse` audit row — the SPEC §6 correction primitive. The rewards-as-objects **post-commit undo** (`LoyaltyService.undo`/`DataStore.undoCommit`) is **retired** (Appendix E, Phase 1): the staff Scan now defers every write behind a **3-second pre-commit hold** instead, so a wrong transaction is cancelled before it's ever written rather than reversed after — see the Staff integrity & observability acceptance (E9) table below |
 | Deletion/opt-out — customer self-delete from card menu; staff-confirmed also available | ✅ | `CustomerService.selfDelete(token)` ← `ui/screens/customer/CardMenu/CardMenu.tsx`; `IndexedDbStore.softDeleteCustomer` |
-| Admin: account CRUD (**Add profile** staff/admin with name/username/password/PIN; per-profile popover = enable/disable, reset password, reset PIN, **delete**, + filtered activity — un-gated) + "Sign out all devices"; config (step-up PIN re-auth on save), stats, audit viewer, alerts; admin is a **superset of staff** (counter/scan access, both views have Sign out) | ✅ | `ui/screens/admin/Admin/Admin.tsx`, `ui/screens/admin/_parts/AccountSheet/`; `StaffService.remove` → `DataStore.deleteStaff`; staff `name` shown in panel + activity |
+| Admin: account CRUD (**Add profile** staff/admin with name/username/password/PIN; per-profile popover = enable/disable, reset password, reset PIN, **delete** — un-gated) + "Sign out all devices"; config (step-up PIN re-auth on save), stats, audit viewer, alerts, activity export; admin is a **superset of staff** (counter/scan access, both views have Sign out) | ✅ | `ui/screens/admin/Admin/Admin.tsx`, `ui/screens/admin/_parts/AccountSheet/`; `StaffService.remove` → `DataStore.deleteStaff`; staff `name` shown in panel + activity. Per-profile activity history moved out of `AccountSheet` — reachable only via the audited Export workflow (Appendix E, Phase 3/4) |
 | Staff/admin session never auto-displays customer card (entry routing) | ✅ | `ui/app/EntryResolver.tsx` — any active staff/admin (trusted or ephemeral)→**counter** `/staff` (admins reach `/admin` via the counter's "Go to admin" button); trusted+locked→`/staff/unlock`; remembered card→`/card/:token`; else→`/welcome` |
 | Inactivity lock (5 min) → PIN re-auth at `/staff/unlock` | ✅ | `ui/app/AuthContext.tsx`, `ui/screens/staff/Unlock/Unlock.tsx`, `StaffService.loginWithPin` |
 | Epoch-based "Sign out all devices" revocation | ✅ | `StaffService.revokeAllSessions`, `ProgramConfig.sessionEpoch` |
-| Suspicious-activity alerts (velocity, repeat-target, off-hours, etc.) — monitoring only | ✅ | `domain/alerts.ts`, `LoyaltyService.getAlerts()`, `ui/screens/admin/_parts/Alert/Alert.tsx` |
+| Suspicious-activity alerts — monitoring only | ✅ pruned to **two** attributed detectors (Appendix E, Phase 2): **self-dealing proximity** (same staff accrues then redeems on the same card within a window, repeatedly) and **repeat-target** (same customer credited repeatedly in a window); thresholds are admin-configurable; no role exemption | `domain/alerts.ts`, `LoyaltyService.getAlerts()`, `ui/screens/admin/_parts/Alert/Alert.tsx`, `ui/screens/admin/Admin/Admin.tsx` (Configure → "Activity alerts") |
 | WalletProvider seam; OS-detected wallet button inside enlarged-QR overlay; links to walletwallet.dev pre-generated passes | ✅ | `ports/WalletProvider.ts`, `adapters/wallet/StaticWalletProvider.ts`, `ui/screens/customer/EnlargedQr/EnlargedQr.tsx`, `wallet/passes.ts` |
 | Storage behind `DataStore`; Transport behind `Transport`; Email behind `Mailer`; Identity behind `IdentityStore`; Wallet behind `WalletProvider` — swap = no UI/service change | ✅ | `ports/`, `adapters/`, `services/Services.ts` |
 | Two-device demo over PeerJS + TURN (real cross-device, not simulated) | ✅ impl; cellular verification = manual live-demo step | `adapters/transport/PeerTransport.ts`, `config/env.ts` |
@@ -193,7 +246,7 @@ All acceptance criteria below are met and test-covered:
 | Retried commit (same key) neither double-accrues nor double-mints | ✅ | `idempotencyKeys` store dedup — commit twice same key → identical result, one write set (`IndexedDbStore.test.ts`, `Loyalty.test.ts`, sync round-trip in `tests/adapters/sync`) |
 | `balance` settles `0..threshold−1`; "N free" = unspent reward count | ✅ | `domain/rewards.ts` `cardProgress`/`unspentRewards`; `getCustomerState` — derivation tests |
 | Redeem atomic + idempotent; 2nd → `already_spent`; non-owner → `not_owner` | ✅ | `domain/rewards.ts` `validateRedemption` (ownership beats status); `commitCounterTransaction` subset-redeem — domain + store tests |
-| Reversing a minting accrual voids the minted reward | ✅ | `domain/rewards.ts` `planUndo`; `undoCommit` void-fresh + re-mint-spent — store + service undo tests |
+| Reversing a minting accrual voids the minted reward | 🗑️ **retired** (Appendix E, Phase 1) | The post-commit undo this depended on (`planUndo`/`undoCommit`) is deleted — see below |
 | Reward log append-only; status only via events | ✅ | `rewardEvents` store = source of truth (`reward.issued`/`reward.redeemed`/`reward.voided`); `rewards` is a materialized projection — store-invariant tests |
 | One commit can add points AND redeem ≥1; never gated by QR type | ✅ | `CounterTransaction { pointsDelta, redeemRewardIds[] }`; staff Scan slider `min=0` + reward checklist, one `commit` — `ui/screens/staff/Scan` tests |
 | Source tag (`'a'`/`'w'`) parsed + recorded; drives nothing but validation/analytics | ✅ | `parseScan` (`qr/encode.ts`); `commit` writes `source` on the audit row only — parse + Loyalty audit tests |
@@ -201,9 +254,9 @@ All acceptance criteria below are met and test-covered:
 | Every `redeemRewardId` re-validated at commit; subset redeemed, rest reported | ✅ | stale id in set → `rejected[]`, valid ones still redeem (commit never aborts) — `IndexedDbStore.test.ts` |
 | Wallet scan with rewards surfaces the redeem affordance from the list | ✅ | a baked wallet pass embeds the **card** URL (`…/#/c/<token>?s=w`); a wallet scan resolves as a plain card scan and staff Scan shows the unspent-reward checklist — Phase 7 (Scan tests). A wallet pass never carries a composite reward QR |
 | All three input paths return `{ customer, balance, rewards }` | ✅ | card scan (`/c`), reward scan (`/r`), manual short-code all resolve to the canonical `CustomerState` via `getState` — Scan + service tests |
-| Undo within 5s: points reversed, fresh mint voided, spent re-minted | ✅ | `LoyaltyService.undo` → `undoCommit`; staff Scan 5-second Undo affordance — service + Scan tests |
+| Undo within 5s: points reversed, fresh mint voided, spent re-minted | 🗑️ **retired, replaced** (Appendix E, Phase 0/1) | The 5-second **post-commit** undo is replaced by a 3-second **pre-commit** hold — nothing is written until the customer's transaction is confirmed, so there is nothing to reverse/void/re-mint after the fact. See the **Staff integrity & observability acceptance (E9)** table below |
 
-### Rewards-as-objects: formats + undo model
+### Rewards-as-objects: formats
 
 **Ledger / reward stores (schema v5).** The points ledger
 `TransactionType` is `accrual | reward_issue | reversal` — `redemption` is **removed**
@@ -245,16 +298,99 @@ return the cached result with **no** writes; else short-circuit `over_cap`
 re-validate and redeem each id (invalid → `rejected[]`, never abort), persist the
 `CommitResult` under the key, commit. Atomicity is IDB-tx-scope only — see divergence **l**.
 
-**Undo model (5-second window)** — `LoyaltyService.undo` → `DataStore.undoCommit(idempotencyKey)`,
-decision computed by `domain/rewards.ts` `planUndo`:
-- **Reverse the net points**: `reversePoints = mintedCount·threshold − pointsDelta`.
-- **Void** any reward freshly *minted* by that commit and still `unspent` (`reward.voided`,
-  reason `mint_reversed`).
-- **Re-mint** a point-neutral *replacement* reward for each reward the commit *spent*
-  (`reward.issued`, reason `undo_reissue`) — **a spent reward is never un-spent**.
+**Undo model — retired (Appendix E, Phase 1).** The 5-second **post-commit** undo
+(`LoyaltyService.undo` → `DataStore.undoCommit(idempotencyKey)`, decided by `domain/rewards.ts`
+`planUndo`: reverse net points, void a freshly-minted unspent reward, re-mint a point-neutral
+replacement per spent reward) is **deleted** — no port method, service method, domain function, or
+sync allow-list entry remains. It is replaced by a **3-second pre-commit hold** on the staff Scan
+(nothing is written until the window elapses or staff taps "Commit now"; Cancel discards with no
+write) — see the **Staff integrity & observability acceptance (E9)** table below.
+`LoyaltyService.reverse` (the SPEC §6 correction primitive, for after-the-fact corrections) is
+unaffected and still writes an offsetting `reversal` entry + `loyalty.reverse` audit row. The
+`reward.voided` `RewardEventType` is kept (a production `reverse` could plausibly void a reward)
+but currently has **no producer** in the prototype — see Known gaps.
 
-The undo writes a `loyalty.reverse` audit row and sends no email (a reissue is not a fresh
-crossing). It is itself idempotent.
+## Staff integrity & observability acceptance (E9)
+
+The staff integrity & observability rework (Appendix E, plan + locked decisions in
+[`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md)) reshapes how staff/admin actions are *surfaced, reached,
+and corrected*; collection (the ledger, the audit log) is unchanged. One line: **the system
+remembers everything, judges almost nothing, and announces the little it judges.** It **supersedes**
+SPEC §6's audit-log surfacing, the SPEC §8.7 staff-management/activity views, the prior suspicious-
+activity-alerts acceptance row, and the rewards-as-objects **5-second post-commit undo** (retired
+above). `docs/SPEC.md` is authoritative and unedited, so these are recorded here as divergences
+(**m**–**o**). All acceptance criteria below are met and test-covered:
+
+| Criterion (INTEGRITY-PLAN §5) | State | Test / where |
+|---|---|---|
+| Transaction is held 3s before any write; Cancel writes nothing | ✅ | staff Scan: cancel during the countdown → store unchanged; timeout/"Commit now" → exactly one commit — `ui/screens/staff/Scan` tests |
+| Terminal returns to idle/scanner after each commit (fresh scan per customer) | ✅ | staff Scan: post-commit state = scanner, no persistent card link |
+| No post-commit reversal path exists | ✅ | `undo`/`undoCommit`/`planUndo` removed repo-wide; `LoyaltyService.reverse` retained |
+| Exactly two detectors, both attributed, admins included, surfaced-not-blocking | ✅ | `tests/domain/alerts.test.ts`: only `self-dealing` + `repeat-target` fire; an admin actor is flagged like anyone; nothing blocks |
+| Self-dealing fires on a real redemption (not the dead ledger type) | ✅ | detector runs over paired `loyalty.accrue`/`loyalty.redeem` audit events (`AttributedEvent`), not the retired `type==='redemption'` ledger match |
+| Detector thresholds editable via admin Configure | ✅ | `ProgramConfig.selfDealWindowSec`/`selfDealCount`/`repeatWindowMin`/`repeatCount`; Configure panel "Activity alerts" group — `ConfigService`/Admin tests |
+| Staff terminal shows only recent-and-local (≤10 / 1h, own actions), never full history, no Load-all | ✅ | staff Panel "Your last hour" — `actorId`-filtered, capped, no pager |
+| Admin home = shop-level only; no ambient cross-account feed; no casual per-account history | ✅ | `Admin.tsx`, `StatDetail`, `AccountSheet` tests |
+| Cross-account activity only via export: blank form, required reason, audited, accounts incl. admins | ✅ | `ui/screens/admin/_parts/Export` tests; `AuditService.exportActivity` writes an `audit.export` row |
+| Export produces a JSON file; past exports listed + re-runnable | ✅ | Export view test — download + past-exports list + "Re-run:" prefix |
+| All data retained (no retention window); balance derivation unaffected | ✅ by design | no pruning; ledger/audit unbounded |
+
+### Pre-commit hold (replaces post-commit undo)
+
+The staff counter (`ui/screens/staff/Scan/`) now **stages** a `CounterTransaction` instead of
+committing immediately: submitting enters a **3-second blocking countdown** that summarizes exactly
+what is about to be written — points to add, rewards to redeem, and the rewards the commit will
+mint (previewed client-side via `domain/rewards.ts` `mintFold`, since nothing is committed yet) —
+with **Cancel** and **Commit now**. Nothing touches the store until the window elapses or "Commit
+now" is tapped; the `idempotencyKey` is allocated at **stage** time, so an early commit and the
+timeout can never race into two writes. Cancel discards the staged transaction (no write, back to
+the counter panel). On success the terminal **auto-advances to the scanner** so every customer
+starts from a fresh scan; a rejected `over_cap` commit drops back to the counter panel with the
+existing per-scan-limit error. This is **purely client-side UI** — no store or commit-contract
+change, and no new "committed" persistent state.
+
+### Detectors — self-dealing + repeat-target
+
+`domain/alerts.ts` `AlertKind` is `'self-dealing' | 'repeat-target'` — velocity, oversized
+multi-add, off-hours, and outlier-share are deleted (in a one-café shop they fired on ordinary
+trading, not fraud). **Self-dealing** pairs attributed `loyalty.accrue`/`loyalty.redeem` audit rows
+(assembled into an `AttributedEvent[]` by `LoyaltyService.getAlerts`) by the same staff on the same
+card within `selfDealWindowSec`, flagging at `selfDealCount`+ occurrences — this replaced a detector
+that matched the ledger's `type==='redemption'`, a type the rewards-as-objects rework stopped
+writing, so the old detector had been silently firing on **nothing**; that's the bug this rebuild
+fixes. **Repeat-target** is unchanged in shape (same staff, same card, `repeatCount`+ credits within
+`repeatWindowMin`). All four thresholds live on `ProgramConfig` (defaults 30s/3, 30min/3), are
+whitelisted by `ConfigService.sanitizeConfig` (each floored at 1 whole unit), and are editable in
+the admin Configure panel's "Activity alerts" group, driven by a `PROGRAM_FIELDS` map. No role
+exemption — an admin actor is flagged exactly like staff. Alerts still only surface; nothing blocks.
+
+### Activity surfacing — bounded, not ambient
+
+- **Staff terminal:** "Today on this terminal" → **"Your last hour"** — the audit query filters by
+  `actorId` (a staffer never sees a colleague's work), trims to a trailing one-hour window, caps at
+  10 rows, and drops the pager/"Load all" entirely (the bound *is* the safeguard).
+- **Admin home:** the cross-account Activity feed is deleted. The all-audit read remains only as the
+  aggregate behind the "active members today" stat tile.
+- **`StatDetail`:** total + chart only — the attributed per-action `EntryList` is removed.
+- **`AccountSheet`:** keeps enable/disable, reset password, reset PIN, delete; loses its per-profile
+  activity-history list (moved to the export workflow below).
+
+### Investigation & export
+
+`AuditFilter` (`ports/DataStore.ts`) gained `actions`/`actorIds` (OR within a field, AND across
+fields, unioned with the pre-existing singular `action`/`actorId`) and an inclusive `from`/`to`
+range; `IndexedDbStore.listAudit` reads the range through the previously-unused `byTimestamp` index;
+`ApiStore` carries the new query params. A new `audit.export` `AuditAction` marks the export itself
+as an audited event. `AuditService.exportActivity(actor, filter, reason)` refuses an empty reason
+(trimmed, capped at 300 chars, PII-free like every other `details` value), runs the query, and
+writes an `audit.export` row (reason + filter + row count) before returning the rows. The admin
+**Export** sheet (`ui/screens/admin/_parts/Export/`, reached from a new "Export activity" button)
+opens **blank** — no default range, no preselected action groups or accounts — lists every profile
+including admins, and disables **Run** until a reason is typed; results download as a **JSON file**
+(not an on-screen feed). Past exports are listed beneath the form (`audit.list({ action:
+'audit.export' })`) and are tappable to **re-run** their stored filter as a new audited export
+prefixed "Re-run:". Admin-only, not step-up gated (consistent with the other per-profile admin
+actions).
 
 ## What is real vs. stubbed (prototype intentionally)
 
@@ -306,8 +442,10 @@ crossing). It is itself idempotent.
   button lives inside `EnlargedQrOverlay`, mobile-only, OS-detected. Selected via
   `VITE_WALLET=static` (default). Real pass provisioning (PassKit + APNs / Google
   REST) requires the backend.
-- **Suspicious-activity alerts** (`domain/alerts.ts`): pure monitoring only. No
+- **Suspicious-activity alerts** (`domain/alerts.ts`): pure monitoring only, **two**
+  detectors (self-dealing, repeat-target), thresholds admin-configurable. No
   automatic blocking or notification is triggered. Alerts surface in Admin → Alerts.
+  See the Staff integrity & observability acceptance (E9) table above.
 - **Reward-notification email** is sent via `EmailJsMailer` when a customer has
   an email address. Real delivery depends on the EmailJS template
   (`template_5ic2z7d`) defining the params the app sends: `to_email`, `mail_kind`,
@@ -329,29 +467,34 @@ crossing). It is itself idempotent.
 
 ## Test coverage
 
-`npm test` runs **435 Vitest unit/component tests** (includes co-located
+`npm test` runs **448 Vitest unit/component tests** (includes co-located
 `src/ui/**/*.test.tsx` via the extended `test.include` in `vite.config.ts`):
 
 - **domain/** — `loyalty`, `rewards` (rewards-as-objects pure logic: `mintFold`
   mint-on-cross + multi-mint, `unspentRewards`, `cardProgress`,
-  `validateRedemption`, `isOverCap`, `planUndo`), `tokens` (incl. reward
-  identifiers), `validation` (pure logic), `alerts` (velocity, repeat-target,
-  off-hours, outlier-share, earn-then-redeem, oversized multi-add against
-  `DEFAULT_THRESHOLDS`).
+  `validateRedemption`, `isOverCap` — `planUndo` removed, Appendix E Phase 1),
+  `tokens` (incl. reward identifiers), `validation` (pure logic), `alerts` —
+  pruned to **`self-dealing`** (attributed accrue/redeem pairing) and
+  **`repeat-target`** against configurable thresholds (velocity, off-hours,
+  outlier-share, oversized multi-add removed, Appendix E Phase 2).
 - **services/** — `Customer` (incl. `selfRegister`, `provisionFromToken`,
   `nextCardToken`, `selfDelete`), `Loyalty` (incl. reward-notification path,
-  `getAlerts()`, and the rewards-as-objects unified commit: `commit` mint-on-cross,
-  `over_cap`/`customer_not_found` short-circuit, idempotent retry, subset-redeem,
-  one-email-per-mint, `getStats` counts `reward.redeemed` audit events, `undo`
-  reissue + reverse audit), `Recovery`, `Staff` (incl. `loginWithPin`, `setPin`,
-  `revokeAllSessions`), `Config`, `Audit`, plus the `Services` composition-root
-  wiring.
+  `getAlerts()` over attributed events + configurable thresholds, and the
+  rewards-as-objects unified commit: `commit` mint-on-cross, `over_cap`/
+  `customer_not_found` short-circuit, idempotent retry, subset-redeem,
+  one-email-per-mint, `getStats` counts `reward.redeemed` audit events, plus
+  `reverse` — `undo` removed, Appendix E Phase 1), `Recovery`, `Staff` (incl.
+  `loginWithPin`, `setPin`, `revokeAllSessions`), `Config` (incl. the four
+  detector-threshold fields), `Audit` (incl. `exportActivity` — empty-reason
+  refusal, `audit.export` row, reason trim/cap), plus the `Services`
+  composition-root wiring.
 - **adapters/** — `IndexedDbStore` (schema v5; seed idempotency; lookups; atomic
   `commitCounterTransaction` — accrual + mint-on-cross + subset-redeem + idempotency
-  dedup + `over_cap`/`customer_not_found` short-circuit; `undoCommit` — void fresh
-  mint + re-mint per spent reward; `listRewards`; `getCustomerState`; demoSeed
+  dedup + `over_cap`/`customer_not_found` short-circuit; `listRewards`;
+  `getCustomerState`; `listAudit` range queries via `byTimestamp`; demoSeed
   coherence; `createRecoveryCode`/`consumeRecoveryCode`; `getStaffByPin`/`setStaffPin`;
-  export/import round-trip; error paths), `ApiStore` (every method rejects as a
+  export/import round-trip; error paths — `undoCommit` removed, Appendix E Phase 1),
+  `ApiStore` (every method rejects as a
   stub), `PeerTransport` (peerjs mocked), `EmailJsMailer`, `NoopMailer`,
   `LocalStorageIdentityStore`.
 - **adapters/sync/** — sync round-trip via in-memory `FakeLink`; `ConnLink` /
@@ -370,8 +513,13 @@ crossing). It is itself idempotent.
   Button, Field, CupStamps, Sheet, Qr, Overlay, Toast, PinPad, LoyaltyCard,
   Slider, ContextBanner.
 - **ui/screens/** — co-located tests for each screen: Welcome, Register, LostCard,
-  RecoverConsume, Card, CardMenu (customer); Login, Unlock, Panel, Scan + TopBar,
-  ScanView, CustChip, StateLabel _parts (staff); Admin (admin); ProtoPanel (proto).
+  RecoverConsume, Card, CardMenu (customer); Login, Unlock, Panel ("Your last
+  hour" actor+time scoping), Scan + TopBar, ScanView, CustChip, StateLabel
+  _parts (incl. the 3-second pre-commit hold: cancel writes nothing, timeout/
+  "Commit now" writes once, `over_cap` drop-back) (staff); Admin (incl. the
+  Configure "Activity alerts" thresholds, `StatDetail` chart-only, `AccountSheet`
+  without activity history, and the `_parts/Export/` sheet — blank form, reason
+  gate, JSON download, past-exports re-run) (admin); ProtoPanel (proto).
 - **qr/** (`encode` — incl. `cardPayload` URL format and `tokenFromCardScan`,
   `scan` with html5-qrcode mocked), **wallet/** (`passes.test.ts` — preset
   tokens, serial lookup, URL construction, OS detection),
@@ -427,10 +575,12 @@ unit tests cannot.
   ≥600ms → staff sign-in. The Prototype/developer panel is opened by a separate
   hidden top-left `DevTrigger` (gated on `isPrototype`, not `import.meta.env.PROD`),
   not a logo tap. There is no global "Staff sign-in" subtitle in the shell.
-- **Reward threshold is 8** (`pointsPerReward: 8` in `adapters/storage/schema.ts`
-  seed) — eight coffees earn the reward. The card still renders a **10-cup
-  showcase** (`CupStamps showcase`): a welcome sticker cup, the 8 earnable cups,
-  and a FREE reward cup. No "Gold" tier badge.
+- **Reward threshold is 9** (`pointsPerReward: 9` in `adapters/storage/schema.ts`
+  seed) — nine purchases earn the reward. The card renders a fixed **10-cup
+  showcase** (`CupStamps showcase`): the 9 earnable cups plus a FREE reward cup
+  that is **pre-stamped** as the prize. There is **no welcome cup** — the first
+  stamp is earned, not on the house — so a brand-new card shows 1 of 10 lit and
+  "9 more for a free coffee". No "Gold" tier badge.
 
 ## Known gaps / not built (by design or deferred)
 
@@ -529,6 +679,25 @@ unit tests cannot.
   cycle, but the rewards themselves are lost. Extending `Snapshot` is a **deferred
   follow-up** (a code change, out of scope for the docs-only Phase 8 that closed the
   rewards-as-objects rework).
+- **`reward.voided` `RewardEventType` has no producer (Appendix E, Phase 1).** It
+  is kept in the schema per the locked decision (a production `reverse` would
+  plausibly emit it), but with the post-commit undo removed, nothing in the
+  prototype currently writes a `reward.voided` event. Not a bug — flagged so a
+  future `reverse`-voids-a-reward feature doesn't get mistaken for already built.
+- **Appendix E — explicitly deferred, not dropped:**
+  - **Staff-facing disclosure surface** (a "your actions are logged/reviewable"
+    tripwire on the staff terminal) — not built.
+  - **Notify-on-export** — no staff/customer notification channel exists or is
+    planned; an export is silent except for its own audit row.
+  - **Retention / compaction** — all ledger, audit, reward-event, and export
+    records are kept **unbounded**. This deliberately sidesteps the balance-
+    derivation-from-pruned-ledger trap, but means storage grows without limit —
+    revisit with a compaction strategy before any real deployment.
+  - **Device-ID per-terminal scoping** — the staff "your last hour" view scopes
+    by signed-in `actorId`, not by physical device. True per-terminal identity is
+    inherited for free at the production move (each device becomes its own
+    identity there); not built in the prototype.
+  - **Geofence / out-of-hours lock** — not built.
 
 ## Spec divergences (prototype vs. production)
 
@@ -656,6 +825,48 @@ l. **`commitCounterTransaction` atomicity is IDB-tx scope only (no row lock).**
    Production uses `SELECT … FOR UPDATE` (PostgreSQL) to provide true row-level
    locking. Idempotency dedup (`idempotencyKeys` store) guards against retry
    double-writes regardless of context.
+
+m. **Cross-account activity is no longer casually browsable — access moved behind
+   a reason-gated, audited export (Appendix E).** SPEC §8.7 describes an admin
+   "audit log: filterable list of actions" as an open viewer. The prototype now
+   presents the staff terminal's own activity **only** as an actor-scoped,
+   1-hour-capped list (no full history, no other staff's actions), removes the
+   admin home's cross-account Activity feed and `StatDetail`'s per-action list
+   entirely, and removes `AccountSheet`'s per-profile activity history. The only
+   way to see cross-account or historical activity is the admin **Export**
+   workflow (`ui/screens/admin/_parts/Export/`, `AuditService.exportActivity`):
+   a blank-by-default filter (time range · action(s) · account(s) incl. admins)
+   that **requires a typed reason**, produces a downloaded JSON file, and is
+   itself written to the audit log as an `audit.export` row (so "who looked at
+   what and why" is always reconstructable). This is a deliberate tightening
+   beyond SPEC §8.7's plain filterable viewer, not a regression — the underlying
+   audit log is unchanged and still fully queryable via export.
+
+n. **Suspicious-activity detector set trimmed from six to two, thresholds admin-
+   configurable (Appendix E).** SPEC does not enumerate exact detectors; the
+   prototype previously shipped velocity, repeat-target, oversized multi-add,
+   off-hours, and outlier-share checks against hardcoded `DEFAULT_THRESHOLDS`.
+   In a single-café shop the first four fired on ordinary trading rather than
+   fraud, so they were removed, leaving **self-dealing proximity** (rebuilt
+   against attributed `loyalty.accrue`/`loyalty.redeem` audit events — the prior
+   `earn-then-redeem` detector matched a ledger `type==='redemption'` value the
+   rewards-as-objects rework had stopped writing, so it had been silently firing
+   on nothing) and **repeat-target**. Thresholds for both now live on
+   `ProgramConfig` and are editable in the admin Configure panel rather than
+   hardcoded. Alerts remain monitoring-only; no role is exempt.
+
+o. **The rewards-as-objects 5-second post-commit undo is retired, replaced by a
+   3-second pre-commit hold (Appendix E, Phases 0–1).** `DataStore.undoCommit`,
+   `LoyaltyService.undo`, and `domain/rewards.ts` `planUndo` (plus their sync
+   allow-list entry and tests) are deleted outright — there is no post-commit
+   reversal path in the prototype. The staff Scan instead **stages** the commit
+   behind a blocking 3-second countdown (Cancel/"Commit now") before anything is
+   written, so an operator error is caught before it becomes a ledger entry
+   rather than reversed after. SPEC §8.5's `reverse`-via-`reversal`-entry
+   correction primitive (for genuinely after-the-fact corrections, e.g. days
+   later) is unaffected and remains in place. This divergence retires (does not
+   contradict) the C9/D10 undo acceptance rows recorded during the rewards-as-
+   objects rework — see the "Rewards-as-objects: formats" section above.
 
 ## Pointers
 

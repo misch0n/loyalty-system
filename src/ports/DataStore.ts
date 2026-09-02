@@ -72,9 +72,23 @@ export interface AppendAuditInput {
   details?: string;
 }
 
+/**
+ * Audit query. Singular `action`/`actorId` are the everyday reads; the plural
+ * `actions`/`actorIds` and the `from`/`to` range back the admin investigation
+ * export (Appendix E). Within a field the values are OR'd; across fields they
+ * are AND'd. A singular and its plural may both be given — the union applies.
+ */
 export interface AuditFilter {
   action?: AuditLogEntry['action'];
+  /** Match any of these actions (OR). Combined with `action` as a union. */
+  actions?: AuditLogEntry['action'][];
   actorId?: string;
+  /** Match any of these actors (OR). Combined with `actorId` as a union. */
+  actorIds?: string[];
+  /** Inclusive lower bound, ISO timestamp. */
+  from?: string;
+  /** Inclusive upper bound, ISO timestamp. */
+  to?: string;
   limit?: number;
 }
 
@@ -164,12 +178,6 @@ export interface DataStore {
   listRewards(customerId: string, status?: RewardStatus): Promise<Reward[]>;
   /** Full derived read-model: settled balance + unspent rewards. */
   getCustomerState(customerId: string): Promise<CustomerState>;
-  /**
-   * Reverse a commit within the undo window: reverse the points, void any
-   * freshly-minted (unspent) reward, and re-mint a replacement for each reward
-   * spent in that commit. A spent reward is never un-spent.
-   */
-  undoCommit(idempotencyKey: string): Promise<CommitResult>;
 
   // ── staff & config ─────────────────────────────────────────────────────────
   createStaff(input: CreateStaffInput): Promise<StaffAccount>;

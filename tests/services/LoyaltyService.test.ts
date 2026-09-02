@@ -1,18 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { alertKey } from '../../src/domain/alerts';
-import { freshServices, STAFF } from '../helpers/freshStore';
+import { freshServices, STAFF, ADMIN } from '../helpers/freshStore';
 import { SpyMailer } from '../helpers/spyMailer';
 import type { LoyaltyService } from '../../src/services/LoyaltyService';
 import type { CustomerService } from '../../src/services/CustomerService';
 
 let loyalty: LoyaltyService;
 let customers: CustomerService;
+let config: ReturnType<typeof freshServices>['config'];
 let customerId: string;
 
 beforeEach(async () => {
   const services = freshServices();
   loyalty = services.loyalty;
   customers = services.customers;
+  config = services.config;
   // Pin the threshold so these mechanics tests are independent of the product
   // default (now 9 — nine stamps, tenth coffee free).
   await services.store.updateConfig({ pointsPerReward: 8 });
@@ -103,48 +105,107 @@ describe('reward-available notification', () => {
 });
 
 describe('getAlerts', () => {
-  // The off-hours alert flags credits outside opening hours, which would make
-  // these tests flaky depending on wall-clock time. Freeze the clock (Date only,
-  // so async timers still run) to a mid-morning, in-hours moment.
+  const BASE = new Date('2026-06-23T10:00:00Z').getTime();
+
+  // Freeze the clock (Date only, so async timers still run) so the windowed
+  // detectors see deterministic timestamps.
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-06-23T10:00:00Z'));
+    vi.setSystemTime(new Date(BASE));
   });
   afterEach(() => {
     vi.useRealTimers();
   });
+
+  /** Move the frozen clock to BASE + `sec` seconds. */
+  function tick(sec: number) {
+    vi.setSystemTime(new Date(BASE + sec * 1000));
+  }
 
   it('derives no alerts for an ordinary accrual', async () => {
     await loyalty.accrue(STAFF, customerId, 1);
     expect(await loyalty.getAlerts()).toEqual([]);
   });
 
-  it('flags an oversized multi-add at the cap and resolves the staff name', async () => {
-    await loyalty.accrue(STAFF, customerId, 3); // default cap is 3 → at-cap flag
-    const alerts = await loyalty.getAlerts();
-    const a = alerts.find((x) => x.kind === 'oversized-multi-add');
+  it('flags a repeat target and resolves the staff name', async () => {
+    // Default: > 3 credits to the same card by the same staff within 30 min.
+    for (let i = 0; i < 4; i++) {
+      tick(i * 60);
+      await loyalty.accrue(STAFF, customerId, 1);
+    }
+    const a = (await loyalty.getAlerts()).find((x) => x.kind === 'repeat-target');
     expect(a).toBeDefined();
     expect(a?.staffId).toBe(STAFF.id);
   });
 
   it('honours an explicit threshold override', async () => {
-    await loyalty.accrue(STAFF, customerId, 3);
-    // Raise the cap so the at-cap accrual no longer flags.
-    const alerts = await loyalty.getAlerts({ multiAddCap: 10 });
-    expect(alerts.some((x) => x.kind === 'oversized-multi-add')).toBe(false);
+    for (let i = 0; i < 4; i++) {
+      tick(i * 60);
+      await loyalty.accrue(STAFF, customerId, 1);
+    }
+    // Raise the count so the same ledger no longer flags.
+    const alerts = await loyalty.getAlerts({ repeatCount: 10 });
+    expect(alerts.some((x) => x.kind === 'repeat-target')).toBe(false);
+  });
+
+  it('reads detector thresholds from the program config', async () => {
+    for (let i = 0; i < 4; i++) {
+      tick(i * 60);
+      await loyalty.accrue(STAFF, customerId, 1);
+    }
+    expect((await loyalty.getAlerts()).some((x) => x.kind === 'repeat-target')).toBe(true);
+    await config.update(ADMIN, { repeatCount: 10 });
+    expect((await loyalty.getAlerts()).some((x) => x.kind === 'repeat-target')).toBe(false);
+  });
+
+  it('flags self-dealing from REAL redemptions (the ledger no longer carries redemption)', async () => {
+    // Three rounds of: credit this card to the threshold, then redeem the
+    // reward it just earned, seconds later, as the same staff member.
+    let key = 0;
+    for (let round = 0; round < 3; round++) {
+      const roundStart = round * 3600;
+      for (let i = 0; i < 3; i++) {
+        tick(roundStart + i * 300);
+        await loyalty.commit(STAFF, {
+          customerId,
+          pointsDelta: 3, // 3 × 3 = 9 ≥ threshold 8 → mints one reward
+          redeemRewardIds: [],
+          idempotencyKey: `sd-${key++}`,
+          source: 'a',
+        });
+      }
+      const earned = (await loyalty.getState(customerId)).rewards ?? [];
+      expect(earned.length).toBeGreaterThan(0);
+      tick(roundStart + 2 * 300 + 5); // 5s after the credit that minted it
+      await loyalty.commit(STAFF, {
+        customerId,
+        pointsDelta: 0,
+        redeemRewardIds: [earned[0].id],
+        idempotencyKey: `sd-${key++}`,
+        source: 'a',
+      });
+    }
+
+    const found = (await loyalty.getAlerts()).find((x) => x.kind === 'self-dealing');
+    expect(found).toBeDefined();
+    expect(found?.staffId).toBe(STAFF.id);
+    expect(found?.customerId).toBe(customerId);
   });
 
   it('dismissing an alert filters it out of future reads (idempotent)', async () => {
-    await loyalty.accrue(STAFF, customerId, 3); // oversized → flag
-    const flag = (await loyalty.getAlerts()).find((x) => x.kind === 'oversized-multi-add');
+    for (let i = 0; i < 4; i++) {
+      tick(i * 60);
+      await loyalty.accrue(STAFF, customerId, 1);
+    }
+    const flag = (await loyalty.getAlerts()).find((x) => x.kind === 'repeat-target');
     expect(flag).toBeDefined();
 
     await loyalty.dismissAlert(STAFF, alertKey(flag!));
-    expect((await loyalty.getAlerts()).some((x) => x.kind === 'oversized-multi-add')).toBe(false);
+    expect((await loyalty.getAlerts()).some((x) => x.kind === 'repeat-target')).toBe(false);
 
     // Re-dismissing the same key is a no-op (does not throw / duplicate).
     await loyalty.dismissAlert(STAFF, alertKey(flag!));
-    expect((await loyalty.getAlerts()).some((x) => x.kind === 'oversized-multi-add')).toBe(false);
+    expect((await loyalty.getAlerts()).some((x) => x.kind === 'repeat-target')).toBe(false);
   });
 });
 
@@ -307,47 +368,6 @@ describe('unified commit (rewards-as-objects)', () => {
     const stats = await loyalty.getStats();
     expect(stats.rewardsRedeemed).toBe(1);
     expect(stats.pointsIssued).toBe(9); // three +3 accruals
-  });
-
-  it('undo re-mints a replacement for a spent reward (spent stays spent) and audits the reversal', async () => {
-    const services = freshServices();
-    const shell = await services.customers.issueCard(STAFF);
-    const id = shell.id;
-    for (let i = 0; i < 2; i++) {
-      await services.loyalty.commit(STAFF, {
-        customerId: id,
-        pointsDelta: 3,
-        redeemRewardIds: [],
-        idempotencyKey: `u-${i}`,
-        source: 'a',
-      });
-    }
-    const cross = await services.loyalty.commit(STAFF, {
-      customerId: id,
-      pointsDelta: 3, // 6 → 9, mints one reward
-      redeemRewardIds: [],
-      idempotencyKey: 'u-cross',
-      source: 'a',
-    });
-    if (!cross.ok) return;
-    await services.loyalty.commit(STAFF, {
-      customerId: id,
-      pointsDelta: 0,
-      redeemRewardIds: [cross.minted[0].id],
-      idempotencyKey: 'u-redeem',
-      source: 'a',
-    });
-    expect((await services.loyalty.getState(id)).rewards).toHaveLength(0);
-
-    const undo = await services.loyalty.undo(STAFF, 'u-redeem');
-    expect(undo.ok).toBe(true);
-    if (!undo.ok) return;
-    expect(undo.minted).toHaveLength(1); // a fresh replacement reward
-    expect((await services.loyalty.getState(id)).rewards).toHaveLength(1);
-
-    // The undo writes a loyalty.reverse audit row for the acting staff.
-    const reversals = await services.audit.list({ action: 'loyalty.reverse' });
-    expect(reversals.some((e) => e.details === 'undo' && e.actorId === STAFF.id)).toBe(true);
   });
 });
 

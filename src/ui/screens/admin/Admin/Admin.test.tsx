@@ -35,11 +35,12 @@ function fakeServices(role: 'admin' | 'staff'): Services {
       }),
       getAlerts: vi.fn().mockResolvedValue([
         {
-          kind: 'velocity',
+          kind: 'self-dealing',
           staffId: 's1',
           staffName: 'aya',
+          customerId: 'c1',
           at: new Date().toISOString(),
-          detail: '28 cups added in 12 min.',
+          detail: 'Credited then redeemed on the same card within 30s, 3 times (limit 3).',
         },
       ]),
     },
@@ -144,9 +145,11 @@ describe('Admin screen', () => {
     expect(container.querySelector('.stats')).not.toBeNull();
     expect(container.textContent).toContain('Active members');
     expect(container.textContent).toContain('312'); // from getStats
-    // Section headers
+    // Section headers — shop-level only. Appendix E removed the ambient
+    // cross-account "Activity" feed from the admin home.
     const headers = Array.from(container.querySelectorAll('.section-h')).map((h) => h.textContent);
-    expect(headers).toEqual(expect.arrayContaining(['Needs a look', 'Accounts', 'Activity']));
+    expect(headers).toEqual(expect.arrayContaining(['Needs a look', 'Accounts']));
+    expect(headers).not.toContain('Activity');
     // "Needs a look" is collapsed by default — no alert until expanded.
     expect(container.querySelector('.alert')).toBeNull();
     const collapse = container.querySelector('.admin-collapse') as HTMLButtonElement;
@@ -183,6 +186,71 @@ describe('Admin screen', () => {
     });
     expect(container.querySelector('.sheet')).not.toBeNull();
     expect(container.querySelector('.pin-dots')).not.toBeNull();
+  });
+
+  it('a stat breakdown shows the chart only — no attributed per-action list', async () => {
+    await mountAdmin('admin');
+    const tile = container.querySelector('.stat') as HTMLElement;
+    expect(tile).not.toBeNull();
+    await act(async () => {
+      tile.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // The breakdown popover is open with its chart…
+    expect(container.querySelector('.statdetail')).not.toBeNull();
+    expect(container.querySelector('.statdetail-bars')).not.toBeNull();
+    // …but Appendix E removed the ambient per-action feed that sat beneath it.
+    expect(container.querySelector('.statdetail .feed')).toBeNull();
+    expect(container.querySelector('.statdetail-more')).toBeNull();
+  });
+
+  it('an account popover offers management actions but no activity history', async () => {
+    await mountAdmin('admin');
+    const row = container.querySelector('.acct-row, .admin-acct') as HTMLElement | null;
+    const opener =
+      row ??
+      (Array.from(container.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes('sam · admin'),
+      ) as HTMLElement | undefined) ??
+      null;
+    expect(opener).not.toBeNull();
+    await act(async () => {
+      opener!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Management actions are present…
+    expect(container.textContent).toContain('Delete profile');
+    // …but reading one person's history is an investigation, not a glance:
+    // it lives behind the export workflow only.
+    expect(container.querySelector('.acct-feed')).toBeNull();
+    expect(container.querySelector('.acct-h')).toBeNull();
+  });
+
+  it('Configure exposes the two detector thresholds as editable rows', async () => {
+    await mountAdmin('admin');
+    const configure = Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent === 'Configure program',
+    ) as HTMLButtonElement | undefined;
+    await act(async () => {
+      configure!.click();
+    });
+
+    const labels = Array.from(container.querySelectorAll('.stats .setlabel')).map(
+      (n) => n.textContent,
+    );
+    expect(labels).toContain('Self-dealing window');
+    expect(labels).toContain('Self-dealing flags at');
+    expect(labels).toContain('Repeat-target window');
+    expect(labels).toContain('Repeat-target flags above');
+    // Alerts surface, never block — the panel says so.
+    expect(container.textContent).toContain('only flag for review');
   });
 });
 

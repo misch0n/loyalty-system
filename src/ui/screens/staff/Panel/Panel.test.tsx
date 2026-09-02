@@ -33,7 +33,11 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function fakeServices(): Services {
+function fakeServices(auditRows?: unknown[]): Services {
+  const rows = auditRows ?? [
+    { id: 'a1', actorId: 's1', actorRole: 'staff', action: 'loyalty.accrue', targetId: 'c1', details: '2', timestamp: new Date().toISOString() },
+    { id: 'a2', actorId: 's1', actorRole: 'staff', action: 'loyalty.redeem', targetId: 'c2', timestamp: new Date().toISOString() },
+  ];
   return {
     staff: {
       list: vi.fn().mockResolvedValue([
@@ -42,10 +46,9 @@ function fakeServices(): Services {
       currentSessionEpoch: vi.fn().mockResolvedValue(1),
     },
     audit: {
-      list: vi.fn().mockResolvedValue([
-        { id: 'a1', actorId: 's1', actorRole: 'staff', action: 'loyalty.accrue', targetId: 'c1', details: '2', timestamp: new Date().toISOString() },
-        { id: 'a2', actorId: 's1', actorRole: 'staff', action: 'loyalty.redeem', targetId: 'c2', timestamp: new Date().toISOString() },
-      ]),
+      // The Panel scopes its query to the signed-in actor; honour that here so
+      // the assertion on the filter is meaningful.
+      list: vi.fn().mockResolvedValue(rows),
     },
     customers: {
       getById: vi.fn().mockImplementation((id: string) =>
@@ -69,9 +72,9 @@ function seedSession() {
   );
 }
 
-async function mountPanel() {
+async function mountPanel(injected?: Services) {
   seedSession();
-  const services = fakeServices();
+  const services = injected ?? fakeServices();
   await act(async () => {
     root.render(
       <MemoryRouter initialEntries={['/staff']}>
@@ -113,6 +116,42 @@ describe('Staff Panel', () => {
     expect(container.querySelectorAll('.feed .row').length).toBe(2);
     expect(container.querySelector('.feed')?.textContent).toContain('Maria');
     expect(container.querySelector('.row.red')).not.toBeNull();
+  });
+
+  it('scopes the recent list to the signed-in actor and the last hour', async () => {
+    const now = Date.now();
+    const hoursAgo = (h: number) => new Date(now - h * 3600_000).toISOString();
+    const services = fakeServices([
+      { id: 'fresh', actorId: 's1', actorRole: 'staff', action: 'loyalty.accrue', targetId: 'c1', details: '1', timestamp: hoursAgo(0) },
+      { id: 'stale', actorId: 's1', actorRole: 'staff', action: 'loyalty.accrue', targetId: 'c2', details: '1', timestamp: hoursAgo(3) },
+    ]);
+    await mountPanel(services);
+
+    // The audit query is filtered by actor — a staffer never sees a colleague's work.
+    expect(services.audit.list).toHaveBeenCalledWith({ actorId: 's1' });
+    // …and the 3-hour-old row is outside the one-hour window.
+    expect(container.querySelectorAll('.feed .row').length).toBe(1);
+    expect(container.querySelector('.section-h')?.textContent).toBe('Your last hour');
+  });
+
+  it('caps the recent list at 10 rows with no pager and no "Load all"', async () => {
+    const services = fakeServices(
+      Array.from({ length: 25 }, (_, i) => ({
+        id: `r${i}`,
+        actorId: 's1',
+        actorRole: 'staff',
+        action: 'loyalty.accrue',
+        targetId: 'c1',
+        details: '1',
+        timestamp: new Date().toISOString(),
+      })),
+    );
+    await mountPanel(services);
+
+    expect(container.querySelectorAll('.feed .row').length).toBe(10);
+    // The bound IS the safeguard — there is deliberately no way to widen it.
+    const buttons = Array.from(container.querySelectorAll('button')).map((b) => b.textContent);
+    expect(buttons.some((t) => /load more|load all/i.test(t ?? ''))).toBe(false);
   });
 
   it('Scan button navigates to the scan workflow', async () => {

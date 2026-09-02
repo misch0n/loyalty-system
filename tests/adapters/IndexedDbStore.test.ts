@@ -169,7 +169,7 @@ describe('loyalty ledger', () => {
   });
 });
 
-describe('rewards-as-objects (commitCounterTransaction / undo)', () => {
+describe('rewards-as-objects (commitCounterTransaction)', () => {
   // Pin the threshold so these mechanics tests are independent of the product
   // default (now 9 — nine stamps, tenth coffee free).
   beforeEach(async () => {
@@ -303,68 +303,6 @@ describe('rewards-as-objects (commitCounterTransaction / undo)', () => {
     );
     expect(r).toEqual({ ok: false, error: 'customer_not_found' });
   });
-
-  it('undo reverses points and voids a freshly-minted reward', async () => {
-    await widenCap();
-    const c = await store.createCustomer({ token: 't' });
-    const txn = counter({ customerId: c.id, pointsDelta: 8 });
-    const committed = await store.commitCounterTransaction(txn);
-    if (!committed.ok) throw new Error('commit failed');
-
-    const undo = await store.undoCommit(txn.idempotencyKey);
-    expect(undo.ok).toBe(true);
-    if (!undo.ok) return;
-    // Minted reward voided, balance back to the pre-commit value.
-    expect(await store.listRewards(c.id, 'unspent')).toHaveLength(0);
-    expect(await store.listRewards(c.id, 'voided')).toHaveLength(1);
-    expect((await store.getCustomerState(c.id)).balance).toBe(0);
-  });
-
-  it('undo of a points-only commit reverses the balance', async () => {
-    const c = await store.createCustomer({ token: 't' });
-    const txn = counter({ customerId: c.id, pointsDelta: 3 });
-    await store.commitCounterTransaction(txn);
-    await store.undoCommit(txn.idempotencyKey);
-    expect((await store.getCustomerState(c.id)).balance).toBe(0);
-  });
-
-  it('undo of a redemption re-mints a replacement and leaves the original spent', async () => {
-    await widenCap();
-    const c = await store.createCustomer({ token: 't' });
-    const minted = await store.commitCounterTransaction(
-      counter({ customerId: c.id, pointsDelta: 8 }),
-    );
-    if (!minted.ok) throw new Error('mint failed');
-    const original = minted.minted[0].id;
-
-    const redeemTxn = counter({ customerId: c.id, redeemRewardIds: [original] });
-    await store.commitCounterTransaction(redeemTxn);
-    expect(await store.listRewards(c.id, 'unspent')).toHaveLength(0);
-
-    const undo = await store.undoCommit(redeemTxn.idempotencyKey);
-    expect(undo.ok).toBe(true);
-    if (!undo.ok) return;
-    // The spent reward STAYS spent; a fresh replacement is minted.
-    expect(undo.minted).toHaveLength(1);
-    expect(undo.minted[0].id).not.toBe(original);
-    expect(await store.listRewards(c.id, 'spent')).toHaveLength(1);
-    expect(await store.listRewards(c.id, 'unspent')).toHaveLength(1);
-  });
-
-  it('undo is itself idempotent (a second undo replays the cached result)', async () => {
-    const c = await store.createCustomer({ token: 't' });
-    const txn = counter({ customerId: c.id, pointsDelta: 3 });
-    await store.commitCounterTransaction(txn);
-    const first = await store.undoCommit(txn.idempotencyKey);
-    const second = await store.undoCommit(txn.idempotencyKey);
-    expect(second).toEqual(first);
-    expect((await store.getCustomerState(c.id)).balance).toBe(0);
-  });
-
-  it('undo of an unknown key reports nothing to undo', async () => {
-    const r = await store.undoCommit('never-committed');
-    expect(r).toEqual({ ok: false, error: 'customer_not_found' });
-  });
 });
 
 describe('staff & config', () => {
@@ -449,6 +387,37 @@ describe('audit', () => {
     expect(await store.listAudit({ action: 'loyalty.accrue' })).toHaveLength(1);
     expect(await store.listAudit({ actorId: 'b' })).toHaveLength(2);
     expect(await store.listAudit({ limit: 1 })).toHaveLength(1);
+  });
+
+  it('filters by an action / actor SET and by a timestamp range (export workflow)', async () => {
+    await store.appendAudit({ actorId: 'a', actorRole: 'admin', action: 'config.update' });
+    await tick();
+    await store.appendAudit({ actorId: 'b', actorRole: 'staff', action: 'loyalty.accrue' });
+    await tick();
+    await store.appendAudit({ actorId: 'c', actorRole: 'staff', action: 'loyalty.redeem' });
+
+    const all = await store.listAudit();
+    // Values within a field are OR'd…
+    const twoActions = await store.listAudit({
+      actions: ['loyalty.accrue', 'loyalty.redeem'],
+    });
+    expect(twoActions.map((e) => e.action).sort()).toEqual(['loyalty.accrue', 'loyalty.redeem']);
+    expect(await store.listAudit({ actorIds: ['b', 'c'] })).toHaveLength(2);
+    // …and across fields AND'd.
+    const both = await store.listAudit({ actions: ['loyalty.accrue'], actorIds: ['c'] });
+    expect(both).toHaveLength(0);
+
+    // A singular and its plural union together.
+    expect(
+      await store.listAudit({ action: 'config.update', actions: ['loyalty.accrue'] }),
+    ).toHaveLength(2);
+
+    // Range is inclusive on both ends and reads through the byTimestamp index.
+    const oldest = all[all.length - 1].timestamp;
+    const newest = all[0].timestamp;
+    expect(await store.listAudit({ from: oldest, to: newest })).toHaveLength(3);
+    expect(await store.listAudit({ from: newest })).toHaveLength(1);
+    expect(await store.listAudit({ to: oldest })).toHaveLength(1);
   });
 });
 

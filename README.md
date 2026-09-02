@@ -44,10 +44,14 @@ Points live in an **append-only ledger**. Balance is *derived* by summing entrie
 (it settles to `0..threshold−1`) — never stored as a counter. Crossing the
 threshold mints a discrete, countable **`Reward` object** (`reward_issue` ledger
 entry + `reward.issued` event); the "N free coffees" a customer holds is the count
-of **unspent rewards**, not a boolean. Corrections are `reversal` entries (plus a
-5-second commit **undo**), never destructive edits. Every staff/admin action writes
-an **audit entry**. See [`docs/STATUS.md`](docs/STATUS.md) ("Rewards-as-objects")
-for the full reward/QR/undo model.
+of **unspent rewards**, not a boolean. The staff counter **stages** every
+transaction behind a 3-second pre-commit hold (Cancel / "Commit now") before it's
+ever written; corrections to something already written are `reversal` entries,
+never destructive edits. Every staff/admin action writes an **audit entry**, and
+two attributed detectors (self-dealing, repeat-target) monitor — never block —
+for suspicious patterns. See [`docs/STATUS.md`](docs/STATUS.md) ("Rewards-as-objects"
+and "Staff integrity & observability acceptance (E9)") for the full reward/QR and
+pre-commit-hold models.
 
 ---
 
@@ -59,18 +63,19 @@ for the full reward/QR/undo model.
 | **Self-service registration** | PRIMARY path: customer visits `/register`, creates their own card in one step — remembered on the browser via `IdentityStore`. No approval queue, no staff involvement. Recovery tier disclosed at registration (email → self-recovery link; name-only → staff best-effort; neither → not recoverable). |
 | **Staff-initiated registration** | SECONDARY path: staff start a card over real PeerJS; customer joins on their own device. Duplicate details **warn before** a second card is created. |
 | **Auto-provision on scan** | Scanning an unknown-but-valid token creates a token-only card on the staff device so accrual can proceed immediately. Staff still initiates the credit. |
-| **Unified commit (accrue + mint + redeem)** | Staff scan → see customer state → a single **atomic, idempotent** `commit` adds points (default `pointsPerPurchase`, **capped** at `maxPointsPerTransaction` → `over_cap` reject), **mints** one `Reward` per threshold crossing (`mintFold`), and **redeems** any pre-checked rewards in the same call. Appends `accrual`/`reward_issue` ledger entries + reward events + audit. Sends a best-effort reward-available email only when the commit minted ≥1 reward. Seed threshold: **8 coffees** (`pointsPerReward: 8`). |
+| **Unified commit (accrue + mint + redeem)** | Staff scan → see customer state → the counter **stages** the transaction behind a **3-second pre-commit hold** (countdown summarizing points/redemptions/mints-to-come; Cancel or "Commit now"; idempotency key allocated at stage time). On timeout/commit, a single **atomic, idempotent** `commit` adds points (default `pointsPerPurchase`, **capped** at `maxPointsPerTransaction` → `over_cap` reject), **mints** one `Reward` per threshold crossing (`mintFold`), and **redeems** any pre-checked rewards in the same call. Appends `accrual`/`reward_issue` ledger entries + reward events + audit. Sends a best-effort reward-available email only when the commit minted ≥1 reward. Terminal auto-advances to the scanner after each commit. Seed threshold: **9 purchases** (`pointsPerReward: 9`) — the card shows a fixed 10-cup grid whose last (FREE) cup is pre-stamped, so the tenth coffee is the free one. |
 | **Redemption (multi-reward, subset)** | Redeemed inside the unified `commit` — every reward id is re-validated at commit (`not_owner`/`already_spent`/`reward_invalid` → `rejected[]`, valid ones still redeem); a customer can compose **multiple** rewards into one reward QR. **Atomic + idempotent** (single IDB-tx scope) — no double-spend. |
 | **Self-service recovery** | Customer visits `/lost`, enters their registered email → single-use link (15-min expiry) via EmailJS → opening the link re-establishes identity on the browser. Token-only customers remain unrecoverable by design. Uniform response (no account enumeration). |
 | **Staff recovery / reissue** | Staff find customer by name/email/phone; reissue with a rotated token (default) or keep it. |
-| **Correction / undo** | Reverse a recent accrual via an offsetting `reversal` entry — logged, never silent. A **5-second commit undo** (`LoyaltyService.undo`) reverses net points, **voids** any freshly-minted unspent reward, and **re-mints** a point-neutral replacement per reward the commit spent (a spent reward is never un-spent). |
+| **Correction / reversal** | Reverse a recent accrual via an offsetting `reversal` entry — logged, never silent (`LoyaltyService.reverse`). There is no post-commit undo: the staff counter's 3-second pre-commit hold (above) catches operator errors *before* anything is written instead. |
 | **Self-delete / opt-out** | `CustomerService.selfDelete(token)` — GDPR erasure initiated from the customer's card "⋯" menu. Staff-confirmed `deleteCustomer(actor, id)` also still exists. |
-| **Suspicious-activity alerts** | Pure domain module `src/domain/alerts.ts` evaluates velocity, repeat-target, oversized multi-add, off-hours, outlier-share, and earn-then-redeem patterns against `DEFAULT_THRESHOLDS`. `LoyaltyService.getAlerts()` surfaces results. Monitoring only — no automatic blocking. |
+| **Suspicious-activity alerts** | Pure domain module `src/domain/alerts.ts` evaluates exactly two attributed detectors — **self-dealing** (same staff accrues then redeems on the same card repeatedly within a window) and **repeat-target** (same customer credited repeatedly within a window) — against thresholds on `ProgramConfig` (admin-configurable). `LoyaltyService.getAlerts()` surfaces results. Monitoring only — no automatic blocking; no role exemption. |
 | **Admin — staff** | List / create / disable / re-enable / reset password / set PIN / "Sign out all devices" (epoch revocation). |
-| **Admin — program** | Edit threshold, reward text, points-per-purchase, per-transaction cap, inactivity days. Save requires step-up PIN re-auth. |
-| **Admin — stats** | "This week" counts: active customers, points issued, rewards redeemed (counted from `reward.redeemed` events, surfaced as `loyalty.redeem` audit rows — not the ledger). (Coffees-today approximated by accrual audit event count — see divergences.) |
-| **Admin — audit log** | Filterable, append-only staff-attributed action trail (no PII). |
+| **Admin — program** | Edit threshold, reward text, points-per-purchase, per-transaction cap, inactivity days, and the four alert-detector thresholds. Save requires step-up PIN re-auth. |
+| **Admin — stats** | "This week" counts: active customers, points issued, rewards redeemed (counted from `reward.redeemed` events, surfaced as `loyalty.redeem` audit rows — not the ledger). `StatDetail` popover shows total + chart only (no per-action feed). (Coffees-today approximated by accrual audit event count — see divergences.) |
+| **Admin — activity export** | The append-only audit log is not casually browsable — cross-account/historical activity is reached only through a reason-gated export: a blank-by-default filter (time range · action(s) · account(s) incl. admins), disabled until a reason is typed, produces a downloaded JSON file, and is itself an audited `audit.export` row. Past exports are listed and re-runnable. `AuditService.exportActivity`, `ui/screens/admin/_parts/Export/`. |
 | **Admin — alerts** | Suspicious-activity alerts surfaced from `LoyaltyService.getAlerts()`. |
+| **Staff — "Your last hour"** | The counter's recent-activity list is scoped to the **signed-in staffer's own actions in the last hour**, capped at 10 rows, no "Load all" — never a full or cross-staff history. |
 | **Backup** | JSON export/import (behind the same `DataStore` port). |
 | **Wallet — WalletProvider seam** | `src/ports/WalletProvider.ts` (`ensurePass`, `pushUpdate`). Proto adapter: `StaticWalletProvider` links to pre-generated walletwallet.dev passes (`wallet/passes.ts`; `pushUpdate` is no-op — static snapshot). Prod placeholder: `ServerWalletProvider` (throws). Selected by `VITE_WALLET` env flag (default `static`). Wallet button lives inside the **enlarged-QR overlay** (`src/ui/screens/customer/EnlargedQr/EnlargedQr.tsx`), OS-aware (iOS → Apple, Android → Google), mobile-only. |
 | **Card view (customer hub)** | A recognized customer lands directly on `/card/:token` — no home dashboard. `EnlargedQr` overlay provides the full-screen QR + wallet button. Card "⋯" menu (`CardMenu`) provides self-delete. The "Gold" tier pill is decorative (v1 has no tiers). |
@@ -212,14 +217,19 @@ sequenceDiagram
 ### Unified commit — accrue + mint + redeem (append-only ledger + reward objects)
 
 A single atomic, idempotent `commitCounterTransaction` adds points, mints a reward per
-threshold crossing, and redeems any pre-checked rewards — all in one IndexedDB tx.
+threshold crossing, and redeems any pre-checked rewards — all in one IndexedDB tx. The
+staff counter **stages** the transaction and blocks on a 3-second pre-commit hold before
+calling `commit` at all — nothing is written until the hold elapses or "Commit now" is
+tapped.
 
 ```mermaid
 flowchart LR
     SCAN([Staff scans card /c or reward /r]) --> STATE[Resolve customer<br/>balance = Σ ledger 0..threshold-1<br/>unspent rewards]
-    STATE --> COMMIT["commit(pointsDelta, redeemRewardIds[])<br/>idempotent on key"]
+    STATE --> HOLD["Stage transaction<br/>3s pre-commit hold — Cancel or Commit now"]
+    HOLD -- cancel: no write --> SCAN
+    HOLD -- timeout / commit now --> COMMIT["commit(pointsDelta, redeemRewardIds[])<br/>idempotent on key allocated at stage time"]
     COMMIT --> CAP{over cap?}
-    CAP -- yes --> REJ[reject: over_cap]
+    CAP -- yes --> REJ[reject: over_cap] --> STATE
     CAP -- no --> ACC[(append accrual + audit)]
     ACC --> MINT{balance ≥ threshold?}
     MINT -- yes --> M[(mintFold: reward_issue -threshold<br/>+ Reward + reward.issued, repeat)]
@@ -228,7 +238,7 @@ flowchart LR
     R --> VAL{valid + owned + unspent?}
     VAL -- yes --> SPEND[(reward.redeemed)]
     VAL -- no --> RR["rejected[]: not_owner / already_spent / reward_invalid"]
-    SPEND --> UNDO[5s Undo: reverse points<br/>void fresh mint · re-mint spent]
+    SPEND --> NEXT([auto-advance to scanner])
 ```
 
 ---
@@ -290,7 +300,7 @@ erDiagram
         string type "reward.issued | reward.redeemed | reward.voided"
         string customerId FK
         string staffId "optional"
-        string details "e.g. reason: mint_reversed | undo_reissue"
+        string details "no current producer of a void reason (undo removed)"
     }
     AuditLogEntry {
         string id PK
@@ -325,12 +335,13 @@ src/
 │   ├── models.ts          # entity types; StaffAccount.pin?, ProgramConfig.sessionEpoch?
 │   ├── loyalty.ts         # balance derivation (settles 0..threshold-1)
 │   ├── rewards.ts         # rewards-as-objects: mintFold, unspentRewards, cardProgress,
-│   │                      #   validateRedemption, isOverCap, planUndo (5s undo decision)
+│   │                      #   validateRedemption, isOverCap (no undo decision — retired)
 │   ├── tokens.ts          # 128-bit opaque token generation
 │   ├── validation.ts      # input + duplicate checks
-│   └── alerts.ts          # suspicious-activity detection (velocity, repeat-target, off-hours…)
+│   └── alerts.ts          # self-dealing + repeat-target detectors, thresholds on ProgramConfig
 ├── ports/                 # the seams (interfaces)
-│   ├── DataStore.ts       # commitCounterTransaction / undoCommit / listRewards / getCustomerState,
+│   ├── DataStore.ts       # commitCounterTransaction / listRewards / getCustomerState,
+│   │                      #   listAudit(AuditFilter: actions[]/actorIds[]/from/to),
 │   │                      #   createRecoveryCode / consumeRecoveryCode, getStaffByPin, setStaffPin
 │   ├── Transport.ts
 │   ├── Mailer.ts          # email abstraction
@@ -339,7 +350,8 @@ src/
 ├── adapters/
 │   ├── storage/
 │   │   ├── IndexedDbStore.ts   # prototype storage (schema v5: rewards/rewardEvents/idempotencyKeys
-│   │   │                       #   stores; commitCounterTransaction/undoCommit/listRewards); close() drops DB
+│   │   │                       #   stores; commitCounterTransaction/listRewards; listAudit range
+│   │   │                       #   query via byTimestamp); close() drops DB
 │   │   ├── ApiStore.ts         # production HTTP stub
 │   │   └── schema.ts           # IndexedDB schema + seed data (admin PIN 4321, staff PIN 1234)
 │   ├── transport/
@@ -364,9 +376,10 @@ src/
 │       └── storeMethods.ts     # canonical DataStore method list + mutating subset
 ├── services/              # orchestrate domain + ports
 │   ├── CustomerService.ts      # selfRegister, provisionFromToken, selfDelete(token), reissue…
-│   ├── LoyaltyService.ts       # commit (accrue+mint+redeem), undo (5s), getState, reverse, getAlerts()
+│   ├── LoyaltyService.ts       # commit (accrue+mint+redeem), getState, reverse, getAlerts()
 │   ├── StaffService.ts         # loginWithPin, setPin, revokeAllSessions, currentSessionEpoch
-│   ├── ConfigService.ts · AuditService.ts
+│   ├── ConfigService.ts        # incl. alert-detector thresholds
+│   ├── AuditService.ts         # list, exportActivity (reason-gated, writes audit.export)
 │   ├── RecoveryService.ts      # self-service recovery (single-use expiring codes)
 │   └── Services.ts             # ← composition root; wires adapters → services.wallet (WalletProvider)
 │                               #   services.sync (SyncKit); exposes reset() (prototype-only)
@@ -402,9 +415,11 @@ src/
     ├── screens/           # folder-per-screen: <Screen>.tsx + <Screen>.css + <Screen>.test.tsx
     │   ├── customer/      # Welcome/ (+ Find us), Register/, LostCard/, RecoverConsume/,
     │   │                  #   Card/ (hub), EnlargedQr/ (QR + wallet button), CardMenu/
-    │   ├── staff/         # Login/, Unlock/ (PIN re-auth), Panel/, Scan/
+    │   ├── staff/         # Login/, Unlock/ (PIN re-auth), Panel/ ("Your last hour"), Scan/
+    │   │                  #   (3s pre-commit hold: stage → countdown → Cancel/Commit now)
     │   │                  #   _parts/: TopBar/ ScanView/ CustChip/ StateLabel/
-    │   ├── admin/         # Admin/ (tabbed); _parts/: Stat/ FeedRow/ Alert/ StepUp/
+    │   ├── admin/         # Admin/ (tabbed); _parts/: Stat/ StatDetail/ FeedRow/ Alert/ StepUp/
+    │   │                  #   AccountSheet/ ProgramEdit/ Export/ (reason-gated JSON activity export)
     │   └── proto/         # ProtoPanel/ (hidden top-left DevTrigger, build-flag gated)
     └── common/            # ServicesContext, PairingContext/usePairing, QrDisplay, QrScanner,
                            #   PrivacyNotice, PairDevices
@@ -464,7 +479,7 @@ is dropped entirely.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 341 unit/component tests (Vitest — includes src/ui/**/*.test.tsx)
+npm test           # 448 unit/component tests (Vitest — includes src/ui/**/*.test.tsx)
 npm run build      # static output in dist/
 npm run preview    # serve dist/ locally (required for e2e)
 npm run e2e          # browser UI regression suite (Puppeteer headless Chrome: builds, serves, runs)
@@ -489,7 +504,7 @@ from a clean state.
 Sign in as staff/admin: long-press the `LogoGestures` mark to reach sign-in, then
 enter username/password (`admin / admin` or `staff / staff`). On a device you tick
 "Remember this device", a later idle visit asks only for the PIN (`4321` admin /
-`1234` staff). Reward threshold is 8 coffees (configurable via Admin → Program).
+`1234` staff). Reward threshold is 9 purchases — the tenth coffee is free (configurable via Admin → Program).
 
 ### Deployment
 Pushing to `main` runs [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml):

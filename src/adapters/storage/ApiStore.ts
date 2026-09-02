@@ -118,9 +118,6 @@ export class ApiStore implements DataStore {
   getCustomerState(customerId: string): Promise<CustomerState> {
     return this.request('GET', `/customers/${customerId}/state`);
   }
-  undoCommit(idempotencyKey: string): Promise<CommitResult> {
-    return this.request('POST', '/commits/undo', { idempotencyKey });
-  }
 
   createRecoveryCode(input: CreateRecoveryCodeInput): Promise<void> {
     return this.request('POST', '/recovery-codes', input);
@@ -169,7 +166,11 @@ export class ApiStore implements DataStore {
   listAudit(filter: AuditFilter = {}): Promise<AuditLogEntry[]> {
     const params = new URLSearchParams();
     if (filter.action) params.set('action', filter.action);
+    if (filter.actions?.length) params.set('actions', filter.actions.join(','));
     if (filter.actorId) params.set('actorId', filter.actorId);
+    if (filter.actorIds?.length) params.set('actorIds', filter.actorIds.join(','));
+    if (filter.from) params.set('from', filter.from);
+    if (filter.to) params.set('to', filter.to);
     if (filter.limit) params.set('limit', String(filter.limit));
     return this.request('GET', `/audit?${params.toString()}`);
   }

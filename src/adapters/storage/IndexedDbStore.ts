@@ -49,7 +49,6 @@ import {
   cardProgress,
   isOverCap,
   mintFold,
-  planUndo,
   validateRedemption,
 } from '../../domain/rewards';
 import { normalizeEmail, normalizePhone } from '../../domain/validation';
@@ -499,7 +498,6 @@ export class IndexedDbStore implements DataStore {
     }
 
     const config = this.configFrom(await tx.objectStore('config').get(CONFIG_KEY));
-    const threshold = config.pointsPerReward;
 
     // over_cap short-circuit (no writes): pointsDelta over the cap or negative.
     if (isOverCap(txn.pointsDelta, config)) {
@@ -582,15 +580,7 @@ export class IndexedDbStore implements DataStore {
     );
     const result: CommitResult = { ok: true, state, minted, redeemed, rejected };
 
-    const record: IdempotencyRecord = {
-      key: txn.idempotencyKey,
-      result,
-      staffId: txn.staffId,
-      pointsDelta: txn.pointsDelta,
-      threshold,
-      mintedRewardIds: minted.map((r) => r.id),
-      spentRewardIds: redeemed.map((r) => r.id),
-    };
+    const record: IdempotencyRecord = { key: txn.idempotencyKey, result };
     await idemStore.put(record);
     await tx.done;
     return result;
@@ -613,103 +603,6 @@ export class IndexedDbStore implements DataStore {
     const rewards = await tx.objectStore('rewards').index('byOwner').getAll(customerId);
     await tx.done;
     return this.buildState(customer, config, transactions, rewards);
-  }
-
-  async undoCommit(idempotencyKey: string): Promise<CommitResult> {
-    const db = await this.dbPromise;
-    const tx = db.transaction(COMMIT_STORES, 'readwrite');
-    const idemStore = tx.objectStore('idempotencyKeys');
-    const record = await idemStore.get(idempotencyKey);
-    // Nothing to undo (unknown key, or the original commit failed).
-    if (!record || !record.result.ok) {
-      await tx.done;
-      return { ok: false, error: 'customer_not_found' };
-    }
-    // Already undone — replay the cached undo result, no second reversal.
-    if (record.undone && record.undoResult) {
-      await tx.done;
-      return record.undoResult;
-    }
-
-    const customerId = record.result.state.customer.id;
-    const customerStore = tx.objectStore('customers');
-    const customer = await customerStore.get(customerId);
-    if (!customer) {
-      await tx.done;
-      return { ok: false, error: 'customer_not_found' };
-    }
-
-    const config = this.configFrom(await tx.objectStore('config').get(CONFIG_KEY));
-    const now = this.now();
-    const txnStore = tx.objectStore('transactions');
-    const rewardStore = tx.objectStore('rewards');
-
-    const undo = planUndo({
-      pointsDelta: record.pointsDelta,
-      threshold: record.threshold,
-      mintedRewardIds: record.mintedRewardIds,
-      spentRewardIds: record.spentRewardIds,
-    });
-
-    // 1. Reverse the commit's net point effect (skip a no-op zero reversal).
-    if (undo.reversePoints !== 0) {
-      await txnStore.add({
-        id: generateId(),
-        customerId,
-        type: 'reversal',
-        points: undo.reversePoints,
-        staffId: record.staffId,
-        timestamp: now,
-        note: 'undo',
-      });
-    }
-
-    // 2. Void each freshly-minted reward still unspent (a spent one can't be voided).
-    for (const rewardId of undo.voidRewardIds) {
-      const reward = await rewardStore.get(rewardId);
-      if (!reward || reward.status !== 'unspent') continue;
-      await rewardStore.put({ ...reward, status: 'voided' });
-      await tx
-        .objectStore('rewardEvents')
-        .add(
-          this.rewardEvent('reward.voided', rewardId, customerId, undefined, now, {
-            reason: 'mint_reversed',
-          }),
-        );
-    }
-
-    // 3. Re-mint a point-neutral replacement for each reward the commit spent —
-    //    the spent reward STAYS spent (append-only); the customer is made whole.
-    const reissued: Reward[] = [];
-    for (let i = 0; i < undo.reissueForSpentRewardIds.length; i++) {
-      const reward = await this.mintReward(
-        tx,
-        customerId,
-        record.staffId,
-        config.rewardDescription,
-        0, // point-neutral: no reward_issue ledger debit (already earned earlier)
-        now,
-        { reason: 'undo_reissue' },
-      );
-      reissued.push(reward);
-    }
-
-    const state = this.buildState(
-      customer,
-      config,
-      await txnStore.index('byCustomer').getAll(customerId),
-      await rewardStore.index('byOwner').getAll(customerId),
-    );
-    const undoResult: CommitResult = {
-      ok: true,
-      state,
-      minted: reissued,
-      redeemed: [],
-      rejected: [],
-    };
-    await idemStore.put({ ...record, undone: true, undoResult });
-    await tx.done;
-    return undoResult;
   }
 
   /** Strip the store-only `id` off a config record (or fall back to the default). */
@@ -762,23 +655,19 @@ export class IndexedDbStore implements DataStore {
     description: string,
     ledgerDelta: number,
     now: string,
-    details?: Record<string, string>,
   ): Promise<Reward> {
     const rewardStore = tx.objectStore('rewards');
     const rewardId = generateId();
-    let sourceTxnId = '';
-    if (ledgerDelta !== 0) {
-      sourceTxnId = generateId();
-      await tx.objectStore('transactions').add({
-        id: sourceTxnId,
-        customerId,
-        type: 'reward_issue',
-        points: ledgerDelta,
-        staffId,
-        timestamp: now,
-        rewardId,
-      });
-    }
+    const sourceTxnId = generateId();
+    await tx.objectStore('transactions').add({
+      id: sourceTxnId,
+      customerId,
+      type: 'reward_issue',
+      points: ledgerDelta,
+      staffId,
+      timestamp: now,
+      rewardId,
+    });
     // A short code unique among rewards (collision odds ~1 in 10^12; bounded retry).
     let shortCode = generateRewardShortCode();
     for (let i = 0; i < 12 && (await rewardStore.index('byShortCode').get(shortCode)); i++) {
@@ -797,7 +686,7 @@ export class IndexedDbStore implements DataStore {
     await rewardStore.add(reward);
     await tx
       .objectStore('rewardEvents')
-      .add(this.rewardEvent('reward.issued', rewardId, customerId, staffId, now, details));
+      .add(this.rewardEvent('reward.issued', rewardId, customerId, staffId, now));
     return reward;
   }
 
@@ -947,9 +836,33 @@ export class IndexedDbStore implements DataStore {
 
   async listAudit(filter: AuditFilter = {}): Promise<AuditLogEntry[]> {
     const db = await this.dbPromise;
-    let entries = await db.getAll('audit');
-    if (filter.action) entries = entries.filter((e) => e.action === filter.action);
-    if (filter.actorId) entries = entries.filter((e) => e.actorId === filter.actorId);
+    // A bounded range reads through the `byTimestamp` index instead of scanning
+    // the whole store — the export workflow (Appendix E) always supplies one.
+    let entries: AuditLogEntry[];
+    if (filter.from || filter.to) {
+      const range =
+        filter.from && filter.to
+          ? IDBKeyRange.bound(filter.from, filter.to)
+          : filter.from
+            ? IDBKeyRange.lowerBound(filter.from)
+            : IDBKeyRange.upperBound(filter.to as string);
+      entries = await db.getAllFromIndex('audit', 'byTimestamp', range);
+    } else {
+      entries = await db.getAll('audit');
+    }
+
+    // Within a field the values are OR'd; across fields AND'd. A singular and
+    // its plural form union together.
+    const actions = new Set(
+      [...(filter.actions ?? []), ...(filter.action ? [filter.action] : [])],
+    );
+    if (actions.size > 0) entries = entries.filter((e) => actions.has(e.action));
+
+    const actors = new Set(
+      [...(filter.actorIds ?? []), ...(filter.actorId ? [filter.actorId] : [])],
+    );
+    if (actors.size > 0) entries = entries.filter((e) => actors.has(e.actorId));
+
     entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp)); // newest first
     if (filter.limit) entries = entries.slice(0, filter.limit);
     return entries;

@@ -34,6 +34,34 @@ describe('ConfigService', () => {
   });
 });
 
+describe('detector thresholds (Appendix E)', () => {
+  it('persists the four alert thresholds', async () => {
+    const updated = await services.config.update(ADMIN, {
+      selfDealWindowSec: 45,
+      selfDealCount: 5,
+      repeatWindowMin: 20,
+      repeatCount: 4,
+    });
+    expect(updated.selfDealWindowSec).toBe(45);
+    expect(updated.selfDealCount).toBe(5);
+    expect(updated.repeatWindowMin).toBe(20);
+    expect(updated.repeatCount).toBe(4);
+  });
+
+  it('floors each threshold at 1 whole unit (a count of 0 would flag everything)', async () => {
+    const updated = await services.config.update(ADMIN, {
+      selfDealWindowSec: 0,
+      selfDealCount: -3,
+      repeatWindowMin: 2.9,
+      repeatCount: 0,
+    });
+    expect(updated.selfDealWindowSec).toBe(1);
+    expect(updated.selfDealCount).toBe(1);
+    expect(updated.repeatWindowMin).toBe(2);
+    expect(updated.repeatCount).toBe(1);
+  });
+});
+
 describe('stats', () => {
   it('counts active customers, points issued and rewards redeemed', async () => {
     const shell = await services.customers.issueCard(STAFF);

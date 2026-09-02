@@ -16,12 +16,8 @@ import { formatShortCode } from '../../../../../domain/tokens';
 import './AlertDetail.css';
 
 const KIND_LABEL: Record<AlertKind, string> = {
-  velocity: 'Rapid credits',
+  'self-dealing': 'Credited then redeemed',
   'repeat-target': 'Repeated same customer',
-  'oversized-multi-add': 'Large single credit',
-  'off-hours': 'Outside opening hours',
-  'outlier-share': 'Unusual share of credits',
-  'earn-then-redeem': 'Earn then redeem',
 };
 
 function exactTime(iso: string): string {

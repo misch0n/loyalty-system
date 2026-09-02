@@ -74,6 +74,8 @@ export function auditVerb(action: AuditAction): string {
       return 'undid an entry';
     case 'config.update':
       return 'changed the program';
+    case 'audit.export':
+      return 'exported activity';
     default:
       return action;
   }
@@ -94,6 +96,7 @@ export function auditTone(action: AuditAction): FeedTone {
       return 'red';
     case 'loyalty.reverse':
     case 'config.update':
+    case 'audit.export':
       return 'warn';
     default:
       return 'new';

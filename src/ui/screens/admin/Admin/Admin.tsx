@@ -1,11 +1,15 @@
 /**
  * Admin — the reference-UI admin screen (Ckyka view 11, UX-SPEC §8).
  *
- * Single scroll: derived "This week" stats + editable program rows, a
- * "Needs a look" alert list, staff management, "Sign out all devices", and the
- * full activity log attributed to staff NAMES. All figures are DERIVED from the
- * ledger/audit trail — no new mutable state. Destructive/program changes go
- * through step-up PIN re-auth (StepUp → useAuth().unlock → service mutation).
+ * Single scroll: derived "This week" stats, a "Needs a look" alert list, staff
+ * management, "Sign out all devices" and "Export activity". All figures are
+ * DERIVED from the ledger/audit trail — no new mutable state. Destructive and
+ * program changes go through step-up PIN re-auth (StepUp → useAuth().unlock →
+ * service mutation).
+ *
+ * Appendix E: there is deliberately NO ambient activity feed here. Attributed,
+ * cross-account activity is reachable only through the Export sheet, which
+ * requires a stated reason and audits itself.
  *
  * GUARD: !ready → loading · locked → /staff/unlock · anon → /login ·
  * signed-in non-admin → "Admins only" notice. Wiring is reused from the old
@@ -28,21 +32,22 @@ import { useAuth } from '../../../app/AuthContext';
 import { ROUTES } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
 import type { Actor } from '../../../../services/types';
-import type { AuditLogEntry, ProgramConfig, StaffAccount } from '../../../../domain/models';
+import type { ProgramConfig, StaffAccount } from '../../../../domain/models';
 import type { Alert as AlertModel } from '../../../../domain/alerts';
 import { Stat, StatWide } from '../_parts/Stat/Stat';
-import { Feed, FeedRow, SectionH } from '../_parts/FeedRow/FeedRow';
+import { SectionH } from '../_parts/FeedRow/FeedRow';
 import { Alert } from '../_parts/Alert/Alert';
 import { StepUp } from '../_parts/StepUp/StepUp';
 import { ProgramEdit } from '../_parts/ProgramEdit/ProgramEdit';
 import { AccountSheet } from '../_parts/AccountSheet/AccountSheet';
 import { StatDetail } from '../_parts/StatDetail/StatDetail';
 import { AlertDetail } from '../_parts/AlertDetail/AlertDetail';
+import { Export } from '../_parts/Export/Export';
 import { usePager } from '../../../common/usePager';
-import { PersonIcon, feedIcon } from '../_parts/feedIcons';
+import { PersonIcon } from '../_parts/feedIcons';
 import type { MetricKind } from '../../../../domain/insights';
-import { alertKey } from '../../../../domain/alerts';
-import { auditTone, auditVerb, isSameDay, relativeTime } from './format';
+import { alertKey, DEFAULT_THRESHOLDS } from '../../../../domain/alerts';
+import { isSameDay, relativeTime } from './format';
 import './Admin.css';
 
 interface Stats {
@@ -51,13 +56,62 @@ interface Stats {
   rewardsRedeemed: number;
 }
 
-const ACTIVITY_PAGE = 8;
 const ALERT_PAGE = 4;
 
-type EditTarget =
-  | { kind: 'pointsPerReward' }
-  | { kind: 'maxPointsPerTransaction' }
-  | { kind: 'revokeAll' };
+/**
+ * Numeric program-config fields the Configure panel can edit. Each carries the
+ * copy for the value+PIN `ProgramEdit` sheet and how the current value reads on
+ * the row. Add a field here and it appears in Configure — nothing else to wire.
+ */
+const PROGRAM_FIELDS = {
+  pointsPerReward: {
+    rowLabel: 'Reward earned at',
+    title: 'Reward threshold',
+    fieldLabel: 'Reward earned at how many coffees?',
+    format: (v: number) => `${v} coffees`,
+  },
+  maxPointsPerTransaction: {
+    rowLabel: 'Max coffees per scan',
+    title: 'Max coffees per scan',
+    fieldLabel: 'Most coffees per scan?',
+    format: (v: number) => String(v),
+  },
+  selfDealWindowSec: {
+    rowLabel: 'Self-dealing window',
+    title: 'Self-dealing window',
+    fieldLabel: 'Redeem within how many seconds of a credit?',
+    format: (v: number) => `${v}s`,
+  },
+  selfDealCount: {
+    rowLabel: 'Self-dealing flags at',
+    title: 'Self-dealing count',
+    fieldLabel: 'Flag after how many close credit-then-redeem pairs?',
+    format: (v: number) => `${v} times`,
+  },
+  repeatWindowMin: {
+    rowLabel: 'Repeat-target window',
+    title: 'Repeat-target window',
+    fieldLabel: 'Same card credited within how many minutes?',
+    format: (v: number) => `${v} min`,
+  },
+  repeatCount: {
+    rowLabel: 'Repeat-target flags above',
+    title: 'Repeat-target count',
+    fieldLabel: 'Flag above how many credits to the same card?',
+    format: (v: number) => `${v} times`,
+  },
+} as const;
+
+type ProgramField = keyof typeof PROGRAM_FIELDS;
+
+const ALERT_FIELDS: ProgramField[] = [
+  'selfDealWindowSec',
+  'selfDealCount',
+  'repeatWindowMin',
+  'repeatCount',
+];
+
+type EditTarget = { kind: ProgramField } | { kind: 'revokeAll' };
 
 export function Admin() {
   const { actor, status, ready } = useAuth();
@@ -112,7 +166,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
   const [config, setConfig] = useState<ProgramConfig | null>(null);
   const [alerts, setAlerts] = useState<AlertModel[] | null>(null);
   const [staff, setStaff] = useState<StaffAccount[] | null>(null);
-  const [entries, setEntries] = useState<AuditLogEntry[] | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
 
   const [edit, setEdit] = useState<EditTarget | null>(null);
@@ -123,8 +176,9 @@ function AdminScreen({ actor }: { actor: Actor }) {
   const [selectedAlert, setSelectedAlert] = useState<AlertModel | null>(null);
   // Program-config popover (reward threshold, max coffees per scan, …).
   const [configureOpen, setConfigureOpen] = useState(false);
+  // Investigation/export popover — the ONLY route to cross-account activity.
+  const [exportOpen, setExportOpen] = useState(false);
 
-  const activityPager = usePager(entries?.length ?? 0, ACTIVITY_PAGE);
   const alertPager = usePager(alerts?.length ?? 0, ALERT_PAGE);
   // The id of the profile whose management popover is open (null = closed). We
   // derive the live account from `staff` so edits (disable, delete…) reflect
@@ -149,7 +203,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
       services.config.get(),
       services.loyalty.getAlerts(),
       services.staff.list(),
-      services.audit.list({}), // all entries; the Activity feed pages client-side
+      services.audit.list({}), // aggregate only — used for the 'active today' count
     ]).then(([s, accruals, cfg, alertList, staffList, log]) => {
       if (cancelled) return;
       setStats(s);
@@ -172,7 +226,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
       const map: Record<string, string> = {};
       for (const member of staffList) map[member.id] = member.name ?? member.username;
       setNames(map);
-      setEntries(log);
     });
     return () => {
       cancelled = true;
@@ -200,7 +253,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
   // Program config save — value + PIN are collected in-app by ProgramEdit (no
   // more window.prompt, which mobile Safari suppressed); this just persists it.
   const saveProgram = async (value: number) => {
-    if (edit?.kind !== 'pointsPerReward' && edit?.kind !== 'maxPointsPerTransaction') return;
+    if (!edit || edit.kind === 'revokeAll') return;
     try {
       const saved = await services.config.update(actor, { [edit.kind]: value });
       setConfig(saved);
@@ -212,12 +265,15 @@ function AdminScreen({ actor }: { actor: Actor }) {
     }
   };
 
-  const isProgramEdit =
-    edit?.kind === 'pointsPerReward' || edit?.kind === 'maxPointsPerTransaction';
-  const programEditCopy =
-    edit?.kind === 'pointsPerReward'
-      ? { title: 'Reward threshold', fieldLabel: 'Reward earned at how many coffees?' }
-      : { title: 'Max coffees per scan', fieldLabel: 'Most coffees per scan?' };
+  const programField: ProgramField | null =
+    edit && edit.kind !== 'revokeAll' ? edit.kind : null;
+  const programEditCopy = programField
+    ? PROGRAM_FIELDS[programField]
+    : PROGRAM_FIELDS.pointsPerReward;
+
+  /** Current value of a config field, falling back to the detector defaults. */
+  const fieldValue = (field: ProgramField): number | undefined =>
+    config ? (config[field] ?? DEFAULT_THRESHOLDS[field as keyof typeof DEFAULT_THRESHOLDS]) : undefined;
 
   const resetCreateForm = () => {
     setNewName('');
@@ -270,11 +326,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
       setSelectedAlert(null);
       load(); // re-derive alerts without the dismissed one
     }
-  };
-
-  const actorName = (entry: AuditLogEntry): string => {
-    if (entry.actorRole === 'system') return 'System';
-    return names[entry.actorId] ?? 'Unknown staff';
   };
 
   return (
@@ -427,41 +478,13 @@ function AdminScreen({ actor }: { actor: Actor }) {
         >
           Sign out all devices
         </Button>
-
-        <SectionH>Activity</SectionH>
-        <Feed>
-          {entries?.slice(0, activityPager.count).map((entry) => {
-            const tone = auditTone(entry.action);
-            return (
-              <FeedRow
-                key={entry.id}
-                tone={tone}
-                icon={feedIcon(tone)}
-                text={
-                  <>
-                    {actorName(entry)} <span>· {auditVerb(entry.action)}</span>
-                  </>
-                }
-                time={relativeTime(entry.timestamp)}
-              />
-            );
-          })}
-          {entries && entries.length === 0 && (
-            <p className="admin-empty">Nothing yet — actions will appear here as staff work.</p>
-          )}
-        </Feed>
-        {activityPager.canMore && (
-          <div className="admin-more">
-            <button type="button" className="admin-more-btn" onClick={activityPager.more}>
-              Load more
-            </button>
-            {activityPager.showLoadAll && (
-              <button type="button" className="admin-more-all" onClick={activityPager.loadAll}>
-                Load all {entries?.length}
-              </button>
-            )}
-          </div>
-        )}
+        <Button
+          variant="line"
+          style={{ marginTop: 10 }}
+          onClick={() => setExportOpen(true)}
+        >
+          Export activity
+        </Button>
 
         <div className="admin-footer">
           <Button
@@ -477,10 +500,13 @@ function AdminScreen({ actor }: { actor: Actor }) {
         </div>
       </div>
 
-      <StatDetail
-        metric={detailMetric}
-        names={names}
-        onClose={() => setDetailMetric(null)}
+      <StatDetail metric={detailMetric} onClose={() => setDetailMetric(null)} />
+
+      <Export
+        open={exportOpen}
+        actor={actor}
+        staff={staff ?? []}
+        onClose={() => setExportOpen(false)}
       />
 
       <AlertDetail
@@ -509,16 +535,39 @@ function AdminScreen({ actor }: { actor: Actor }) {
         <div className="admin-configure">
           <Title className="admin-create__title">Configure program</Title>
           <div className="stats">
-            <StatWide
-              setLabel="Reward earned at"
-              setVal={config ? `${config.pointsPerReward} coffees` : '—'}
-              onEdit={() => setEdit({ kind: 'pointsPerReward' })}
-            />
-            <StatWide
-              setLabel="Max coffees per scan"
-              setVal={config ? String(config.maxPointsPerTransaction) : '—'}
-              onEdit={() => setEdit({ kind: 'maxPointsPerTransaction' })}
-            />
+            {(['pointsPerReward', 'maxPointsPerTransaction'] as ProgramField[]).map((field) => {
+              const value = fieldValue(field);
+              return (
+                <StatWide
+                  key={field}
+                  setLabel={PROGRAM_FIELDS[field].rowLabel}
+                  setVal={value === undefined ? '—' : PROGRAM_FIELDS[field].format(value)}
+                  onEdit={() => setEdit({ kind: field })}
+                />
+              );
+            })}
+          </div>
+
+          {/* Detector thresholds (Appendix E). Alerts surface, never block —
+              tuning these changes what an admin is shown, not what staff may do. */}
+          <p className="admin-configure__group">Activity alerts</p>
+          <p className="admin-empty">
+            Two checks run on counter activity: a card credited then redeemed by the same
+            person within moments, repeatedly; and the same card credited over and over in a
+            short window. Both only flag for review — neither ever blocks a sale.
+          </p>
+          <div className="stats">
+            {ALERT_FIELDS.map((field) => {
+              const value = fieldValue(field);
+              return (
+                <StatWide
+                  key={field}
+                  setLabel={PROGRAM_FIELDS[field].rowLabel}
+                  setVal={value === undefined ? '—' : PROGRAM_FIELDS[field].format(value)}
+                  onEdit={() => setEdit({ kind: field })}
+                />
+              );
+            })}
           </div>
         </div>
       </Sheet>
@@ -532,11 +581,11 @@ function AdminScreen({ actor }: { actor: Actor }) {
       />
 
       <ProgramEdit
-        open={isProgramEdit}
+        open={programField !== null}
         onClose={() => setEdit(null)}
         title={programEditCopy.title}
         fieldLabel={programEditCopy.fieldLabel}
-        current={config && isProgramEdit ? config[(edit as { kind: 'pointsPerReward' | 'maxPointsPerTransaction' }).kind] : 1}
+        current={(programField && fieldValue(programField)) || 1}
         onConfirm={saveProgram}
       />
 

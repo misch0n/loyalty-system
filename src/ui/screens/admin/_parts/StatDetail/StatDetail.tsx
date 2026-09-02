@@ -2,22 +2,21 @@
  * StatDetail — the expandable breakdown popover for a headline admin stat
  * (members / coffees / rewards). Opened by tapping a stat tile.
  *
- * A range selector (today · week · month · all time) drives a bar chart of
- * activity plus the matching activity entries below, both derived purely from
- * the audit log via `buildInsight`. Reuses the shared Sheet + activity row style.
+ * A range selector (today · week · month · all time) drives a headline total and
+ * a bar chart, derived purely from the audit log via `buildInsight`.
+ *
+ * Appendix E: this is a SHOP-LEVEL view only. The per-action, staff-attributed
+ * entry list that used to sit under the chart is gone — it was an ambient
+ * cross-account activity feed reached by a side door. Attributed activity is
+ * reachable only through the admin export workflow, which requires a reason and
+ * is itself audited.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Sheet } from '../../../../components/Sheet/Sheet';
 import { useServices } from '../../../../common/ServicesContext';
 import type { AuditLogEntry } from '../../../../../domain/models';
 import { buildInsight, type MetricKind, type RangeKind } from '../../../../../domain/insights';
-import { Feed, FeedRow } from '../FeedRow/FeedRow';
-import { feedIcon } from '../feedIcons';
-import { usePager } from '../../../../common/usePager';
-import { auditTone, auditVerb, relativeTime } from '../../Admin/format';
 import './StatDetail.css';
-
-const ENTRY_PAGE = 8;
 
 const TITLES: Record<MetricKind, string> = {
   members: 'New members',
@@ -43,12 +42,10 @@ const RANGE_CAPTION: Record<RangeKind, string> = {
 export interface StatDetailProps {
   /** Which metric to break down, or null when closed. */
   metric: MetricKind | null;
-  /** Staff id → display name, for attributing activity rows. */
-  names: Record<string, string>;
   onClose: () => void;
 }
 
-export function StatDetail({ metric, names, onClose }: StatDetailProps) {
+export function StatDetail({ metric, onClose }: StatDetailProps) {
   const services = useServices();
   const [audit, setAudit] = useState<AuditLogEntry[] | null>(null);
   const [range, setRange] = useState<RangeKind>('today');
@@ -121,63 +118,9 @@ export function StatDetail({ metric, names, onClose }: StatDetailProps) {
           </div>
         </div>
 
-        {!insight ? (
-          <p className="statdetail-empty">Loading…</p>
-        ) : insight.entries.length === 0 ? (
-          <p className="statdetail-empty">Nothing in this range yet.</p>
-        ) : (
-          // Keyed by metric+range so the pager resets when the range changes.
-          <EntryList key={`${metric}-${range}`} entries={insight.entries} names={names} />
-        )}
+        {!insight && <p className="statdetail-empty">Loading…</p>}
       </div>
     </Sheet>
-  );
-}
-
-/** The paged activity list for the current metric + range. */
-function EntryList({
-  entries,
-  names,
-}: {
-  entries: AuditLogEntry[];
-  names: Record<string, string>;
-}) {
-  const pager = usePager(entries.length, ENTRY_PAGE);
-  const actorName = (entry: AuditLogEntry): string =>
-    entry.actorRole === 'system' ? 'System' : names[entry.actorId] ?? 'Staff';
-  return (
-    <>
-      <Feed>
-        {entries.slice(0, pager.count).map((entry) => {
-          const tone = auditTone(entry.action);
-          return (
-            <FeedRow
-              key={entry.id}
-              tone={tone}
-              icon={feedIcon(tone)}
-              text={
-                <>
-                  {actorName(entry)} <span>· {auditVerb(entry.action)}</span>
-                </>
-              }
-              time={relativeTime(entry.timestamp)}
-            />
-          );
-        })}
-      </Feed>
-      {pager.canMore && (
-        <div className="statdetail-more">
-          <button type="button" className="statdetail-more-btn" onClick={pager.more}>
-            Load more
-          </button>
-          {pager.showLoadAll && (
-            <button type="button" className="statdetail-more-all" onClick={pager.loadAll}>
-              Load all {entries.length}
-            </button>
-          )}
-        </div>
-      )}
-    </>
   );
 }
 
