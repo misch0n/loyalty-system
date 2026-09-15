@@ -159,13 +159,29 @@ constraint leaves the schema; `StaffService.assertPinUnique` goes with it.
 
 ## 4 · Open questions
 
-1. **FE-A-09** — should the card's displayed cup count be independent of the reward threshold
-   (e.g. a 12-cup card rewarding at 9), or does "number of drinks on card" just mean the
-   threshold, which is already configurable?
-2. **BE-A-02** — TLS + argon2id (recommended), or the PAKE?
-3. **FE-R-01…09** — the already-removed features were left undecided; treated as **staying
-   removed**. Post-commit undo in particular stays out, consistent with keeping the
-   pre-commit hold.
+**Stable numbering — refer to these by number (Q1…Q7).** Q1–Q4 are real decisions;
+Q5–Q7 are assumptions already made, recorded so they can be corrected rather than
+discovered later. None block Phase 0 or Phase 1.
+
+| # | Question | Blocks | Standing assumption if unanswered |
+|---|---|---|---|
+| **Q1** | **FE-A-09** — should the card's displayed cup count be independent of the reward threshold (a 12-cup card that rewards at 9), or does "number of drinks on card" just mean the threshold, which is already configurable and already drives the grid? | Phase 4 (config), and the card UI if decoupled | It means the threshold. Grid stays `threshold + 1`; no new field. |
+| **Q2** | **BE-A-02** — credential transport: TLS + argon2id (recommended, §3.5), or a password-authenticated key exchange (OPAQUE/SRP) that genuinely never transmits the secret? | Phase 3 | TLS + argon2id. No PAKE. |
+| **Q3** | **FE-C-14 / FE-C-02 interaction** — after a deletion frees the email address (§3.3), re-registering with it creates a **new card starting at zero**. Confirm that is wanted, rather than offering to restore the deleted card. | Phase 4 | New card at zero. The old one is gone; that is what deletion means. |
+| **Q4** | **FE-S-06** — should the scanner release the camera after ~60s idle and re-acquire on the next tap, to bound the battery cost flagged in the triage note? | Phase 6 (UI) | Yes, release after 60s idle. |
+| **Q5** | **BE-D-10 narrowing** — retained as an **internal** server function with no route, feeding the detectors (§3.1). Correct reading of the drop? | Phases 2, 4 | Yes — internal only, no endpoint. |
+| **Q6** | **FE-S-12** — the note read as "after a commit it goes to the counter". Recorded as: the terminal returns to the **counter home**, not straight to the camera. Correct? | Phase 6 (UI) | Return to counter home. |
+| **Q7** | **FE-R-01…09** — the nine already-removed features were left undecided; treated as **staying removed**. Post-commit undo in particular stays out, consistent with keeping the pre-commit hold (FE-S-11). | — | All stay removed. |
+
+**Not open, deliberately deferred:** the offline / network-error posture (`BE-F-02`) is
+decided *in* Phase 6 with the code in front of us, per BACKEND-PLAN §4; and the production
+bootstrap seed (`BE-D-08`) uses defaults for now by the maintainer's own note.
+
+**Answered during triage, recorded so they are not reopened:** un-binding a card (recovery
+does it, §3.2), deletion semantics (tombstone + erased PII, §3.3), email uniqueness (one card
+per address, §3.4), PIN uniqueness (dropped and unimplementable, §3.6), server-written audit
+(reinstated, §3.1), and screen brightness on the enlarged QR (impossible on the web — wake
+lock plus maximum-contrast rendering is the substitute).
 
 ---
 
