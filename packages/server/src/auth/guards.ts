@@ -64,6 +64,20 @@ export interface AuthDeps {
   loginIpLimiter: AttemptLimiter;
   /** Failed PIN unlocks per account. */
   pinLimiter: AttemptLimiter;
+  /**
+   * Failed registrations per source address. Registration answers `email_in_use`
+   * so the page can offer recovery instead of a second card (SCOPE-DECISIONS
+   * §3.4) — a necessary answer, and one that would otherwise let a caller walk
+   * an address list to learn who has a card here. Counting the failures makes
+   * the walk stop after five.
+   */
+  registerLimiter: AttemptLimiter;
+  /**
+   * Failed commits per staff account. A till doing ordinary work never fails, so
+   * this costs a real counter nothing; a client walking the customer-id space
+   * fails every time and locks out.
+   */
+  commitLimiter: AttemptLimiter;
 }
 
 export interface CreateAuthDepsInput {
@@ -89,6 +103,10 @@ const LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
  *   • **5** failed PIN unlocks per account. Tightest in effect, since the PIN is
  *     four digits and an attacker reaching that route already knows whose
  *     account it is (BACKEND-PLAN §4-B).
+ *   • **5** failed registrations per source address — enough for a customer
+ *     mistyping their address, not enough to enumerate one.
+ *   • **20** failed commits per staff account — loose, because a genuine till
+ *     hitting a real error should not lock itself out mid-service.
  */
 export function createAuthDeps(input: CreateAuthDepsInput): AuthDeps {
   const { now } = input;
@@ -102,6 +120,8 @@ export function createAuthDeps(input: CreateAuthDepsInput): AuthDeps {
     loginUserLimiter: new AttemptLimiter({ limit: 5, ...shared }),
     loginIpLimiter: new AttemptLimiter({ limit: 20, ...shared }),
     pinLimiter: new AttemptLimiter({ limit: 5, ...shared }),
+    registerLimiter: new AttemptLimiter({ limit: 5, ...shared }),
+    commitLimiter: new AttemptLimiter({ limit: 20, ...shared }),
   };
 }
 

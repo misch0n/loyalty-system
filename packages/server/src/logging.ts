@@ -56,14 +56,32 @@ export function scrubText(text: string): string {
 }
 
 /**
- * Drops the query string from a logged URL. BACKEND-PLAN §3-B-11: no PII in
- * URLs. Phase 4 moves the routes that currently would carry it; until then the
- * log must not preserve what the route shouldn't have accepted.
+ * Path prefixes whose next segment is a credential.
+ *
+ * BACKEND-PLAN §3-B-11 keeps PII out of URLs, and Phase 4 moved customer search
+ * to a POST body for exactly that reason. These two are the routes where the URL
+ * legitimately carries a *credential* instead: a card's 128-bit token and the
+ * short code staff type when the camera fails. Neither is PII — that is the
+ * point of the opaque-token design — but both are the thing that grants access
+ * to a card, and Phase 3's rule that a credential never reaches a log applies
+ * whatever shape it arrives in.
+ */
+const CREDENTIAL_PATH_PREFIXES = ['/customers/by-token/', '/customers/by-code/'];
+
+/**
+ * Reduces a URL to what is safe to log: the path, with the query string dropped
+ * whole and any credential-carrying segment replaced.
  */
 export function safeUrl(url: string | undefined): string {
   if (!url) return '';
   const queryAt = url.indexOf('?');
-  return queryAt === -1 ? url : `${url.slice(0, queryAt)}?[redacted]`;
+  const path = queryAt === -1 ? url : url.slice(0, queryAt);
+  const suffix = queryAt === -1 ? '' : '?[redacted]';
+
+  for (const prefix of CREDENTIAL_PATH_PREFIXES) {
+    if (path.startsWith(prefix)) return `${prefix}${CENSOR}${suffix}`;
+  }
+  return `${path}${suffix}`;
 }
 
 /** Every nesting a sensitive key is plausibly logged under, for pino `redact`. */

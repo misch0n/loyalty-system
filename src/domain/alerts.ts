@@ -148,17 +148,19 @@ function selfDealingAlerts(
     let pairs = 0;
     let last: Alert | null = null;
     for (let i = 0; i < rows.length; i += 1) {
-      if (rows[i].kind !== 'redeem') continue;
+      const redeem = rows[i];
+      if (!redeem || redeem.kind !== 'redeem') continue;
       // Look back for the nearest accrual on this card by this staffer.
       for (let j = i - 1; j >= 0; j -= 1) {
-        if (rows[j].kind !== 'accrue') continue;
-        if (ms(rows[i].at) - ms(rows[j].at) <= windowMs) {
+        const accrual = rows[j];
+        if (!accrual || accrual.kind !== 'accrue') continue;
+        if (ms(redeem.at) - ms(accrual.at) <= windowMs) {
           pairs += 1;
           last = {
             kind: 'self-dealing',
-            staffId: rows[i].staffId,
-            customerId: rows[i].customerId,
-            at: rows[i].at,
+            staffId: redeem.staffId,
+            customerId: redeem.customerId,
+            at: redeem.at,
             detail: '',
           };
         }
@@ -195,16 +197,20 @@ function repeatTargetAlerts(
     const rows = sortByTime(txs);
     let start = 0;
     for (let end = 0; end < rows.length; end += 1) {
-      while (ms(rows[end].timestamp) - ms(rows[start].timestamp) > windowMs) {
+      const latest = rows[end];
+      if (!latest) continue;
+      let earliest = rows[start];
+      while (earliest && ms(latest.timestamp) - ms(earliest.timestamp) > windowMs) {
         start += 1;
+        earliest = rows[start];
       }
       const count = end - start + 1;
       if (count > t.repeatCount) {
         out.push({
           kind: 'repeat-target',
-          staffId: rows[end].staffId,
-          customerId: rows[end].customerId,
-          at: rows[end].timestamp,
+          staffId: latest.staffId,
+          customerId: latest.customerId,
+          at: latest.timestamp,
           detail: `Same customer credited ${count} times within ${t.repeatWindowMin} min (limit ${t.repeatCount}).`,
         });
         break;

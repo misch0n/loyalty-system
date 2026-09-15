@@ -28,7 +28,7 @@ context cleared between tasks.
 4. Do **only that phase**. Stay within its file list. Honour the architecture rules in
    [`../CLAUDE.md`](../CLAUDE.md), as amended by SCOPE-DECISIONS §5.
 5. Before committing: root `npx tsc --noEmit` + `npm test` + `npm run build` must pass **and**,
-   from Phase 0 on, the server's own `npm test -w @cafe/server` (**208** as of Phase 3). The SPA's
+   from Phase 0 on, the server's own `npm test -w @cafe/server` (**315** as of Phase 4). The SPA's
    461 tests must not regress — if a phase breaks them, the phase is wrong, not the tests. (They
    were 448 until Phase 2 moved the port contract into the shared conformance suite: +41
    conformance tests, −28 duplicates the shared suite absorbed from `IndexedDbStore.test.ts`.)
@@ -38,7 +38,10 @@ context cleared between tasks.
 **Parallel work warning.** Frontend work has been landing on `main` in parallel with this
 initiative (Appendix E arrived mid-plan and changed the `DataStore` port — see *Baseline*). **Phases 0–9 deliberately do not move or rewrite a single
 existing frontend file** — new code lands in `packages/server/`, and the only edits to
-`src/` are the two additive adapter changes in Phase 6. The monorepo file move that would
+`src/` are the two additive adapter changes in Phase 6. *(One exception so far: Phase 4 made
+`src/domain/alerts.ts` index-safe so the server could import it under its stricter tsconfig —
+a pure refactor, no behaviour change, recorded in "Phase 4 — as built". Expect the same for any
+other shared file the server comes to import.)* The monorepo file move that would
 conflict with every frontend diff is isolated into **Phase 10**, to be run *after* frontend
 work has settled. Divergences get reconciled then. **Merge `main` at the start of every phase.**
 
@@ -81,10 +84,11 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 
 ## 1 · Progress checklist
 
-> **NEXT TASK: Phase 4** — the HTTP API surface + the authorization boundary.
-> Phase 3 landed 2026-09-15: cookie sessions for staff **and** customers, a server-enforced idle
-> lock, real epoch revocation, failed-attempt lockouts and a CSRF boundary. **208 server tests**
-> (was 106); the SPA's **461** are untouched, and so is every file under `src/`.
+> **NEXT TASK: Phase 5** — the server-side `Mailer` + the recovery flow.
+> Phase 4 landed 2026-09-15: every `ApiStore` path has a route, on three tiers, with the actor
+> derived from the session, audit written server-side, cross-account activity reachable only as
+> derived *findings*, and the whole surface pinned by a route inventory and an authorization
+> matrix. **315 server tests** (was 208); the SPA's **461** are untouched.
 >
 > **The server suite needs a real Postgres and FAILS without one** — it does not skip. Most of
 > its tests are database-backed, and before Phase 2 they skipped themselves when no database was
@@ -92,23 +96,35 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 > having tested nothing. It now aborts in `globalSetup` with the commands to start one. See §0
 > *Running the server tests*.
 >
-> Read §5 Phase 4 and the decisions Phases 1–3 recorded at the foot of §5 before starting. Phase 4
+> Read §5 Phase 5 and the decisions Phases 1–4 recorded at the foot of §5 before starting. Phase 5
 > inherits four calls in particular:
-> - **The guards exist** (`auth/guards.ts`): `requireStaff` / `requireAdmin` as `preHandler`s, with
->   the session hooks and CSRF already installed for every route. Build the tier matrix on them —
->   do not invent a second mechanism.
-> - **The actor is the session's**, never the body's, and audit rows are the route's to write
->   (§4-C, §4-D). `/auth/*` already works this way; keep it.
-> - **`getStaffByPin` still has no route**, and `src/routes/guardrails.test.ts` fails if one appears.
-> - **The config-update route must not accept a client-supplied `sessionEpoch`.** The prototype's
->   `StaffService.revokeAllSessions` writes `Date.now()`, which overflows the `integer` column;
->   revocation is `POST /auth/logout-all` and the epoch is the server's to increment.
+> - **`createRecoveryCode` and `consumeRecoveryCode` deliberately have no routes yet.** Phase 4
+>   built neither: minting a recovery code is an *internal step* of the request flow, not something
+>   a client asks for, and the consume route's security is the lockout that Phase 5's reshape
+>   introduces. Build both here, together, or neither.
+> - **Recovery codes are SHA-256 at rest, sized for the prototype's high-entropy code.** The typed
+>   code (SCOPE-DECISIONS §2.3) is short, so length stops carrying the security: the `attempts`
+>   column and per-address rate limiting do. Revisit the hash choice, and add the limiter to
+>   `createAuthDeps` beside `registerLimiter` and `commitLimiter`.
+> - **Registration already answers `email_in_use`** (§3.4 requires it), and that answer is an
+>   enumeration oracle held shut by a failure-counting lockout. Recovery must be the opposite —
+>   an unknown address indistinguishable from a known one — so do not copy registration's shape.
+> - **`LoyaltyService` sends the reward-available and welcome mails through the `Mailer` port
+>   client-side.** In a server build the routes are where the send belongs (the commit route knows
+>   what was minted; the register route knows the card was created). Decide that explicitly rather
+>   than leaving two senders.
+>
+> **A live gap Phase 4 found and did not fix, for whoever reaches Phase 8:** `bootstrap.ts` is
+> built and tested but **nothing calls it**. `index.ts` does not (a long-running API should not
+> seed), and `migrate.ts`'s CLI entrypoint does not either — so a freshly migrated database has no
+> admin and no way to create one over HTTP, since `POST /staff` is admin-tier. The one-shot
+> `migrate` container is the natural place; wire it there.
 
 - [x] **Phase 0** — Workspace scaffolding + Fastify skeleton (no frontend files touched)
 - [x] **Phase 1** — Postgres schema + migrations
 - [x] **Phase 2** — `PostgresStore` + the shared `DataStore` conformance suite  ⟵ the core
 - [x] **Phase 3** — Auth: password/PIN hashing, sessions, epoch revocation, rate limits
-- [ ] **Phase 4** — HTTP API surface + the authorization boundary
+- [x] **Phase 4** — HTTP API surface + the authorization boundary
 - [ ] **Phase 5** — Server-side `Mailer` + recovery flow
 - [ ] **Phase 6** — Client adapters: real `ApiStore`, `ServerIdentityStore`, composition root
 - [ ] **Phase 7** — Realtime push (SSE) — replaces what device pairing provided
@@ -278,12 +294,19 @@ site stay untouched:
   device's session already identifies" (the Unlock screen re-auths a *known* account), never
   "find the account with this PIN". Rate-limit and lock out. **Record as a divergence** — the
   prototype's global-PIN semantics genuinely cannot be preserved.
-- **C · `appendAudit(entry)`** — a client-supplied actor and action. **Fix:** route handlers
-  write audit rows themselves, in the same transaction as the action; the client-facing
-  method is rejected server-side.
-- **D · `CounterTransaction.staffId`** — body-supplied. **Fix:** overridden from the session.
-  A customer's device must not be able to commit points at all.
-- **E · `listAllTransactions()` / `exportAll()`** — "fetch everything" is free against
+- **C · `appendAudit(entry)`** — **resolved in Phase 4.** A client-supplied actor and action.
+  **Fix:** route handlers write audit rows themselves; `POST /audit` answers 204 and writes
+  nothing. *As built:* the row is written immediately **after** the action, not inside its
+  transaction — `DataStore` exposes no transaction boundary and widening it is a shared-port
+  change Phases 0–9 may not make. The append-only log tolerates the gap; the commit route's
+  replay check is what keeps a retry from doubling the rows.
+- **D · `CounterTransaction.staffId`** — **resolved in Phase 4.** Body-supplied. **Fix:**
+  overridden from the session on both the commit and the append routes; a customer's device holds
+  a customer session and `requireStaff` refuses it before the body is read.
+- **E · `listAllTransactions()` / `exportAll()`** — **resolved in Phase 4** at the route boundary
+  (`GET /transactions` requires `from`/`to` ≤ 366 days, caps at 1000 rows and reports
+  `truncated`; the store still returns everything for the in-process readers). "Fetch everything"
+  is free against
   IndexedDB and an unbounded table scan plus a multi-megabyte response over HTTP. The admin
   stats screens feed `domain/insights.ts`, which is pure and consumes raw rows.
   **Fix for this pass:** keep the raw-row shape but require a date range and cap the page
@@ -291,8 +314,12 @@ site stay untouched:
   scaling divergence rather than pre-optimising. `listAudit()` is **no longer** in this
   category — Appendix E gave `AuditFilter` a real ranged, multi-value query
   (`actions[]`/`actorIds[]`/`from`/`to`), which maps straight onto an indexed SQL query;
-  just enforce a server-side `limit` ceiling since the client picks the limit.
-- **F · `AuditService.exportActivity(actor, filter, reason)`** — **resolved by deletion.**
+  just enforce a server-side `limit` ceiling since the client picks the limit. *(Phase 4 caps
+  `GET /audit` at 200 and pins its actor filter to the session — see F.)*
+- **F · `AuditService.exportActivity(actor, filter, reason)`** — **resolved by deletion**, and
+  enforced in Phase 4: `GET /audit` replaces the request's `actorId`/`actorIds` with the session's
+  own, at every tier, so there is no filter that reaches another account's rows. Cross-account data
+  leaves the server only as derived findings (`GET /alerts`).
   It was the one method whose integrity guarantee lived in client-side orchestration (it
   writes the `audit.export` row, then reads the rows, as two separate `DataStore` calls — over
   HTTP a client could skip the first and call `listAudit` directly). The triage dropped the
@@ -304,9 +331,10 @@ site stay untouched:
 **One more, not a security issue but a behaviour change:** `IndexedDbStore` never fails
 offline; `ApiStore` will. No screen currently has a network-error path. Phase 6 must decide
 the posture — surface a retry/offline state, or accept that a server-backed build requires
-connectivity — and Phase 12 must record it. This is the one place where "no UI rewrite" is
-under real pressure; the intended answer is a shared error surface in the adapter plus the
-existing toast, not per-screen changes.
+connectivity — and Phase 11 must record it (the plan has no Phase 12). This is one of two places
+where "no UI rewrite" is under real pressure; the intended answer is a shared error surface in the
+adapter plus the existing toast, not per-screen changes. **The other is `LoyaltyService.getAlerts`,
+which Phase 4 left without a `DataStore` path** — see "Phase 4 — as built".
 
 ---
 
@@ -548,6 +576,102 @@ Server-side detection (BE-S-09) reads the internal ranged audit query. Resolves 
 (F is resolved by deletion).
 Done when: an authz test matrix passes — each tier is proven to be refused everything above
 it — and **no route returns another account's activity at all**.
+
+#### Phase 4 — as built (2026-09-15), and the decisions taken
+
+**Files (all new under `packages/server/src/` unless noted):** `routes/index.ts` (the surface in
+one place, with the absences documented beside the routes), `routes/shared.ts`, `routes/customers.ts`,
+`routes/identity.ts`, `routes/staff.ts`, `routes/config.ts`, `routes/activity.ts`,
+`routes/snapshot.ts`, `config/clamp.ts`, `detection.ts`, `testing/http.ts`, each with a test
+beside it, plus `routes/authz.test.ts`. Edited: `auth/guards.ts` (+2 limiters), `server.ts`
+(registers the surface), `logging.ts` (+credential path-segment redaction), `routes/guardrails.test.ts`.
+
+- **`src/domain/alerts.ts` is the one `src/` file Phase 4 touched, and the edit is a pure
+  refactor.** The server compiles with `noUncheckedIndexedAccess`, which the SPA does not, and the
+  two detector loops index arrays directly — so importing `deriveAlerts` failed to typecheck. The
+  loops now bind `rows[i]` to a local before use; behaviour is identical and the SPA's 12 alert
+  tests are unchanged. The alternative was reimplementing the detectors server-side, which is
+  exactly the drift the shared-`domain/` rule exists to prevent. **Expect the same friction for
+  any other shared file the server comes to import**; fixing it in place is cheaper than the
+  duplicate, and Phase 10 ends the mismatch by giving `packages/shared` one tsconfig.
+- **Three tiers, and a fourth thing that is not a tier.** public / staff / admin are guards;
+  "the card's own device" is a *check inside the handler* (`readableCustomer`), because it depends
+  on which card is being asked about. A caller who may not read a card gets **404, not 403** — 403
+  confirms the id exists to someone with no business knowing it.
+- **The authorization matrix is exhaustive, not representative** (`routes/authz.test.ts`). Every
+  route is listed with the callers entitled to it and driven by five real devices. It asserts both
+  halves: each tier refused everything above it, *and* every entitled caller getting through — a
+  matrix that only proved refusals would pass with every route returning 403, which is a broken
+  system rather than a secure one.
+- **A route inventory pins the whole surface** (`guardrails.test.ts`). Every other guardrail bans
+  something by name, which only catches the mistakes already thought of. This one snapshots
+  `printRoutes()`, so a route added anywhere fails until someone writes it down — and writing it
+  down means deciding its tier in the matrix, which is the step a helpful-looking new route skips.
+  **If you add a route, both files change. That is the point.**
+- **`POST /audit` answers 204 and writes nothing**, rather than 403. §4-C says "rejected/no-op";
+  rejecting would break `AuditService.log` inside otherwise-unchanged services, which is the
+  promise the plan is built on. The attempt is logged at `warn`, so a *missing* server-side audit
+  row shows up as noise rather than silence.
+- **A replayed commit must not re-write its audit rows**, and `CommitResult` does not say whether
+  it was served from the cache. The route checks `idempotency_keys` directly (`isCommitReplay`)
+  because widening the result type means editing a shared port, which Phases 0–9 may not do. Two
+  *simultaneous* retries could still both see "fresh"; the ledger is correct either way, and the
+  realistic retry (a client re-sending after a timeout) is covered. **Fold a `replayed` flag into
+  `CommitResult` in Phase 10 or 11 and delete the direct read.**
+- **`GET /alerts` is the phase's one genuinely new endpoint, and it has no port method behind it.**
+  With `GET /audit` pinned to the caller's own actor, `LoyaltyService.getAlerts` — which derives
+  alerts in the browser from two cross-account `listAudit` reads — cannot work over HTTP. Detection
+  moves server-side (`detection.ts`, running `domain/alerts.ts` unchanged) and returns findings.
+  **Phase 6 must decide how `getAlerts` reaches it**; alongside the offline posture this is the
+  second place "no service rewrite" is under real pressure, and it is better decided than
+  discovered.
+- **Detection reads a 30-day window**, where the prototype reads everything. Both detectors measure
+  a pattern inside seconds or minutes, so a year-old pair contributes nothing but a table scan.
+- **`GET /customers/by-token/:token` issues a customer session** when the request carries no staff
+  session and is not already bound to that card. This is `IdentityStore.set` moved server-side: the
+  last card opened on a device is the card that device is recognised as, which is the prototype's
+  one-token-in-localStorage semantics exactly. A till is exempt — three routes make that same
+  exemption (`by-token`, `POST /customers`, `PUT /me`) and a staff device is refused outright by
+  the third. It is a GET with a side effect, which is the cost of keeping the adapter's shape.
+- **Two credential-carrying path segments are redacted from logs** (`/customers/by-token/`,
+  `/customers/by-code/`). Neither is PII — that is the opaque-token design working — but both are
+  what grants access to a card, and Phase 3's rule that a credential never reaches a log holds
+  whatever shape it arrives in.
+- **`StaffService.remove`'s "last admin" guard is deliberately NOT restated.** Every staff route is
+  admin-tier and refuses to act on the caller's own account, so the caller is always an active
+  admin other than the target — the branch is unreachable. A branch no request can enter is a
+  branch no test can cover, so the invariant ("an active admin always remains") is asserted
+  directly instead. Disabling *is* guarded, where the prototype guards nothing.
+- **The config clamp is stricter than `sanitizeConfig` in two ways**: every numeric field gains a
+  ceiling (the client only needed floors, because its inputs are spinners a person drives), and
+  `selfDealCount`/`repeatCount` floor at **2**, matching migration 001's `BETWEEN 2 AND 100` — at 1
+  the self-dealing detector fires on a single ordinary pair, and clamping to the client's floor
+  would turn an admin's typo into a 500.
+- **The snapshot export blanks credentials**, which means **a restore cannot restore sign-in**.
+  Deliberate: a backup file travels to laptops and cloud drives, and one carrying every argon2id
+  digest in the café is a credential dump waiting to leak. An operator restoring resets passwords.
+  Note this compounds the carried `Snapshot` gap (§3-A-6: no rewards, reward events or recovery
+  codes) — **`/export` is a config-and-ledger backup, not a full one**, and Phase 8's backup job
+  should use `pg_dump`, not this route.
+- **Two new failure-counting limiters**, reusing Phase 3's `AttemptLimiter` rather than adding a
+  request-counting mechanism: registration (5 per source address — the `email_in_use` answer §3.4
+  requires is an enumeration oracle, and counting the failures is what stops an address list being
+  walked) and commit (20 per staff account — a till doing ordinary work never fails, a client
+  walking the id space fails every time).
+- **The security-critical rules were verified by breaking them**, as Phases 2 and 3 did. Removing
+  the admin guard on `GET /staff`, honouring the client's `actorIds` on `GET /audit`, trusting the
+  body's `staffId` on commit, deleting the replay check, and un-blanking the password digest each
+  fail the tests that claim them (5, 2, 1, 1 and 2 failures). **Re-run that check if you touch
+  any of them.**
+- **Smoke-tested against a live socket**, not just `app.inject`: sign-in, registration, a till
+  committing while claiming to be a colleague (recorded as itself), a customer device refused the
+  commit, `actorIds` ignored on `/audit`, `sessionEpoch` refused, CSRF and cross-origin refusals.
+  The log was then searched for the name, address, phone, password, PIN, card token, short code and
+  both session tokens — none present, and both credential path segments redacted. **This is how
+  Phase 0's 404-logging leak and this phase's bootstrap gap were both found; keep doing it.**
+- **Observed, not fixed:** `logging.ts` lists `code` among `SENSITIVE_KEYS` (for recovery codes),
+  which also redacts a Postgres error's SQLSTATE — the most useful field when diagnosing a 500.
+  Worth narrowing when Phase 8 revisits logging.
 
 ### Phase 5 — Server `Mailer` + recovery
 Provider adapter behind the `Mailer` port, templates, hashed single-use codes, no

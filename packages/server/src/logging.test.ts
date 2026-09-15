@@ -27,6 +27,20 @@ describe('log redaction', () => {
     expect(safeUrl(undefined)).toBe('');
   });
 
+  it('redacts a credential carried in a path segment, not just a query value', () => {
+    // Phase 4 moved customer search into a POST body, but two routes name a
+    // *credential* in the path by design: a card's 128-bit token and the short
+    // code staff type when the camera fails. Neither is PII; both are what
+    // grants access to a card, and Phase 3's rule that a credential never
+    // reaches a log holds whatever shape it arrives in.
+    expect(safeUrl('/customers/by-token/9rT3xQm2AbCdEfGhIjKlMn')).toBe(
+      `/customers/by-token/${CENSOR}`,
+    );
+    expect(safeUrl('/customers/by-code/K39XQ4T7')).toBe(`/customers/by-code/${CENSOR}`);
+    // An id is not a credential, so a path that names one is logged whole.
+    expect(safeUrl('/customers/abc-123/state')).toBe('/customers/abc-123/state');
+  });
+
   it('redacts every sensitive key, at the top level and one level down', () => {
     const { redact } = loggerOptions('info');
 

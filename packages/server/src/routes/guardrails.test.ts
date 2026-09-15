@@ -10,7 +10,13 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { createAuthDeps } from '../auth/guards';
+import type { Db } from '../db';
+import { PostgresStore } from '../PostgresStore';
+import { buildServer } from '../server';
+import { testPool } from '../testing/database';
 
 const SERVER_SRC = fileURLToPath(new URL('..', import.meta.url));
 const THIS_FILE = fileURLToPath(import.meta.url);
@@ -78,5 +84,111 @@ describe('§1 — the export surface has no server behind it', () => {
       (path) => !path.endsWith('.test.ts'),
     );
     expect(offenders).toEqual([]);
+  });
+
+  it('reads cross-account audit and ledger rows only where detection needs them', () => {
+    // `listAudit` and `listAllTransactions` are unbounded, cross-account reads.
+    // SCOPE-DECISIONS §3.1 keeps them as an INTERNAL capability feeding the
+    // detectors; `activity.ts` is the only route file allowed to call them, and
+    // it pins the audit filter to the session's own actor before it does. A
+    // third caller is how a browsable feed gets rebuilt by accident.
+    const allowed = ['PostgresStore.ts', 'detection.ts', join('routes', 'activity.ts')];
+    const callers = sourcesMatching(/\blistAudit\b|\blistAllTransactions\b/)
+      .filter((path) => !path.endsWith('.test.ts'))
+      .filter((path) => !allowed.some((suffix) => path.endsWith(suffix)));
+    expect(callers).toEqual([]);
+  });
+});
+
+describe('§4 — the routes that must not exist', () => {
+  // Grepping for the handler names would not catch these: the store methods
+  // behind them are legitimate and stay. What must never appear is an HTTP path
+  // reaching them, so the paths themselves are what is banned.
+  const BANNED_PATHS = [
+    // §4-B — "which account has this PIN?" over HTTP is a credential oracle.
+    '/staff/by-pin',
+    // `getStaffByUsername` returns the account WITH its argon2id digests. It is
+    // the prototype's login lookup; sign-in is `POST /auth/login` here.
+    '/staff/by-username',
+    // Retired by the rewards rework. Migration 001 refuses the `redemption`
+    // ledger entry it would write, and `PostgresStore.redeemReward` throws.
+    '/redeem',
+  ];
+
+  for (const path of BANNED_PATHS) {
+    it(`has no route declaring ${path}`, () => {
+      // Tests are exempt, as they are for the export guard above: `staff.test.ts`
+      // proves these paths answer 404, which it cannot do without naming them.
+      // The route inventory below is what would catch a real one regardless.
+      const offenders = sourcesMatching(new RegExp(`['\`"]${path.replace(/\//g, '\\/')}`)).filter(
+        (file) => !file.endsWith('.test.ts'),
+      );
+      expect(offenders).toEqual([]);
+    });
+  }
+});
+
+/**
+ * The route inventory.
+ *
+ * Every other guardrail in this file bans something by name, which only works
+ * for the mistakes already thought of. This one is the opposite: it pins the
+ * *whole* surface, so a route added anywhere fails here until someone writes it
+ * down — and writing it down means deciding its tier in `authz.test.ts`, which
+ * is the decision a helpful-looking new route is most likely to skip.
+ */
+describe('§6 — the API surface is exactly this', () => {
+  let db: Db;
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    // No queries are issued: registering routes never touches the database, and
+    // `app.ready()` does not either.
+    db = testPool();
+    const deps = createAuthDeps({ db, store: new PostgresStore(db), cookieSecure: true });
+    app = buildServer({ logLevel: 'silent', auth: deps });
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+    await db.end();
+  });
+
+  it('registers no route that is not in this tree', () => {
+    expect(app.printRoutes({ commonPrefix: false }).trim()).toBe(
+      `
+├── /auth/session (GET, HEAD)
+├── /auth/login (POST)
+├── /auth/logout (POST)
+│   └── -all (POST)
+├── /auth/unlock (POST)
+├── /audit (GET, HEAD, POST)
+├── /alerts (GET, HEAD)
+├── /me (GET, HEAD, PUT, DELETE)
+├── /customers (POST)
+│   ├── /by-token/:token (GET, HEAD)
+│   ├── /by-code/:shortCode (GET, HEAD)
+│   ├── /search (POST)
+│   └── /:id (GET, HEAD, PATCH, DELETE)
+│       ├── /state (GET, HEAD)
+│       ├── /rewards (GET, HEAD)
+│       ├── /rotate-token (POST)
+│       ├── /transactions (GET, HEAD, POST)
+│       ├── /consent (POST)
+│       └── /commit (POST)
+├── /config (GET, HEAD, PATCH)
+├── /staff (GET, HEAD, POST)
+│   └── /:id (PATCH, DELETE)
+│       ├── /password (PATCH)
+│       └── /pin (PATCH)
+├── /stats/active-customers (GET, HEAD)
+├── /transactions (GET, HEAD)
+├── /export (GET, HEAD)
+├── /import (POST)
+├── /healthz (GET, HEAD)
+└── /readyz (GET, HEAD)
+`.trim(),
+    );
   });
 });

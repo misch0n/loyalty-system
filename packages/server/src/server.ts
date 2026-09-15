@@ -3,15 +3,19 @@
  *
  * Built by a factory taking its dependencies explicitly, so tests can inject a
  * stub database check and never need a listening socket (`app.inject()`).
- * Routes land in Phase 4; Phase 0 is the health surface plus the cross-cutting
- * concerns every later route inherits — redacting logs and graceful shutdown.
+ *
+ * What is assembled here, in the order a request meets it: the redacting logger
+ * and the 404/error handlers that keep PII out of both; the session hooks and
+ * the CSRF boundary (Phase 3); then the API surface (`routes/index.ts`, Phase
+ * 4), which carries its own per-route tier guards. The health surface sits
+ * outside all of it and touches nothing.
  */
 
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import { installSessionHooks, type AuthDeps } from './auth/guards';
 import { checkDb, type Queryable } from './db';
 import { loggerOptions, safeUrl } from './logging';
-import { registerAuthRoutes } from './routes/auth';
+import { registerApiRoutes } from './routes';
 
 export interface ServerOptions {
   logLevel: string;
@@ -81,7 +85,7 @@ export function buildServer(options: ServerOptions): FastifyInstance {
 
   if (options.auth) {
     installSessionHooks(app, options.auth);
-    registerAuthRoutes(app, options.auth);
+    registerApiRoutes(app, options.auth);
   }
 
   /**
