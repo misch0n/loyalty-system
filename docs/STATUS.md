@@ -6,8 +6,8 @@
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 >
 > **▶ Active initiative — the production backend.** [`BACKEND-PLAN.md`](BACKEND-PLAN.md) is the
-> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose, 12 phases; **Phases 0–2 done**,
-> next is Phase 3 — auth: password/PIN hashing, sessions, epoch revocation, rate limits) and
+> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose, 12 phases; **Phases 0–3 done**,
+> next is Phase 4 — the HTTP API surface + the authorization boundary) and
 > [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) is the maintainer's feature triage, which **overrides
 > scope statements elsewhere including `CLAUDE.md`** — mandatory name + email, wallet and transport
 > seams deleted, no admin stats or export surface. Everything described below is the prototype's
@@ -34,8 +34,36 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-09-15 (**Backend — Phase 2: `PostgresStore` + the shared conformance
-suite** (branch `claude/backend-implementation-2kqb08`)). The core of the
+**Last updated:** 2026-09-15 (**Backend — Phase 3: auth — sessions, idle lock, revocation, rate
+limits** (branch `claude/backend-implementation-2kqb08`)). The staff session moves off the device
+and onto the server. New under `packages/server/src/`: **`auth/sessions.ts`** (the `sessions` table
+behind an HttpOnly `SameSite=Lax` cookie, for staff **and** customers — tokens 256-bit random,
+SHA-256 at rest so a dumped database yields no live sessions), **`auth/guards.ts`** (session
+resolution + the CSRF boundary on every request, `requireStaff`/`requireAdmin` for Phase 4 to build
+on), **`auth/rateLimit.ts`**, **`auth/cookies.ts`**, and **`routes/auth.ts`** — five routes:
+`POST /auth/login`, `/auth/unlock`, `/auth/logout`, `/auth/logout-all` and a public
+`GET /auth/session` for boot reconciliation. **BACKEND-PLAN §4-A closes by verifying rather than
+comparing**: the route takes the plaintext over TLS and calls `argon2.verify` against what the
+store hashed, and a test sends the stored digest *as the password* and expects a 401 — if the
+server compared, the hash would be the password. **§4-B closes by inverting the lookup**: the PIN
+is verified against the account the session already names, never searched for across the table, so
+a device with no session cannot PIN in at all (divergence **p**). The **idle lock and epoch
+revocation are now the server's** — 5 minutes of inactivity locks a remembered terminal and ends a
+non-remembered one, a disabled or deleted account loses its live sessions at once, and "sign out
+all devices" deletes every staff session row in the same transaction as the epoch bump, which is a
+**counter** (`+1`) because a `Date.now()` epoch overflows the `integer` column (divergence **q**).
+Customer sessions share the table and obey neither rule — they never idle out, and staff revocation
+leaves them alone. Hardening: a session-bound **double-submit CSRF token** (delivered in a
+deliberately readable cookie — a token the page cannot read is a token it cannot submit), a
+**same-origin check** on every mutating request (which is what covers sign-in, the one request with
+no session to bind a token to), **failure-counting lockouts** (5 per account, 20 per source
+address, 5 per account on the PIN), and **one error shape for every failure** so a validation
+message can never echo a submitted value. The CSRF check, the origin check, the epoch comparison
+and the idle rule were each **deleted to confirm the tests fail without them**, and the whole flow
+was driven over a real socket with `curl`, with the log then checked for the password, the PIN and
+both tokens — none present. **+102 server tests → 208**, none skipped; the SPA's **461** and every
+file under `src/` are untouched. Prior — **Backend — Phase 2: `PostgresStore` + the shared
+conformance suite**. The core of the
 [`BACKEND-PLAN`](BACKEND-PLAN.md) initiative. **`packages/server/src/PostgresStore.ts`** implements
 all 33 `DataStore` methods against PostgreSQL — hand-written SQL, no ORM — and
 **`tests/conformance/dataStoreConformance.ts`** is a new store-agnostic suite run against **both**
@@ -552,7 +580,7 @@ actions).
 
 `npm test` runs **461 Vitest unit/component tests** (includes co-located
 `src/ui/**/*.test.tsx` via the extended `test.include` in `vite.config.ts`), and
-`npm test -w @cafe/server` runs **106 server tests** against a real Postgres:
+`npm test -w @cafe/server` runs **208 server tests** against a real Postgres:
 
 - **domain/** — `loyalty`, `rewards` (rewards-as-objects pure logic: `mintFold`
   mint-on-cross + multi-mint, `unspentRewards`, `cardProgress`,
@@ -618,13 +646,22 @@ actions).
   tokens, serial lookup, URL construction, OS detection),
   **config/** (`env` flag mapping incl. `googlePlaceId`, `walletKind`, `links.ts` URL building).
 
-**Server layer** (`npm test -w @cafe/server`, 106 tests, **needs a real Postgres** at
-`TEST_DATABASE_URL` — the suites skip loudly without one and a skip is not a pass): `env`
-(boot-time validation), `logging` (PII redaction, including the 404 path that slipped past the
+**Server layer** (`npm test -w @cafe/server`, 208 tests, **needs a real Postgres** at
+`TEST_DATABASE_URL` — the run aborts in `globalSetup` without one, because a suite that skips
+itself green proves nothing): `env` (boot-time validation, incl. `COOKIE_SECURE` refusing to be
+false in production), `logging` (PII redaction, including the 404 path that slipped past the
 request serializer), `server` (`/healthz`, `/readyz`), `migrate` (fresh migration, re-run no-op,
 immutability, and every schema constraint the backend rests on), `bootstrap` (first admin,
-idempotent, argon2id), and `PostgresStore` — the shared conformance suite plus what only a real
-database can be held to: the **row lock** (a commit blocks on a row another connection holds; two
+idempotent, argon2id), `auth/cookies` + `auth/rateLimit` (pure units — parsing, attribute
+correctness, failure counting, lockout expiry, the memory sweep), `auth/sessions` (issue, resolve,
+the idle lock, epoch revocation, disabled-account invalidation, CSRF binding, expiry sweep),
+`routes/auth` (the five routes end to end over `app.inject`: sign-in and its identical answer for
+every failure mode, the argon2-digest-as-password rejection, the three lockouts, the idle
+lock→PIN-unlock round trip, another account's PIN refused, "sign out all devices", the CSRF and
+origin boundaries, a customer session refused staff access, and a log with no credential in it),
+`routes/guardrails` (three of BACKEND-PLAN §6's acceptance criteria as tests: no route reaches
+`getStaffByPin`, no `undo` anywhere in the server, no export surface), and `PostgresStore` — the
+shared conformance suite plus what only a real database can be held to: the **row lock** (a commit blocks on a row another connection holds; two
 tills serialize; simultaneous redemptions spend once; a concurrently-retried commit writes once —
 each race held open by a third connection so the overlap is a fact, not a scheduling hope), the
 **tombstone** (token/short code erased, address freed, commits refused), **credentials at rest**
@@ -981,6 +1018,43 @@ o. **The rewards-as-objects 5-second post-commit undo is retired, replaced by a
    later) is unaffected and remains in place. This divergence retires (does not
    contradict) the C9/D10 undo acceptance rows recorded during the rewards-as-
    objects rework — see the "Rewards-as-objects: formats" section above.
+
+p. **PIN sign-in stops being a global PIN lookup (BACKEND-PLAN §4-B, Phase 3).**
+   The prototype's `StaffService.loginWithPin` calls `DataStore.getStaffByPin`,
+   which searches **every** active account for whichever one holds that PIN — so
+   a PIN alone both identifies and authenticates. In-process that is merely
+   convenient; over HTTP it is an unauthenticated credential oracle across the
+   whole staff table at four digits, brute-forceable in minutes. The server's
+   `POST /auth/unlock` therefore verifies the PIN **against the account this
+   device's session already names**, rate-limited (5 misses, 15-minute lockout).
+
+   **Consequence:** in a server-backed build a device with no session cannot PIN
+   in at all — it signs in with username + password first, which is what
+   "remember this device" already means in the UI. `getStaffByPin` survives in
+   both stores (the conformance suite holds them to the same answer) but has no
+   route, and `packages/server/src/routes/guardrails.test.ts` fails if one
+   appears. This is a genuine behaviour change, not a refactor.
+
+q. **The staff session moves server-side: real idle lock, real revocation
+   (BACKEND-PLAN Phase 3).** The prototype keeps the staff session in
+   `localStorage`/`sessionStorage` and reconciles it in `ui/app/session.ts`, so
+   the 5-minute idle lock and the `sessionEpoch` check are advisory — they are
+   decided by the device being asked to lock itself out. The server keeps
+   `sessions` rows behind an HttpOnly cookie and decides both itself: idle past
+   5 minutes locks a remembered terminal and ends a non-remembered one, a
+   disabled or deleted account loses its live sessions immediately, and "sign out
+   all devices" **deletes every staff session row** in the same transaction as
+   the epoch bump rather than waiting for each device to notice.
+
+   Two details differ from the prototype's model and are deliberate. The epoch
+   is a **counter** (`session_epoch + 1`), not `Date.now()` as
+   `StaffService.revokeAllSessions` writes — `program_config.session_epoch` is an
+   `integer` and a millisecond timestamp overflows it; monotonic is all the
+   comparison needs. And **customer sessions obey neither rule**: they never idle
+   out (a fortnightly customer must still be recognised — that recognition is the
+   feature) and "sign out all devices" leaves them alone, being an action about
+   staff terminals. The client-side timer in `AuthContext` stays as the immediate
+   UI affordance; it is no longer what decides.
 
 ## Pointers
 

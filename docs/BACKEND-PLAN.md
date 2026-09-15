@@ -28,10 +28,10 @@ context cleared between tasks.
 4. Do **only that phase**. Stay within its file list. Honour the architecture rules in
    [`../CLAUDE.md`](../CLAUDE.md), as amended by SCOPE-DECISIONS §5.
 5. Before committing: root `npx tsc --noEmit` + `npm test` + `npm run build` must pass **and**,
-   from Phase 0 on, the server's own `npm test -w @cafe/server`. The SPA's 461 tests must not
-   regress — if a phase breaks them, the phase is wrong, not the tests. (They were 448 until
-   Phase 2 moved the port contract into the shared conformance suite: +41 conformance tests,
-   −28 duplicates the shared suite absorbed from `IndexedDbStore.test.ts`.)
+   from Phase 0 on, the server's own `npm test -w @cafe/server` (**208** as of Phase 3). The SPA's
+   461 tests must not regress — if a phase breaks them, the phase is wrong, not the tests. (They
+   were 448 until Phase 2 moved the port contract into the shared conformance suite: +41
+   conformance tests, −28 duplicates the shared suite absorbed from `IndexedDbStore.test.ts`.)
 6. Tick the box here, update the `STATUS.md` "Last updated" line, commit + push.
 7. Stop. The next session picks up the next box.
 
@@ -44,7 +44,7 @@ work has settled. Divergences get reconciled then. **Merge `main` at the start o
 
 **Running the server tests.** The suite **requires** a real Postgres and fails without one:
 `packages/server/src/testing/globalSetup.ts` checks reachability once per run and aborts with
-setup instructions, so there is no way to get a green tick without a database. 84 of the 106
+setup instructions, so there is no way to get a green tick without a database. Most of the 208
 tests are database-backed. Point the suite somewhere with `TEST_DATABASE_URL` (default
 `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`). Until the Compose bundle lands in
 Phase 8, a local server does the job:
@@ -56,7 +56,7 @@ su postgres -c "/usr/lib/postgresql/16/bin/initdb -D $PGDATA -A trust"
 su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D $PGDATA -l /tmp/pg.log -w start"
 su postgres -c "psql -h localhost -c \"CREATE ROLE cafe LOGIN PASSWORD 'cafe' SUPERUSER;\""
 su postgres -c "psql -h localhost -c 'CREATE DATABASE cafe_loyalty_test OWNER cafe;'"
-npm test -w @cafe/server                             # expect: 106 passed, 0 skipped
+npm test -w @cafe/server                             # expect: 208 passed, 0 skipped
 ```
 
 **Do not reintroduce a skip.** The conformance harness has no `skip` option, and the database
@@ -81,26 +81,33 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 
 ## 1 · Progress checklist
 
-> **NEXT TASK: Phase 3** — auth: password/PIN hashing, sessions, epoch revocation, rate limits.
-> Phase 2 landed 2026-09-15: `PostgresStore` implements all 33 port methods, and one shared
-> conformance suite now runs against **both** stores. **106 server tests** (was 50) and **461 SPA
-> tests** (was 448 — +41 conformance, −28 duplicates the shared suite absorbed) all pass.
+> **NEXT TASK: Phase 4** — the HTTP API surface + the authorization boundary.
+> Phase 3 landed 2026-09-15: cookie sessions for staff **and** customers, a server-enforced idle
+> lock, real epoch revocation, failed-attempt lockouts and a CSRF boundary. **208 server tests**
+> (was 106); the SPA's **461** are untouched, and so is every file under `src/`.
 >
-> **The server suite needs a real Postgres and FAILS without one** — it no longer skips. 84 of
-> the 106 tests are database-backed, and until this change they skipped themselves when no
-> database was reachable, so a run with no Postgres reported `22 passed | 84 skipped` and exited
-> **0** — green, having tested nothing. It now aborts in `globalSetup` with the commands to start
-> one. See §0 *Running the server tests*.
+> **The server suite needs a real Postgres and FAILS without one** — it does not skip. Most of
+> its tests are database-backed, and before Phase 2 they skipped themselves when no database was
+> reachable, so a run with no Postgres reported `22 passed | 84 skipped` and exited **0** — green,
+> having tested nothing. It now aborts in `globalSetup` with the commands to start one. See §0
+> *Running the server tests*.
 >
-> Read §5 Phase 3 and the decisions Phases 1 and 2 recorded at the foot of §5 before starting.
-> Phase 3 inherits two of Phase 2's calls in particular: the store already hashes credentials with
-> argon2id, so the auth layer must **verify**, not re-hash; and `getStaffByPin` works but must
-> never be given a route (§4-B).
+> Read §5 Phase 4 and the decisions Phases 1–3 recorded at the foot of §5 before starting. Phase 4
+> inherits four calls in particular:
+> - **The guards exist** (`auth/guards.ts`): `requireStaff` / `requireAdmin` as `preHandler`s, with
+>   the session hooks and CSRF already installed for every route. Build the tier matrix on them —
+>   do not invent a second mechanism.
+> - **The actor is the session's**, never the body's, and audit rows are the route's to write
+>   (§4-C, §4-D). `/auth/*` already works this way; keep it.
+> - **`getStaffByPin` still has no route**, and `src/routes/guardrails.test.ts` fails if one appears.
+> - **The config-update route must not accept a client-supplied `sessionEpoch`.** The prototype's
+>   `StaffService.revokeAllSessions` writes `Date.now()`, which overflows the `integer` column;
+>   revocation is `POST /auth/logout-all` and the epoch is the server's to increment.
 
 - [x] **Phase 0** — Workspace scaffolding + Fastify skeleton (no frontend files touched)
 - [x] **Phase 1** — Postgres schema + migrations
 - [x] **Phase 2** — `PostgresStore` + the shared `DataStore` conformance suite  ⟵ the core
-- [ ] **Phase 3** — Auth: password/PIN hashing, sessions, epoch revocation, rate limits
+- [x] **Phase 3** — Auth: password/PIN hashing, sessions, epoch revocation, rate limits
 - [ ] **Phase 4** — HTTP API surface + the authorization boundary
 - [ ] **Phase 5** — Server-side `Mailer` + recovery flow
 - [ ] **Phase 6** — Client adapters: real `ApiStore`, `ServerIdentityStore`, composition root
@@ -256,14 +263,16 @@ becomes an **untrusted, cross-network call** over HTTP. Six of them are unsafe a
 specified. The fix in each case is server-side, so `ports/DataStore.ts` and every UI call
 site stay untouched:
 
-- **A · `setStaffPassword(id, passwordHash)`** — the parameter name promises the client
+- **A · `setStaffPassword(id, passwordHash)`** — **resolved in Phase 3 for sign-in**; the reset
+  *routes* are Phase 4's and must follow the same rule. The parameter name promises the client
   sends a hash. If the server stores what it's given, that "hash" *is* the password: anyone
   who reads the database can authenticate with it, and the client can set an account's
   credential to a known value. **Fix:** the route takes the plaintext over TLS and hashes
   with argon2id server-side. Keep the port signature; document that in a server-backed build
   the value is a plaintext credential in transit, hashed before it is stored. Same for
   `setStaffPin`.
-- **B · `getStaffByPin(pin)`** — a *global* search for whichever account has that PIN. Over
+- **B · `getStaffByPin(pin)`** — **resolved in Phase 3**, and enforced by
+  `src/routes/guardrails.test.ts`. A *global* search for whichever account has that PIN. Over
   HTTP that is an unauthenticated credential oracle, brute-forceable across the whole staff
   table at 4 digits. **Fix:** the route becomes "verify this PIN for the account this
   device's session already identifies" (the Unlock screen re-auths a *known* account), never
@@ -453,6 +462,84 @@ argon2id password + PIN, `sessions` table, cookie issue/verify, idle lock, epoch
 revocation, per-route rate limits, CSRF. Resolves §4-A and §4-B.
 Done when: sign-in, PIN unlock, idle lock and "sign out all devices" work end-to-end
 against the API, with tests.
+
+#### Phase 3 — as built (2026-09-15), and the decisions taken
+
+**Files (all new, all under `packages/server/`):** `src/auth/cookies.ts`, `src/auth/rateLimit.ts`,
+`src/auth/sessions.ts`, `src/auth/guards.ts`, `src/routes/auth.ts`, each with a test beside it,
+plus `src/routes/guardrails.test.ts`. Edited: `src/server.ts` (hooks, routes, one error shape),
+`src/env.ts` (+`COOKIE_SECURE`, +`ALLOWED_ORIGINS`), `src/index.ts`, `.env.example`. **No `src/`
+file was touched** — Phase 6 is still the first.
+
+**Five routes.** `POST /auth/login`, `POST /auth/unlock`, `POST /auth/logout`,
+`POST /auth/logout-all`, `GET /auth/session` (public: "am I signed in?" is the SPA's boot question,
+and not being signed in is not an error).
+
+- **§4-A is closed by verifying, never comparing.** The route takes the plaintext over TLS and
+  calls `argon2.verify` against what `PostgresStore` hashed at creation. A test sends the stored
+  digest *as the password* and expects 401 — which is the whole of §4-A in one assertion: if the
+  server compared, the hash would **be** the password.
+- **§4-B is closed by inverting the lookup, and that is a real divergence.** `getStaffByPin` finds
+  *whichever* account holds a PIN; over HTTP that is an unauthenticated oracle over the whole staff
+  table at four digits. `/auth/unlock` instead verifies the PIN against the account **this
+  device's session already names**. Consequence, recorded in `STATUS.md`: a device with no session
+  cannot PIN in at all — the prototype's "PIN alone identifies you" is gone. `guardrails.test.ts`
+  fails if any file outside `PostgresStore` ever calls `getStaffByPin`, and the same file holds
+  §6's "no `undo` in the server" and "no export surface" greps.
+- **The epoch is a counter (`+ 1`), not `Date.now()`.** `program_config.session_epoch` is an
+  `integer`; a millisecond timestamp overflows `int4`, so the prototype's `revokeAllSessions` would
+  throw against Postgres. Monotonic is all the comparison needs. **Phase 4 must therefore not let
+  the config-update route accept a client-supplied `sessionEpoch`** — revocation is a route, not a
+  config field.
+- **"Sign out all devices" deletes rows *and* bumps the epoch, in one transaction.** Either alone
+  would do; together, the rows make it true now and the epoch covers a device that had already
+  loaded a page. The admin's own session goes with the rest.
+- **Customer sessions are in the same table and obey different rules**, stated on
+  `SessionStore.resolve`: no idle lock (a fortnightly customer must still be recognised — that
+  recognition *is* the feature) and no epoch check ("sign out all devices" is about staff
+  terminals). Issuing them is built and tested here; the `/me` routes and `ServerIdentityStore` are
+  Phases 4 and 6.
+- **A disabled or deleted staff account loses its live sessions immediately** — the resolve query
+  joins `staff_accounts`. Without it, "disable this employee" would only bite at their next
+  sign-in, which is precisely when it doesn't matter.
+- **CSRF is a double-submit token *bound to the session*.** The partner token is stored hashed on
+  the session row and compared in constant time, so a token minted for another session does not
+  pass (tested). It is delivered in a deliberately **non**-HttpOnly cookie: a token the page cannot
+  read is a token the page cannot submit.
+- **Plus a same-origin check on every mutating request**, because sign-in has no session and so no
+  token to double-submit — that is the one CSRF hole `SameSite=Lax` alone leaves (login CSRF).
+  `ALLOWED_ORIGINS` exists for a Vite dev server on another port; the deployed bundle is
+  single-origin and leaves it empty.
+- **Rate limiting counts *failures*, not requests**, so a till signing in all day is never
+  throttled. Three buckets: 5 per account, 20 per source address (a café shares one NAT address —
+  locking it out locks out the till), 5 per account on the PIN. All 15-minute window and lockout.
+  **In-memory and per-process**, which is right for one container; more than one instance needs
+  these in Postgres or Redis.
+- **The idle lock moved server-side, and the client's timer is now only a UI affordance.**
+  `last_seen_at` is touched on the way in, awaited, on every active request — one primary-key
+  update, and the semantics stay exact rather than up-to-30-seconds-stale.
+- **`/healthz` and `/readyz` skip session resolution entirely**, so the Phase 0 promise that
+  liveness never touches the database survives a probe that happens to carry a cookie.
+- **One error shape for every failure** (`setErrorHandler`). Fastify's default names the field that
+  failed validation and echoes what it failed on, and an error thrown from a handler is returned
+  verbatim — §3-B-11 rules PII out of error payloads as firmly as out of logs. The real error still
+  reaches the log, where the serializer scrubs it.
+- **Cookies are hand-written** (`auth/cookies.ts`, ~50 lines, fully tested) rather than adding
+  `@fastify/cookie`. Nothing here is cryptographic — signing is pointless when the cookie carries a
+  256-bit random token that is looked up server-side — and `CLAUDE.md` is explicit about not adding
+  dependencies the spec didn't call for.
+- **Session tokens are SHA-256 at rest, not argon2id.** They are 256 bits of `randomBytes`, not a
+  secret a person chose, so there is no dictionary to slow down — and a stretched hash would be
+  recomputed on *every* authenticated request. The reason to hash at all is that a dumped database
+  must not yield live sessions, which a fast hash of a high-entropy value achieves completely.
+- **The security-critical rules were verified by breaking them.** Deleting the CSRF check, the
+  origin check, the epoch comparison and the idle rule each fails the tests that claim them (3, 1
+  and 8 failures respectively). Re-run that check if you touch them — the same discipline Phase 2
+  applied to `FOR UPDATE`.
+- **Smoke-tested against a live socket, not just `app.inject`.** Sign-in, session, CSRF refusal,
+  cross-origin refusal and revocation over `curl`, with the log inspected afterwards for the
+  password, the PIN and both tokens: none present. This is how Phase 0's 404-logging leak was
+  found, and it is worth repeating each phase.
 
 ### Phase 4 — HTTP API surface + authorization boundary
 Routes for every `ApiStore` path, three authz tiers, server-written audit, session-derived

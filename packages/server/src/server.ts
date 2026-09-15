@@ -7,12 +7,20 @@
  * concerns every later route inherits — redacting logs and graceful shutdown.
  */
 
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
+import { installSessionHooks, type AuthDeps } from './auth/guards';
 import { checkDb, type Queryable } from './db';
 import { loggerOptions, safeUrl } from './logging';
+import { registerAuthRoutes } from './routes/auth';
 
 export interface ServerOptions {
   logLevel: string;
+  /**
+   * Auth dependencies (Phase 3). Absent in the health-only tests, which need no
+   * database — so the session hooks and the auth routes are installed only when
+   * there is something for them to talk to.
+   */
+  auth?: AuthDeps;
   /**
    * Reports database reachability for `/readyz`. Injected rather than reached
    * for so a test can drive both the ready and the not-ready branch.
@@ -51,6 +59,30 @@ export function buildServer(options: ServerOptions): FastifyInstance {
     request.log.info({ path: safeUrl(request.url) }, 'route not found');
     return reply.code(404).send({ error: 'not_found' });
   });
+
+  /**
+   * One error shape for every failure, echoing nothing back.
+   *
+   * Fastify's default tells the caller which field failed validation and what it
+   * failed on; an error thrown out of a handler is returned verbatim. Either can
+   * carry a value the request supplied — BACKEND-PLAN §3-B-11 rules PII out of
+   * error payloads as firmly as out of logs. The real error still reaches the
+   * log, where the serializer scrubs it.
+   */
+  app.setErrorHandler((error: FastifyError, request, reply) => {
+    const status = error.statusCode ?? 500;
+    if (status >= 500) {
+      request.log.error({ err: error }, 'request failed');
+      return reply.code(status).send({ error: 'internal_error' });
+    }
+    request.log.info({ err: error }, 'request rejected');
+    return reply.code(status).send({ error: error.validation ? 'invalid_request' : 'bad_request' });
+  });
+
+  if (options.auth) {
+    installSessionHooks(app, options.auth);
+    registerAuthRoutes(app, options.auth);
+  }
 
   /**
    * Liveness. Answers as long as the process is up — deliberately does NOT touch

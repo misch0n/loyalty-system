@@ -25,6 +25,19 @@ export interface Env {
   port: number;
   logLevel: string;
   databaseUrl: string;
+  /**
+   * `Secure` on the session cookies. Defaults to on under `NODE_ENV=production`
+   * and off elsewhere, because plain-HTTP local development cannot receive a
+   * `Secure` cookie at all. Setting it to `false` in production is a deployment
+   * mistake, and `parseEnv` refuses it.
+   */
+  cookieSecure: boolean;
+  /**
+   * Origins accepted on mutating requests besides this server's own. Empty in
+   * the deployed bundle, where nginx serves the SPA and the API from one origin;
+   * a Vite dev server on another port needs listing.
+   */
+  allowedOrigins: string[];
   /** `null` when the bootstrap variables are absent — nothing is seeded. */
   bootstrapAdmin: BootstrapAdmin | null;
 }
@@ -83,6 +96,8 @@ export function parseEnv(source: Source = process.env): Env {
     problems.push('DATABASE_URL must be a postgres:// or postgresql:// connection string');
   }
 
+  const cookieSecure = parseCookieSecure(source, nodeEnv, problems);
+  const allowedOrigins = parseAllowedOrigins(source, problems);
   const bootstrapAdmin = parseBootstrapAdmin(source, problems);
 
   if (problems.length > 0) throw new EnvError(problems);
@@ -93,8 +108,53 @@ export function parseEnv(source: Source = process.env): Env {
     port,
     logLevel,
     databaseUrl: databaseUrl as string,
+    cookieSecure,
+    allowedOrigins,
     bootstrapAdmin,
   };
+}
+
+/**
+ * Defaults to the safe value for the environment and refuses the one
+ * combination that is never intentional: a production deployment handing out
+ * session cookies that a plain-HTTP request would carry.
+ */
+function parseCookieSecure(source: Source, nodeEnv: NodeEnv, problems: string[]): boolean {
+  const raw = read(source, 'COOKIE_SECURE');
+  if (raw === undefined) return nodeEnv === 'production';
+  if (raw !== 'true' && raw !== 'false') {
+    problems.push(`COOKIE_SECURE must be "true" or "false" (got "${raw}")`);
+    return nodeEnv === 'production';
+  }
+  const secure = raw === 'true';
+  if (!secure && nodeEnv === 'production') {
+    problems.push('COOKIE_SECURE must not be false in production — session cookies require HTTPS');
+  }
+  return secure;
+}
+
+/** Comma-separated, each a scheme + host with no path, e.g. `http://localhost:5173`. */
+function parseAllowedOrigins(source: Source, problems: string[]): string[] {
+  const raw = read(source, 'ALLOWED_ORIGINS');
+  if (!raw) return [];
+
+  const origins = raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value !== '');
+  for (const origin of origins) {
+    let parsed: URL;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      problems.push(`ALLOWED_ORIGINS entry "${origin}" is not a URL`);
+      continue;
+    }
+    if (parsed.origin !== origin) {
+      problems.push(`ALLOWED_ORIGINS entry "${origin}" must be a bare origin (got "${parsed.origin}")`);
+    }
+  }
+  return origins;
 }
 
 /**

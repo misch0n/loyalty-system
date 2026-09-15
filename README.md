@@ -490,12 +490,12 @@ The production backend under construction lives in `packages/server` (`@cafe/ser
 its own suite:
 
 ```bash
-npm test -w @cafe/server   # 106 tests — NEEDS a real Postgres at TEST_DATABASE_URL
+npm test -w @cafe/server   # 208 tests — NEEDS a real Postgres at TEST_DATABASE_URL
 ```
 
-84 of those exercise the schema and `PostgresStore` against a real database and **skip with a
-warning when none is reachable** — a skip is not a pass. See
-[`docs/BACKEND-PLAN.md`](docs/BACKEND-PLAN.md) §0 for a one-off local server. The shared
+Most of those exercise the schema, `PostgresStore` and the auth routes against a real database, so
+the run **aborts when none is reachable** rather than skipping itself green — a skip is not a pass.
+See [`docs/BACKEND-PLAN.md`](docs/BACKEND-PLAN.md) §0 for a one-off local server. The shared
 `DataStore` conformance suite (`tests/conformance/`) is run by *both* commands — against
 `IndexedDbStore` by `npm test` and against `PostgresStore` here — which is what keeps the two
 adapters honest about implementing the same port.

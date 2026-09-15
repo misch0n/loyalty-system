@@ -23,7 +23,54 @@ describe('parseEnv', () => {
       port: 3000,
       logLevel: 'info',
       databaseUrl: MINIMAL.DATABASE_URL,
+      cookieSecure: false,
+      allowedOrigins: [],
       bootstrapAdmin: null,
+    });
+  });
+
+  describe('COOKIE_SECURE', () => {
+    it('defaults to the safe value for the environment', () => {
+      // Plain-HTTP local development cannot receive a `Secure` cookie at all,
+      // and production must never hand one out without it.
+      expect(parseEnv(MINIMAL).cookieSecure).toBe(false);
+      expect(parseEnv({ ...MINIMAL, NODE_ENV: 'production' }).cookieSecure).toBe(true);
+    });
+
+    it('can be turned on for a local HTTPS setup', () => {
+      expect(parseEnv({ ...MINIMAL, COOKIE_SECURE: 'true' }).cookieSecure).toBe(true);
+    });
+
+    it('refuses to be turned off in production', () => {
+      const found = problems({ ...MINIMAL, NODE_ENV: 'production', COOKIE_SECURE: 'false' });
+      expect(found).toEqual([expect.stringContaining('COOKIE_SECURE must not be false')]);
+    });
+
+    it('rejects a value that is neither true nor false', () => {
+      expect(problems({ ...MINIMAL, COOKIE_SECURE: 'yes' })).toEqual([
+        expect.stringContaining('COOKIE_SECURE'),
+      ]);
+    });
+  });
+
+  describe('ALLOWED_ORIGINS', () => {
+    it('is empty by default — the deployed bundle is single-origin', () => {
+      expect(parseEnv(MINIMAL).allowedOrigins).toEqual([]);
+    });
+
+    it('splits a comma-separated list', () => {
+      const env = parseEnv({
+        ...MINIMAL,
+        ALLOWED_ORIGINS: 'http://localhost:5173, https://till.cafe.test',
+      });
+      expect(env.allowedOrigins).toEqual(['http://localhost:5173', 'https://till.cafe.test']);
+    });
+
+    it('rejects anything that is not a bare origin', () => {
+      // A trailing path would never match the `Origin` header a browser sends,
+      // so accepting it would silently mean "no extra origins at all".
+      const found = problems({ ...MINIMAL, ALLOWED_ORIGINS: 'https://cafe.test/app, notaurl' });
+      expect(found).toHaveLength(2);
     });
   });
 
