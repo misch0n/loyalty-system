@@ -42,10 +42,12 @@ existing frontend file** — new code lands in `packages/server/`, and the only 
 conflict with every frontend diff is isolated into **Phase 10**, to be run *after* frontend
 work has settled. Divergences get reconciled then. **Merge `main` at the start of every phase.**
 
-**Running the server tests.** 22 of the 106 run anywhere; the 84 migration, bootstrap and
-`PostgresStore` tests need a real Postgres and **skip silently without one**. Point them at a database with
-`TEST_DATABASE_URL` (default `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`). Until the
-Compose bundle lands in Phase 8, a local server does the job:
+**Running the server tests.** The suite **requires** a real Postgres and fails without one:
+`packages/server/src/testing/globalSetup.ts` checks reachability once per run and aborts with
+setup instructions, so there is no way to get a green tick without a database. 84 of the 106
+tests are database-backed. Point the suite somewhere with `TEST_DATABASE_URL` (default
+`postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`). Until the Compose bundle lands in
+Phase 8, a local server does the job:
 
 ```bash
 export PGDATA=/var/lib/postgresql/testdata          # any directory postgres can own
@@ -57,9 +59,10 @@ su postgres -c "psql -h localhost -c 'CREATE DATABASE cafe_loyalty_test OWNER ca
 npm test -w @cafe/server                             # expect: 106 passed, 0 skipped
 ```
 
-**A run reporting skipped files is an unverified run.** The conformance suite makes this
-sharper still — its entire purpose is to prove `PostgresStore` behaves like `IndexedDbStore`,
-so skipping it proves nothing at all.
+**Do not reintroduce a skip.** The conformance harness has no `skip` option, and the database
+check lives in the Vitest config rather than in a `skipIf` per file — so a new database-backed
+test cannot opt out by accident. A suite whose entire purpose is proving `PostgresStore` behaves
+like `IndexedDbStore` is worthless skipped, and worse than worthless when the skip reports green.
 
 **Scope.** The maintainer's feature triage (2026-09-02) is recorded in
 [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) and **supersedes this plan wherever they differ** —
@@ -83,11 +86,11 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 > conformance suite now runs against **both** stores. **106 server tests** (was 50) and **461 SPA
 > tests** (was 448 — +41 conformance, −28 duplicates the shared suite absorbed) all pass.
 >
-> **⚠ 84 of those 106 need a real Postgres and SKIP without one** (every `migrate`, `bootstrap`
-> and `PostgresStore` test). A skip is **not** a pass — and it matters more now than in Phase 1,
-> because the conformance suite's entire job is to prove the two stores agree. Skipped, it proves
-> nothing. Server CI does not exist until Phase 9, so nothing else catches this. **Start a
-> database before you trust a green run** — see §0 *Running the server tests*.
+> **The server suite needs a real Postgres and FAILS without one** — it no longer skips. 84 of
+> the 106 tests are database-backed, and until this change they skipped themselves when no
+> database was reachable, so a run with no Postgres reported `22 passed | 84 skipped` and exited
+> **0** — green, having tested nothing. It now aborts in `globalSetup` with the commands to start
+> one. See §0 *Running the server tests*.
 >
 > Read §5 Phase 3 and the decisions Phases 1 and 2 recorded at the foot of §5 before starting.
 > Phase 3 inherits two of Phase 2's calls in particular: the store already hashes credentials with

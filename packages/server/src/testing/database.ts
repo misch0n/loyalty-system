@@ -1,10 +1,14 @@
 /**
  * Test-database helper.
  *
- * The migration and (from Phase 2) store suites run against a **real** Postgres,
- * never a fake. The whole point of `PostgresStore` is the integrity IndexedDB
- * cannot give us — constraints, row locks, append-only triggers — and none of
- * that is exercised by a stub.
+ * The migration and store suites run against a **real** Postgres, never a fake.
+ * The whole point of `PostgresStore` is the integrity IndexedDB cannot give us —
+ * constraints, row locks, append-only triggers — and none of that is exercised
+ * by a stub.
+ *
+ * There is no availability probe here any more. Reachability is asserted once,
+ * for the whole run, in `globalSetup.ts`: no database means the suite fails, not
+ * that it quietly skips.
  */
 
 import type { Db } from '../db';
@@ -12,23 +16,6 @@ import { createPool } from '../db';
 
 export const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgres://cafe:cafe@localhost:5432/cafe_loyalty_test';
-
-/**
- * Whether a test database can be reached. Suites that need one skip when it is
- * absent (a developer without Postgres installed) — CI always provides one, so a
- * skip there would be a CI misconfiguration, not a passing build.
- */
-export async function databaseAvailable(): Promise<boolean> {
-  const pool = createPool(TEST_DATABASE_URL);
-  try {
-    await pool.query('SELECT 1');
-    return true;
-  } catch {
-    return false;
-  } finally {
-    await pool.end();
-  }
-}
 
 export function testPool(): Db {
   return createPool(TEST_DATABASE_URL);

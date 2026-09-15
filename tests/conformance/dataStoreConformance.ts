@@ -41,19 +41,19 @@ export interface StoreHarness {
   create(): Promise<DataStore>;
   /** Optional per-test teardown (close a connection, drop a database). */
   dispose?(store: DataStore): Promise<void>;
-  /**
-   * Skip the whole suite — for an adapter whose backing store is unavailable
-   * (no Postgres on this machine). A skip is never a pass: the caller is
-   * expected to say so loudly.
-   */
-  skip?: boolean;
 }
 
 /** Small real delay so successive ISO timestamps are strictly ordered. */
 const tick = () => new Promise((r) => setTimeout(r, 5));
 
+/**
+ * There is deliberately no way to skip this suite. It exists to prove the two
+ * stores agree, and a skipped conformance run proves nothing while still
+ * reporting green. An adapter whose backing store is unavailable must fail —
+ * the server suite enforces that in `packages/server/src/testing/globalSetup.ts`.
+ */
 export function describeDataStoreConformance(harness: StoreHarness): void {
-  describe.skipIf(harness.skip ?? false)(`DataStore conformance — ${harness.name}`, () => {
+  describe(`DataStore conformance — ${harness.name}`, () => {
     let store: DataStore;
     let seq = 0;
 

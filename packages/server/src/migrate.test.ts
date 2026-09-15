@@ -4,15 +4,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from './db';
 import { migrate } from './migrate';
-import { databaseAvailable, listTables, resetSchema, testPool } from './testing/database';
-
-const hasDatabase = await databaseAvailable();
-if (!hasDatabase) {
-  console.warn(
-    '\n  ⚠ Skipping the migration suite: no Postgres at TEST_DATABASE_URL.' +
-      '\n    These tests assert the constraints the whole backend rests on — run them.\n',
-  );
-}
+import { listTables, resetSchema, testPool } from './testing/database';
 
 const EXPECTED_TABLES = [
   'audit_log',
@@ -31,7 +23,7 @@ const EXPECTED_TABLES = [
 /** The ten schema tables, plus the runner's own `schema_migrations` registry. */
 const SCHEMA_TABLE_COUNT = 10;
 
-describe.skipIf(!hasDatabase)('migrations', () => {
+describe('migrations', () => {
   let db: Db;
 
   beforeAll(() => {
@@ -107,7 +99,7 @@ describe.skipIf(!hasDatabase)('migrations', () => {
   });
 });
 
-describe.skipIf(!hasDatabase)('schema integrity', () => {
+describe('schema integrity', () => {
   let db: Db;
 
   beforeAll(async () => {

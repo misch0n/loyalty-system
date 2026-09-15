@@ -18,21 +18,11 @@ import type { CounterTransaction } from '@cafe/shared/ports/DataStore';
 import type { Db } from './db';
 import { migrate } from './migrate';
 import { PostgresStore } from './PostgresStore';
-import { databaseAvailable, resetSchema, testPool } from './testing/database';
-
-const hasDatabase = await databaseAvailable();
-if (!hasDatabase) {
-  console.warn(
-    '\n  ⚠ Skipping the PostgresStore suite: no Postgres at TEST_DATABASE_URL.' +
-      '\n    This is the suite that proves the production store behaves like the' +
-      '\n    prototype one. Skipped, it proves nothing at all — run it.\n',
-  );
-}
+import { resetSchema, testPool } from './testing/database';
 
 let db: Db;
 
 beforeAll(async () => {
-  if (!hasDatabase) return;
   db = testPool();
 });
 
@@ -48,7 +38,6 @@ async function freshDatabase(): Promise<void> {
 
 describeDataStoreConformance({
   name: 'PostgresStore',
-  skip: !hasDatabase,
   async create() {
     await freshDatabase();
     return new PostgresStore(db);
@@ -57,7 +46,7 @@ describeDataStoreConformance({
 
 // ── what only a real database can be held to ──────────────────────────────────
 
-describe.skipIf(!hasDatabase)('PostgresStore — beyond the prototype', () => {
+describe('PostgresStore — beyond the prototype', () => {
   let store: PostgresStore;
   let seq = 0;
 

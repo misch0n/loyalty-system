@@ -3,9 +3,8 @@ import { bootstrap } from './bootstrap';
 import type { Db } from './db';
 import { verifySecret } from './hashing';
 import { migrate } from './migrate';
-import { databaseAvailable, resetSchema, testPool } from './testing/database';
+import { resetSchema, testPool } from './testing/database';
 
-const hasDatabase = await databaseAvailable();
 
 const ADMIN = {
   username: 'manager',
@@ -14,7 +13,7 @@ const ADMIN = {
   name: 'Manager',
 };
 
-describe.skipIf(!hasDatabase)('bootstrap', () => {
+describe('bootstrap', () => {
   let db: Db;
 
   beforeAll(async () => {
