@@ -9,7 +9,8 @@
 > **The promise this plan must keep:** *no UI or service rewrite.* Every screen and every
 > `services/` call site stays byte-for-byte identical; only adapters and the composition
 > root change. If a phase below requires touching `src/ui/`, that is a defect in the plan,
-> not a licence to edit the UI — with the two explicit, listed exceptions in §7.
+> not a licence to edit the UI. Two phases touch `src/` by design and only those two: **Phase 6**
+> (additive adapter wiring) and **Phase 10** (the monorepo file move).
 
 ---
 
@@ -51,6 +52,10 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 ---
 
 ## 1 · Progress checklist
+
+> **NEXT TASK: Phase 0.** Nothing has been built yet — every box is unchecked and the
+> repository contains no server code. All scope questions are closed (SCOPE-DECISIONS §4), so
+> Phase 0 can start immediately. Phases 0 and 1 may land together.
 
 - [ ] **Phase 0** — Workspace scaffolding + Fastify skeleton (no frontend files touched)
 - [ ] **Phase 1** — Postgres schema + migrations
@@ -143,7 +148,7 @@ Trimmed to the triage outcome ([`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md)). Each
 9. **The authorization boundary** — three tiers over one `DataStore` port: **public**
    (register, read own card by token, recovery request/consume, self-delete), **staff**
    (scan resolve, commit, read config, own-actor last-hour activity), **admin** (staff CRUD,
-   config write, stats, the audited export, import). Enforced per-route from the session.
+   config write, snapshot export/import). Enforced per-route from the session.
    Appendix E narrows this usefully: the staff tier reads only *its own* recent activity, and
    no tier gets a browsable cross-account feed. See §4 for the port methods that are *unsafe
    as literally specified*. *(Phase 4)*
@@ -155,14 +160,12 @@ Trimmed to the triage outcome ([`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md)). Each
     request logs too: a redacting serializer (no name/email/phone in access logs, error
     payloads, or query logs), and no PII in URLs (note: `GET /customers?term=…` currently
     puts an email in a query string — move to `POST` or a hashed lookup). *(Phases 4, 8)*
-12. **The audited export** (Appendix E) — `POST /audit/export`: admin-only, a **required
-    reason** enforced and length-capped server-side, the `audit.export` row written **in the
-    same operation** as the read, past exports listed and re-runnable, and the response a
-    JSON body of audit rows (ids and neutral context only, never PII). Rate-limited: it is
-    the one bulk read the product intentionally keeps. Detector thresholds on
-    `ProgramConfig` must also be **re-validated and clamped server-side** —
-    `ConfigService.sanitizeConfig` runs on the client, which is presentation, not
-    enforcement. *(Phase 4)*
+12. **No activity-read surface, and server-side config clamping** — the triage dropped the
+    export (SCOPE-DECISIONS §1), so there is **no route that returns another account's
+    activity**, audited or otherwise. The ranged audit query exists only as an internal
+    function feeding the detectors. Detector thresholds on `ProgramConfig` must be
+    **re-validated and clamped server-side** — `ConfigService.sanitizeConfig` runs on the
+    client, which is presentation, not enforcement. *(Phase 4)*
 
 ### C · Services the browser can no longer do
 
@@ -240,15 +243,14 @@ site stay untouched:
   category — Appendix E gave `AuditFilter` a real ranged, multi-value query
   (`actions[]`/`actorIds[]`/`from`/`to`), which maps straight onto an indexed SQL query;
   just enforce a server-side `limit` ceiling since the client picks the limit.
-- **F · `AuditService.exportActivity(actor, filter, reason)`** — new in Appendix E, and the
-  one method whose *integrity guarantee lives in client-side orchestration*: it writes the
-  `audit.export` row and then reads the rows, as two separate `DataStore` calls. Over HTTP a
-  client can simply skip the first and call `listAudit` directly — the export is audited only
-  because the client chooses to be honest, which is not a guarantee. **Fix:** one server
-  route (`POST /audit/export`) that writes the row and returns the rows in a single
-  transaction, admin-only, reason required and capped server-side. The general
-  `GET /audit` route must not accept a cross-account filter at all (locked in §2), so the
-  audited route is the only way to obtain that data.
+- **F · `AuditService.exportActivity(actor, filter, reason)`** — **resolved by deletion.**
+  It was the one method whose integrity guarantee lived in client-side orchestration (it
+  writes the `audit.export` row, then reads the rows, as two separate `DataStore` calls — over
+  HTTP a client could skip the first and call `listAudit` directly). The triage dropped the
+  export surface entirely, so there is nothing to protect: **build no route for it.**
+  `AuditService.exportActivity`, `parseExportRecord` and the `audit.export` action become dead
+  code in the prototype and are removed in Phase 11. `GET /audit` must not accept a
+  cross-account filter at all.
 
 **One more, not a security issue but a behaviour change:** `IndexedDbStore` never fails
 offline; `ApiStore` will. No screen currently has a network-error path. Phase 6 must decide
@@ -262,17 +264,56 @@ existing toast, not per-screen changes.
 ## 5 · Phases (each = one task)
 
 ### Phase 0 — Workspace scaffolding + Fastify skeleton
-Root `package.json` gains `workspaces`. New `packages/server` (`@cafe/server`): Fastify,
-`pg`, argon2, tsconfig with `@cafe/shared` mapped to the existing `src/domain` + `src/ports`,
-Vitest, `/healthz`, graceful shutdown, env schema validation. **No existing file is moved.**
-Done when: `npm run dev -w @cafe/server` serves `/healthz`, root `npm test`/`build` still green.
+**Files (all new except the root manifest):**
+- `package.json` (root) — add `"workspaces": ["packages/*"]`. **Do not move `src/`**; the SPA
+  keeps building exactly as it does today.
+- `packages/server/package.json` — name `@cafe/server`; deps `fastify`, `pg`, `argon2`;
+  devDeps `vitest`, `tsx`, `@types/pg`. Scripts: `dev`, `build`, `start`, `test`.
+- `packages/server/tsconfig.json` — strict; `paths` maps `@cafe/shared/*` →
+  `../../src/*` so `domain/` and `ports/` are imported, never copied (see §2, *Move timing*).
+- `packages/server/src/env.ts` — parse + validate every environment variable at boot; the
+  process **exits** on a missing or malformed one rather than failing later.
+- `packages/server/src/server.ts` — Fastify instance, `/healthz` (liveness) and `/readyz`
+  (reports DB reachability once Phase 1 lands), structured logger with a PII-redacting
+  serializer, graceful shutdown on `SIGTERM`.
+- `packages/server/src/index.ts` — entrypoint.
+- `packages/server/src/server.test.ts` — one test asserting `/healthz` responds.
+
+**Done when:** `npm run dev -w @cafe/server` serves `/healthz`; `npm test -w @cafe/server`
+passes; and root `npx tsc --noEmit`, `npm test` (448) and `npm run build` are all still green —
+the SPA must be completely unaffected.
 
 ### Phase 1 — Postgres schema + migrations
-Numbered SQL migrations for the 10 tables + indexes + append-only enforcement + the
-production bootstrap seed (first admin from env; `ProgramConfig` from the current
-`DEFAULT_CONFIG` — threshold **9** plus the four Appendix E detector thresholds — **not**
-`demoSeed`). A `migrate` entrypoint that is idempotent and safe to re-run.
-Done when: a fresh `db` container migrates clean, and re-running is a no-op.
+**Read first:** `src/adapters/storage/schema.ts` (IndexedDB v6 — the shape to mirror) and
+`src/domain/models.ts` (the entity types).
+
+**Files:** `packages/server/migrations/001_initial.sql` … and
+`packages/server/src/migrate.ts` (applies pending files in order, records each in a
+`schema_migrations` table, idempotent and safe to re-run).
+
+**Ten tables:** `program_config` (single row), `staff_accounts`, `customers`,
+`loyalty_transactions`, `rewards`, `reward_events`, `idempotency_keys`, `recovery_codes`,
+`audit_log`, `sessions`.
+
+**Carry across from the triage — do not copy the prototype blindly:**
+- `customers.email` is **NOT NULL and unique among active rows**, and `display_name` is
+  **NOT NULL** (SCOPE-DECISIONS §2.1, §3.4). This is the biggest schema-level difference from
+  the prototype, which allows token-only cards.
+- **No PIN uniqueness constraint** — it is unimplementable against hashed PINs and no longer
+  needed (SCOPE-DECISIONS §3.6).
+- Deletion is a tombstone: the row survives with `display_name`, `email`, `token` and
+  `short_code` **nullable** so they can be erased (§3.3). That nullability exists *only* for
+  deleted rows — enforce "active ⇒ present" with a CHECK constraint.
+- `program_config` carries the four Appendix E detector thresholds.
+- Indexes per §3-A-2, including `audit_log` on `(timestamp)`, `(action, timestamp)` and
+  `(actor_id, timestamp)` for the internal ranged query.
+- Append-only on `loyalty_transactions`, `reward_events`, `audit_log` (§3-A-3).
+
+**Bootstrap seed:** first admin from environment variables, `ProgramConfig` from the current
+`DEFAULT_CONFIG` (threshold **9** + the detector thresholds). **Never `demoSeed`.**
+
+**Done when:** a fresh `db` container migrates clean, re-running is a no-op, and a test
+asserts both.
 
 ### Phase 2 — `PostgresStore` + conformance suite  ⟵ the core
 All 33 `DataStore` methods; `commitCounterTransaction` with row locking (§3-A-4), and the
@@ -289,10 +330,11 @@ against the API, with tests.
 
 ### Phase 4 — HTTP API surface + authorization boundary
 Routes for every `ApiStore` path, three authz tiers, server-written audit, session-derived
-actor, the single-transaction audited export, server-side config clamping, boundary
-validation, PII kept out of URLs and logs. Resolves §4-C, D, E, F.
+actor, server-side config clamping, boundary validation, PII kept out of URLs and logs.
+Server-side detection (BE-S-09) reads the internal ranged audit query. Resolves §4-C, D, E
+(F is resolved by deletion).
 Done when: an authz test matrix passes — each tier is proven to be refused everything above
-it — and no route returns another account's activity without writing an `audit.export` row.
+it — and **no route returns another account's activity at all**.
 
 ### Phase 5 — Server `Mailer` + recovery
 Provider adapter behind the `Mailer` port, templates, hashed single-use codes, no
@@ -329,7 +371,7 @@ the alias at the real package. Pure move, no logic change. Reconcile frontend di
 Done when: root `npm test` + `npm run build` + the server suite are all green post-move.
 
 ### Phase 11 — Docs
-STATUS divergences (§4 A–F, the PIN-semantics change, offline posture, the scaling note),
+STATUS divergences (§4 A–E, the PIN-semantics change, offline posture, the scaling note),
 close divergence `l`, README architecture + diagrams, `CLAUDE.md` stack/adapters,
 SPEC §15 rows, and the Appendix E guarantees restated as server-side invariants. Per the
 `CLAUDE.md` documentation rule.
@@ -345,7 +387,7 @@ SPEC §15 rows, and the Appendix E guarantees restated as server-side invariants
 | The commit is genuinely atomic under concurrency | Two-till concurrent-commit test (Phase 2) |
 | Idempotent commit survives retries | Same-key retry returns the cached result, no second write |
 | No client can act above its tier | Authz test matrix (Phase 4) |
-| Cross-account activity cannot be read unaudited | No route returns it without an `audit.export` row in the same transaction (Phase 4) |
+| Cross-account activity has no endpoint | No route returns another account's activity; the ranged query is internal-only (Phase 4) |
 | No post-commit undo was reintroduced | `grep` for `undo` across `packages/server` stays empty; correction is `reverse` only |
 | Credentials are never stored or logged recoverably | argon2id at rest; redacting log serializer; PIN/password never in logs |
 | No PII in logs, URLs, or error payloads | Log-redaction test + a route audit |
@@ -364,7 +406,7 @@ SPEC §15 rows, and the Appendix E guarantees restated as server-side invariants
   `main` at the start of every phase** and re-check §3/§4 against the port before building;
   do not "helpfully" restructure early.
 - **Appendix E's guarantees are product decisions, not implementation details.** No undo, no
-  ambient cross-account feed, export-is-audited. A backend makes each of them trivially easy
+  ambient cross-account feed, and — after the triage — no activity export at all. A backend makes each trivially easy
   to undo by accident — an "admin activity" endpoint, a "reverse transaction" route added for
   convenience. §2 locks them; treat a request to relax one as a maintainer decision, not a
   design shortcut.
