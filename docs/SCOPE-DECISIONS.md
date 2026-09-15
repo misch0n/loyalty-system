@@ -89,9 +89,10 @@ plain statement of what happened **and a remediation action**:
 This ties directly to `BE-F-02` (offline posture) — the two are one piece of work.
 
 ### 2.5 FE-A-09 · Configure program
-Adds "number of drinks on card". **Open question (§4):** the grid is currently the reward
-threshold plus the free cup and follows the threshold automatically — confirm whether the
-displayed card size should become independent of the threshold.
+Adds "number of drinks on card" — which is **the reward threshold itself** (Q1): X drinks earn
+a reward, admin-configurable. The card grid follows as `threshold + 1` (X earnable cups plus
+the pre-stamped free cup) exactly as it does today. No independent grid size, no new field —
+the label in Configure just needs to say plainly what it controls.
 
 ---
 
