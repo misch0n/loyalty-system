@@ -15,7 +15,7 @@ export const TEST_DATABASE_URL =
 
 /**
  * Whether a test database can be reached. Suites that need one skip when it is
- * absent (a developer without Postqres installed) — CI always provides one, so a
+ * absent (a developer without Postgres installed) — CI always provides one, so a
  * skip there would be a CI misconfiguration, not a passing build.
  */
 export async function databaseAvailable(): Promise<boolean> {

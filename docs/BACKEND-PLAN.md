@@ -40,6 +40,25 @@ existing frontend file** — new code lands in `packages/server/`, and the only 
 conflict with every frontend diff is isolated into **Phase 10**, to be run *after* frontend
 work has settled. Divergences get reconciled then. **Merge `main` at the start of every phase.**
 
+**Running the server tests.** 22 of the 50 run anywhere; the 28 migration and bootstrap tests
+need a real Postgres and **skip silently without one**. Point them at a database with
+`TEST_DATABASE_URL` (default `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`). Until the
+Compose bundle lands in Phase 8, a local server does the job:
+
+```bash
+export PGDATA=/var/lib/postgresql/testdata          # any directory postgres can own
+mkdir -p "$PGDATA" && chown postgres:postgres "$PGDATA" && chmod 700 "$PGDATA"
+su postgres -c "/usr/lib/postgresql/16/bin/initdb -D $PGDATA -A trust"
+su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D $PGDATA -l /tmp/pg.log -w start"
+su postgres -c "psql -h localhost -c \"CREATE ROLE cafe LOGIN PASSWORD 'cafe' SUPERUSER;\""
+su postgres -c "psql -h localhost -c 'CREATE DATABASE cafe_loyalty_test OWNER cafe;'"
+npm test -w @cafe/server                             # expect: 50 passed, 0 skipped
+```
+
+**A run reporting skipped files is an unverified run.** Phase 2's conformance suite makes this
+sharper still — its entire purpose is to exercise Postgres behaviour IndexedDB cannot give us,
+so skipping it proves nothing at all.
+
 **Scope.** The maintainer's feature triage (2026-09-02) is recorded in
 [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) and **supersedes this plan wherever they differ** —
 it retires the wallet and transport seams, drops every admin stats/export surface, makes name and
@@ -59,8 +78,14 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 
 > **NEXT TASK: Phase 2** — `PostgresStore` + the shared `DataStore` conformance suite. Phases 0
 > and 1 landed together (2026-09-15): `packages/server` exists, the schema migrates clean, and
-> **50 server tests** pass alongside the SPA's unchanged 448. Read §5 Phase 2 and the decisions
-> Phase 1 recorded at the foot of §5 before starting.
+> **all 50 server tests pass** alongside the SPA's unchanged 448.
+>
+> **⚠ 28 of those 50 need a real Postgres and SKIP without one** (every `migrate` and
+> `bootstrap` test). A skip is **not** a pass — `Test Files 3 passed | 2 skipped` means the
+> schema was never exercised. Server CI does not exist until Phase 9, so nothing else catches
+> this. **Start a database before you trust a green run** — see §0 *Running the server tests*.
+>
+> Read §5 Phase 2 and the decisions Phase 1 recorded at the foot of §5 before starting.
 
 - [x] **Phase 0** — Workspace scaffolding + Fastify skeleton (no frontend files touched)
 - [x] **Phase 1** — Postgres schema + migrations
@@ -75,7 +100,7 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 - [ ] **Phase 10** — Monorepo flip (`packages/shared` + `packages/web`) — **after** frontend lands
 - [ ] **Phase 11** — Docs (STATUS divergences, README, CLAUDE.md, SPEC §15 rows)
 
-Phase 2 is the big one and everything from 4 onward depends on it. Phases 0+1 can land together.
+Phase 2 is the big one and everything from 4 onward depends on it (Phases 0+1 landed together).
 The wallet phase is gone — the triage dropped wallet entirely.
 
 ---
