@@ -8,6 +8,7 @@
 > [`SPEC.md`](SPEC.md), the contradictions are listed in §5 to be reconciled.
 >
 > Tally: **89 keep · 18 drop · 6 change**, plus 10 already-removed items confirmed to stay out.
+> **All open questions (Q1–Q7) answered 2026-09-15 — see §4.**
 
 ---
 
@@ -157,31 +158,51 @@ constraint leaves the schema; `StaffService.assertPinUnique` goes with it.
 
 ---
 
-## 4 · Open questions
+## 4 · Answered (was: open questions)
 
-**Stable numbering — refer to these by number (Q1…Q7).** Q1–Q4 are real decisions;
-Q5–Q7 are assumptions already made, recorded so they can be corrected rather than
-discovered later. None block Phase 0 or Phase 1.
+All seven answered by the maintainer on 2026-09-15. Kept numbered for reference.
 
-| # | Question | Blocks | Standing assumption if unanswered |
-|---|---|---|---|
-| **Q1** | **FE-A-09** — should the card's displayed cup count be independent of the reward threshold (a 12-cup card that rewards at 9), or does "number of drinks on card" just mean the threshold, which is already configurable and already drives the grid? | Phase 4 (config), and the card UI if decoupled | It means the threshold. Grid stays `threshold + 1`; no new field. |
-| **Q2** | **BE-A-02** — credential transport: TLS + argon2id (recommended, §3.5), or a password-authenticated key exchange (OPAQUE/SRP) that genuinely never transmits the secret? | Phase 3 | TLS + argon2id. No PAKE. |
-| **Q3** | **FE-C-14 / FE-C-02 interaction** — after a deletion frees the email address (§3.3), re-registering with it creates a **new card starting at zero**. Confirm that is wanted, rather than offering to restore the deleted card. | Phase 4 | New card at zero. The old one is gone; that is what deletion means. |
-| **Q4** | **FE-S-06** — should the scanner release the camera after ~60s idle and re-acquire on the next tap, to bound the battery cost flagged in the triage note? | Phase 6 (UI) | Yes, release after 60s idle. |
-| **Q5** | **BE-D-10 narrowing** — retained as an **internal** server function with no route, feeding the detectors (§3.1). Correct reading of the drop? | Phases 2, 4 | Yes — internal only, no endpoint. |
-| **Q6** | **FE-S-12** — the note read as "after a commit it goes to the counter". Recorded as: the terminal returns to the **counter home**, not straight to the camera. Correct? | Phase 6 (UI) | Return to counter home. |
-| **Q7** | **FE-R-01…09** — the nine already-removed features were left undecided; treated as **staying removed**. Post-commit undo in particular stays out, consistent with keeping the pre-commit hold (FE-S-11). | — | All stay removed. |
+| # | Question | Answer |
+|---|---|---|
+| **Q1** | FE-A-09 — is "number of drinks on card" the threshold or an independent grid size? | **The threshold.** X drinks earn a reward, configurable; the grid follows as `threshold + 1` (X earnable + the free cup). No new field, no decoupling. |
+| **Q2** | BE-A-02 — credential transport? | **TLS + argon2id.** No PAKE. §3.5 stands as written. |
+| **Q3** | FE-C-14 — re-registering a freed email address? | **Confirmed:** a new card starting at zero. The deleted card is gone and is not restored. |
+| **Q4** | FE-S-06 — release the camera after 60s idle? | **No — fix the permission at the root instead.** See §4.1. |
+| **Q5** | BE-D-10 — internal function, no route? | **Yes.** Internal only; no endpoint, no export. |
+| **Q6** | FE-S-12 — return to the counter after a commit? | **Yes.** Counter home, not straight back to the camera. |
+| **Q7** | FE-R-01…09 — stay removed? | **Yes**, all nine. Post-commit undo especially. |
 
-**Not open, deliberately deferred:** the offline / network-error posture (`BE-F-02`) is
-decided *in* Phase 6 with the code in front of us, per BACKEND-PLAN §4; and the production
-bootstrap seed (`BE-D-08`) uses defaults for now by the maintainer's own note.
+### 4.1 Camera permission (Q4) — new scope
 
-**Answered during triage, recorded so they are not reopened:** un-binding a card (recovery
-does it, §3.2), deletion semantics (tombstone + erased PII, §3.3), email uniqueness (one card
-per address, §3.4), PIN uniqueness (dropped and unimplementable, §3.6), server-written audit
-(reinstated, §3.1), and screen brightness on the enlarged QR (impossible on the web — wake
-lock plus maximum-contrast rendering is the substitute).
+The maintainer's objection is correct: a 60-second timeout that buys a fresh permission
+prompt is worse than either extreme. A one-time request is acceptable; a recurring one is not.
+Two facts found while answering:
+
+- `src/qr/scan.ts` calls a full `scanner.stop()`, which **releases the camera device** — that
+  is what provokes the re-prompt. The "kept warm" note in `STATUS.md` describes an intent the
+  code does not implement.
+- The repo has **no web app manifest and no iOS standalone meta tags**, so there is no
+  installed-app story today.
+
+**Decided, in order:**
+
+1. **Install the till as a home-screen web app.** iOS grants camera permission to an installed
+   web app once and keeps it for that instance — there is no new browsing session to re-prompt
+   for. Needs `manifest.json`, icons, and `apple-mobile-web-app-capable`. Suits a till anyway:
+   dedicated device, full screen, no browser chrome. **Constraint:** camera access inside an
+   installed iOS web app requires **iOS 16.4+**; below that it does not work at all and the till
+   must stay in Safari.
+2. **Safari fallback, one-time setup:** iOS Website Settings → Camera → Allow, set once on the
+   till device. Documentation, not code.
+3. **Then stop the camera freely.** Once a re-prompt costs nothing, release the device on
+   leaving the scan view and after idle — full power saving *and* the camera indicator light
+   goes out, which matters with a lens pointed at a customer across the counter.
+4. **Between customers, `pause()` / `resume()`, never `stop()` / `start()`** — html5-qrcode
+   supports both; pausing never releases the device, so it cannot prompt even without step 1.
+   This is a straight fix to `qr/scan.ts` and is worth doing regardless.
+
+This is **scope the triage did not contain** — added because it is the answer to Q4. It lands
+with the staff-counter work in Phase 6; step 4 can land any time.
 
 ---
 
