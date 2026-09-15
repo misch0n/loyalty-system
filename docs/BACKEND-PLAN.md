@@ -20,14 +20,18 @@ Same protocol as [`REWARDS-PLAN.md`](REWARDS-PLAN.md) — written so work contin
 context cleared between tasks.
 
 **Resume protocol for a new session:**
-1. Read [`STATUS.md`](STATUS.md) (current state), then this file.
-2. Find the first **unchecked** box in the *Progress checklist* (§1) — that's the next task.
-3. Do **only that phase**. Stay within its file list. Honour the architecture rules in
-   [`../CLAUDE.md`](../CLAUDE.md).
-4. Before committing: `npx tsc --noEmit` + `npm test` + `npm run build` must pass **and**,
-   from Phase 2 on, the server's own `npm test -w @cafe/server`.
-5. Tick the box here, update the `STATUS.md` "Last updated" line, commit + push.
-6. Stop. The next session picks up the next box.
+1. Work on branch **`claude/backend-implementation-2kqb08`**. Merge `origin/main` first —
+   frontend work lands there and has already changed the `DataStore` port once mid-plan.
+2. Read [`STATUS.md`](STATUS.md) (current state), [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md)
+   (what is in scope — it **overrides** `../CLAUDE.md` where they differ), then this file.
+3. Find the first **unchecked** box in the *Progress checklist* (§1) — that's the next task.
+4. Do **only that phase**. Stay within its file list. Honour the architecture rules in
+   [`../CLAUDE.md`](../CLAUDE.md), as amended by SCOPE-DECISIONS §5.
+5. Before committing: root `npx tsc --noEmit` + `npm test` + `npm run build` must pass **and**,
+   from Phase 0 on, the server's own `npm test -w @cafe/server`. The SPA's 448 tests must not
+   regress — if a phase breaks them, the phase is wrong, not the tests.
+6. Tick the box here, update the `STATUS.md` "Last updated" line, commit + push.
+7. Stop. The next session picks up the next box.
 
 **Parallel work warning.** Frontend work has been landing on `main` in parallel with this
 initiative (Appendix E arrived mid-plan and changed the `DataStore` port — see *Baseline*). **Phases 0–9 deliberately do not move or rewrite a single
