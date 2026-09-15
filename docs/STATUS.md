@@ -6,8 +6,8 @@
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 >
 > **▶ Active initiative — the production backend.** [`BACKEND-PLAN.md`](BACKEND-PLAN.md) is the
-> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose, 12 phases; **Phases 0–1 done**,
-> next is Phase 2 — `PostgresStore` + the shared `DataStore` conformance suite) and
+> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose, 12 phases; **Phases 0–2 done**,
+> next is Phase 3 — auth: password/PIN hashing, sessions, epoch revocation, rate limits) and
 > [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) is the maintainer's feature triage, which **overrides
 > scope statements elsewhere including `CLAUDE.md`** — mandatory name + email, wallet and transport
 > seams deleted, no admin stats or export surface. Everything described below is the prototype's
@@ -34,8 +34,34 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-09-15 (**Backend — Phases 0 + 1** (branch
-`claude/backend-implementation-2kqb08`)). First code of the
+**Last updated:** 2026-09-15 (**Backend — Phase 2: `PostgresStore` + the shared conformance
+suite** (branch `claude/backend-implementation-2kqb08`)). The core of the
+[`BACKEND-PLAN`](BACKEND-PLAN.md) initiative. **`packages/server/src/PostgresStore.ts`** implements
+all 33 `DataStore` methods against PostgreSQL — hand-written SQL, no ORM — and
+**`tests/conformance/dataStoreConformance.ts`** is a new store-agnostic suite run against **both**
+adapters: `IndexedDbStore` (from the SPA's test run) and `PostgresStore` (from the server's). The
+suite is *imported, never copied*, for the same reason `domain/` and `ports/` are — a second copy
+of the contract is a contract that drifts. `tests/adapters/IndexedDbStore.test.ts` was trimmed to
+what is genuinely IndexedDB-specific (the seed, the short-code backfill, the clean-reset upgrade
+and wedged-database self-heal, `reset()`, and the retired `redeemReward` path); everything that is
+port behaviour moved into the shared suite. **`commitCounterTransaction` now takes
+`SELECT … FOR UPDATE` on the customer row** before it reads or writes anything, which is what
+divergence **l** was waiting for: two tills scanning the same card serialize instead of
+interleaving, and a deliberately-held-open race test proves it (it fails when the lock is removed
+— the earlier `Promise.all` version passed either way, which is why the races below are all held
+open by a third connection rather than left to scheduling). A same-key retry is caught twice over:
+under the lock, and failing that by the idempotency primary key, which rolls the loser's writes
+back and replays the winner's result. Deliberate, load-bearing divergences from the prototype
+adapter, each with its own test: credentials are **hashed with argon2id in the store** and never
+stored as given (BACKEND-PLAN §4-A), recovery codes are hashed at rest, `softDeleteCustomer`
+**erases the token and short code** so a dead card can never be scanned again and its address is
+freed (SCOPE-DECISIONS §3.3), a tombstone **cannot be committed against**, and `redeemReward`
+**throws** rather than writing the retired `'redemption'` ledger entry the schema refuses —
+refusing loudly beats an `ok: false` staff would read as "not enough points". `getStaffByPin`
+verifies against each active account (a hashed PIN cannot be looked up by value); it works, and it
+must never become a route — BACKEND-PLAN §4-B. **+41 SPA tests** (the conformance suite against
+IndexedDB) less 28 now-shared duplicates → **461 Vitest tests**; **+56 server tests** → **106**,
+none skipped, against a real Postgres. Prior — **Backend — Phases 0 + 1.** First code of the
 [`BACKEND-PLAN`](BACKEND-PLAN.md) initiative. **Phase 0** turned the repo into an npm-workspaces
 monorepo (root `package.json` gains `"workspaces": ["packages/*"]`; **`src/` is not moved** — the
 physical flip is Phase 10) and scaffolded **`packages/server`** (`@cafe/server`): Fastify 5 + `pg`
@@ -227,14 +253,20 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 - **`packages/server`** (`@cafe/server`) — the production backend under construction: Fastify 5,
   PostgreSQL via `pg`, argon2id, hand-written numbered SQL migrations, no ORM. Imports `domain/`
   and `ports/` through the `@cafe/shared/*` alias rather than copying them, so there is one
-  source of truth for the contract. Phases 0–1 done; see [`BACKEND-PLAN.md`](BACKEND-PLAN.md).
+  source of truth for the contract. Phases 0–2 done — **`PostgresStore` implements the full
+  `DataStore` port**; see [`BACKEND-PLAN.md`](BACKEND-PLAN.md).
+- **One `DataStore` conformance suite, two stores.** `tests/conformance/dataStoreConformance.ts`
+  is store-agnostic and runs against `IndexedDbStore` (SPA test run) and `PostgresStore` (server
+  test run). Both green is what makes the Phase 6 composition-root swap provably safe; it is also
+  the only thing that would catch the two adapters drifting apart.
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
-- **448 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
-- **50 server tests** (`npm test -w @cafe/server`) — env validation, log redaction, health
-  endpoints, and the migration/schema suite against a **real** Postgres at `TEST_DATABASE_URL`
-  (default `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`; the suite skips with a warning
-  if none is reachable — CI wiring is Phase 9).
+- **461 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
+- **106 server tests** (`npm test -w @cafe/server`) — env validation, log redaction, health
+  endpoints, the migration/schema suite, and the `PostgresStore` conformance + row-lock suites,
+  all against a **real** Postgres at `TEST_DATABASE_URL`
+  (default `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`; the suites skip with a warning
+  if none is reachable — **a skip is not a pass**, and CI wiring is Phase 9).
 - **Puppeteer e2e suite** (`e2e/`, run with `npm run e2e`) drives the built app in headless Chrome: welcome, register→card, staff PIN, prototype panel, and the reference bug-list regressions (13 checks).
 - CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`,
   `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets) → deploys on push to `main`.
@@ -254,7 +286,7 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 | Auto-provision on scan (unknown valid token → token-only card) | ❌ **removed from UI** (see above) — members are created only by self-registration |
 | Accrual respects cap; append-only ledger; derived balance | ✅ now via the **unified commit** (rewards-as-objects rework) — one atomic `commit` accrues, mints rewards on threshold-crossing, and redeems N, capped at `maxPointsPerTransaction` (`over_cap` reject). Balance settles to `0..threshold−1`; the "N free" count = unspent `Reward` objects (not a derived boolean). See the **Rewards-as-objects acceptance (C9/D10)** table + formats subsection below. | `services/LoyaltyService.ts` (`commit`), `adapters/storage/IndexedDbStore.ts` (`commitCounterTransaction`), `domain/loyalty.ts` + `domain/rewards.ts` |
 | Reward-available email on threshold crossing (best-effort) | ✅ | `LoyaltyService.commit` → `Mailer` (exactly one email per commit, only when the commit minted ≥1 reward) |
-| Atomic redemption (no double-spend) | ✅ now a **commit-time, idempotent, subset redeem** — every `redeemRewardId` is re-validated (`not_owner`/`already_spent`/`reward_invalid` → `rejected[]`, valid ones still redeem); a 2nd commit with the same `idempotencyKey` returns the cached result with no writes (atomicity = single IDB-tx scope — see divergence **l**) | `adapters/storage/IndexedDbStore.ts` (`commitCounterTransaction`; internal `redeemReward` helper) |
+| Atomic redemption (no double-spend) | ✅ now a **commit-time, idempotent, subset redeem** — every `redeemRewardId` is re-validated (`not_owner`/`already_spent`/`reward_invalid` → `rejected[]`, valid ones still redeem); a 2nd commit with the same `idempotencyKey` returns the cached result with no writes (prototype atomicity = single IDB-tx scope; the production store adds a real `SELECT … FOR UPDATE` row lock — see divergence **l**) | `adapters/storage/IndexedDbStore.ts` and `packages/server/src/PostgresStore.ts` (`commitCounterTransaction`), held to one shared contract by `tests/conformance/dataStoreConformance.ts` |
 | Self-service recovery via single-use expiring link (EmailJS) | ✅ impl; needs live verification | `services/RecoveryService.ts`, `ui/screens/customer/LostCard/LostCard.tsx`, `ui/screens/customer/RecoverConsume/RecoverConsume.tsx`, `adapters/email/EmailJsMailer.ts` |
 | Recovery is **email-only** | ✅ | `ui/screens/customer/LostCard/LostCard.tsx` — the single recovery vector is the emailed single-use link (`RecoveryService`). Staff/name-based recovery removed (a name isn't distinguishing enough). LostCard now explains the **no-email consequence** (a card with no email can't be recovered); the registration caveat (`Register.tsx`) says the same up front |
 | Correction/reversal, logged | ✅ | `LoyaltyService.reverse` writes an offsetting `reversal` entry + `loyalty.reverse` audit row — the SPEC §6 correction primitive. The rewards-as-objects **post-commit undo** (`LoyaltyService.undo`/`DataStore.undoCommit`) is **retired** (Appendix E, Phase 1): the staff Scan now defers every write behind a **3-second pre-commit hold** instead, so a wrong transaction is cancelled before it's ever written rather than reversed after — see the Staff integrity & observability acceptance (E9) table below |
@@ -518,8 +550,9 @@ actions).
 
 ## Test coverage
 
-`npm test` runs **448 Vitest unit/component tests** (includes co-located
-`src/ui/**/*.test.tsx` via the extended `test.include` in `vite.config.ts`):
+`npm test` runs **461 Vitest unit/component tests** (includes co-located
+`src/ui/**/*.test.tsx` via the extended `test.include` in `vite.config.ts`), and
+`npm test -w @cafe/server` runs **106 server tests** against a real Postgres:
 
 - **domain/** — `loyalty`, `rewards` (rewards-as-objects pure logic: `mintFold`
   mint-on-cross + multi-mint, `unspentRewards`, `cardProgress`,
@@ -539,13 +572,22 @@ actions).
   detector-threshold fields), `Audit` (incl. `exportActivity` — empty-reason
   refusal, `audit.export` row, reason trim/cap), plus the `Services`
   composition-root wiring.
-- **adapters/** — `IndexedDbStore` (schema v5; seed idempotency; lookups; atomic
-  `commitCounterTransaction` — accrual + mint-on-cross + subset-redeem + idempotency
-  dedup + `over_cap`/`customer_not_found` short-circuit; `listRewards`;
-  `getCustomerState`; `listAudit` range queries via `byTimestamp`; demoSeed
-  coherence; `createRecoveryCode`/`consumeRecoveryCode`; `getStaffByPin`/`setStaffPin`;
-  export/import round-trip; error paths — `undoCommit` removed, Appendix E Phase 1),
-  `ApiStore` (every method rejects as a
+- **conformance/** — `tests/conformance/dataStoreConformance.ts`, the
+  **store-agnostic `DataStore` suite** (41 tests): customers and the tombstone,
+  the ledger and derived balance, the atomic commit (mint-on-cross, multi-mint,
+  idempotent replay, subset redeem, `not_owner`, `over_cap`,
+  `customer_not_found`, redeem-only), rewards, staff/PIN/config, recovery codes,
+  the ranged multi-value `AuditFilter`, stats and the snapshot round-trip. Run
+  against `IndexedDbStore` from `tests/adapters/IndexedDbStore.conformance.test.ts`
+  and against `PostgresStore` from `packages/server/src/PostgresStore.test.ts`.
+  It asserts *behaviour*, never storage shape — the two stores legitimately
+  differ on credential representation (plaintext vs argon2id) and on
+  `redeemReward`, which is excluded and documented.
+- **adapters/** — `IndexedDbStore` (what is IndexedDB-specific only: the seed and
+  its idempotency, the short-code backfill, the v5 clean-reset upgrade and the
+  wedged-database self-heal, `reset()` in place, and the retired `redeemReward`
+  path the production schema refuses — the port contract itself now lives in the
+  conformance suite above), `ApiStore` (every method rejects as a
   stub), `PeerTransport` (peerjs mocked), `EmailJsMailer`, `NoopMailer`,
   `LocalStorageIdentityStore`.
 - **adapters/sync/** — sync round-trip via in-memory `FakeLink`; `ConnLink` /
@@ -575,6 +617,19 @@ actions).
   `scan` with html5-qrcode mocked), **wallet/** (`passes.test.ts` — preset
   tokens, serial lookup, URL construction, OS detection),
   **config/** (`env` flag mapping incl. `googlePlaceId`, `walletKind`, `links.ts` URL building).
+
+**Server layer** (`npm test -w @cafe/server`, 106 tests, **needs a real Postgres** at
+`TEST_DATABASE_URL` — the suites skip loudly without one and a skip is not a pass): `env`
+(boot-time validation), `logging` (PII redaction, including the 404 path that slipped past the
+request serializer), `server` (`/healthz`, `/readyz`), `migrate` (fresh migration, re-run no-op,
+immutability, and every schema constraint the backend rests on), `bootstrap` (first admin,
+idempotent, argon2id), and `PostgresStore` — the shared conformance suite plus what only a real
+database can be held to: the **row lock** (a commit blocks on a row another connection holds; two
+tills serialize; simultaneous redemptions spend once; a concurrently-retried commit writes once —
+each race held open by a third connection so the overlap is a fact, not a scheduling hope), the
+**tombstone** (token/short code erased, address freed, commits refused), **credentials at rest**
+(argon2id, hashed recovery codes), the refused `redeemReward`, and the integrity the browser could
+not enforce.
 
 **End-to-end layer:** `e2e/` (Puppeteer, headless Chrome, `npm run e2e`) drives the
 built app — runs against `npm run preview`. Not part of `npm test`; run manually
@@ -876,6 +931,14 @@ l. **`commitCounterTransaction` atomicity is IDB-tx scope only (no row lock).**
    Production uses `SELECT … FOR UPDATE` (PostgreSQL) to provide true row-level
    locking. Idempotency dedup (`idempotencyKeys` store) guards against retry
    double-writes regardless of context.
+
+   **Production half built (BACKEND-PLAN Phase 2).**
+   `packages/server/src/PostgresStore.ts` takes `SELECT … FOR UPDATE` on the
+   customer row before it reads the balance or writes anything, and a race test
+   holds the row open on a third connection so both commits are provably in
+   flight at once — it fails when the lock is removed. The divergence itself
+   stands as written: it describes the *prototype*, which still has no row lock
+   and cannot get one. It closes only when the prototype adapter retires.
 
 m. **Cross-account activity is no longer casually browsable — access moved behind
    a reason-gated, audited export (Appendix E).** SPEC §8.7 describes an admin

@@ -33,7 +33,11 @@
     // `packages/shared/src` once the physical move happens; nothing else changes.
     "baseUrl": ".",
     "paths": {
-      "@cafe/shared/*": ["../../src/*"]
+      "@cafe/shared/*": ["../../src/*"],
+      // The shared DataStore conformance suite, run against PostgresStore here
+      // and against IndexedDbStore from the SPA's test run. Imported, never
+      // copied — a duplicated suite stops proving the two stores agree.
+      "@cafe/conformance": ["../../tests/conformance/dataStoreConformance"]
     }
   },
   "include": ["src", "vitest.config.ts"]

@@ -479,12 +479,26 @@ is dropped entirely.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 448 unit/component tests (Vitest — includes src/ui/**/*.test.tsx)
+npm test           # 461 unit/component tests (Vitest — includes src/ui/**/*.test.tsx)
 npm run build      # static output in dist/
 npm run preview    # serve dist/ locally (required for e2e)
 npm run e2e          # browser UI regression suite (Puppeteer headless Chrome: builds, serves, runs)
 npm run typecheck  # strict TS, no emit
 ```
+
+The production backend under construction lives in `packages/server` (`@cafe/server`) and has
+its own suite:
+
+```bash
+npm test -w @cafe/server   # 106 tests — NEEDS a real Postgres at TEST_DATABASE_URL
+```
+
+84 of those exercise the schema and `PostgresStore` against a real database and **skip with a
+warning when none is reachable** — a skip is not a pass. See
+[`docs/BACKEND-PLAN.md`](docs/BACKEND-PLAN.md) §0 for a one-off local server. The shared
+`DataStore` conformance suite (`tests/conformance/`) is run by *both* commands — against
+`IndexedDbStore` by `npm test` and against `PostgresStore` here — which is what keeps the two
+adapters honest about implementing the same port.
 
 Copy `.env.example` to `.env.local` and fill in your credentials before running
 locally (TURN + EmailJS). `.env.local` is gitignored.

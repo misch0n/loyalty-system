@@ -28,8 +28,10 @@ context cleared between tasks.
 4. Do **only that phase**. Stay within its file list. Honour the architecture rules in
    [`../CLAUDE.md`](../CLAUDE.md), as amended by SCOPE-DECISIONS §5.
 5. Before committing: root `npx tsc --noEmit` + `npm test` + `npm run build` must pass **and**,
-   from Phase 0 on, the server's own `npm test -w @cafe/server`. The SPA's 448 tests must not
-   regress — if a phase breaks them, the phase is wrong, not the tests.
+   from Phase 0 on, the server's own `npm test -w @cafe/server`. The SPA's 461 tests must not
+   regress — if a phase breaks them, the phase is wrong, not the tests. (They were 448 until
+   Phase 2 moved the port contract into the shared conformance suite: +41 conformance tests,
+   −28 duplicates the shared suite absorbed from `IndexedDbStore.test.ts`.)
 6. Tick the box here, update the `STATUS.md` "Last updated" line, commit + push.
 7. Stop. The next session picks up the next box.
 
@@ -40,8 +42,8 @@ existing frontend file** — new code lands in `packages/server/`, and the only 
 conflict with every frontend diff is isolated into **Phase 10**, to be run *after* frontend
 work has settled. Divergences get reconciled then. **Merge `main` at the start of every phase.**
 
-**Running the server tests.** 22 of the 50 run anywhere; the 28 migration and bootstrap tests
-need a real Postgres and **skip silently without one**. Point them at a database with
+**Running the server tests.** 22 of the 106 run anywhere; the 84 migration, bootstrap and
+`PostgresStore` tests need a real Postgres and **skip silently without one**. Point them at a database with
 `TEST_DATABASE_URL` (default `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`). Until the
 Compose bundle lands in Phase 8, a local server does the job:
 
@@ -52,11 +54,11 @@ su postgres -c "/usr/lib/postgresql/16/bin/initdb -D $PGDATA -A trust"
 su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D $PGDATA -l /tmp/pg.log -w start"
 su postgres -c "psql -h localhost -c \"CREATE ROLE cafe LOGIN PASSWORD 'cafe' SUPERUSER;\""
 su postgres -c "psql -h localhost -c 'CREATE DATABASE cafe_loyalty_test OWNER cafe;'"
-npm test -w @cafe/server                             # expect: 50 passed, 0 skipped
+npm test -w @cafe/server                             # expect: 106 passed, 0 skipped
 ```
 
-**A run reporting skipped files is an unverified run.** Phase 2's conformance suite makes this
-sharper still — its entire purpose is to exercise Postgres behaviour IndexedDB cannot give us,
+**A run reporting skipped files is an unverified run.** The conformance suite makes this
+sharper still — its entire purpose is to prove `PostgresStore` behaves like `IndexedDbStore`,
 so skipping it proves nothing at all.
 
 **Scope.** The maintainer's feature triage (2026-09-02) is recorded in
@@ -76,20 +78,25 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 
 ## 1 · Progress checklist
 
-> **NEXT TASK: Phase 2** — `PostgresStore` + the shared `DataStore` conformance suite. Phases 0
-> and 1 landed together (2026-09-15): `packages/server` exists, the schema migrates clean, and
-> **all 50 server tests pass** alongside the SPA's unchanged 448.
+> **NEXT TASK: Phase 3** — auth: password/PIN hashing, sessions, epoch revocation, rate limits.
+> Phase 2 landed 2026-09-15: `PostgresStore` implements all 33 port methods, and one shared
+> conformance suite now runs against **both** stores. **106 server tests** (was 50) and **461 SPA
+> tests** (was 448 — +41 conformance, −28 duplicates the shared suite absorbed) all pass.
 >
-> **⚠ 28 of those 50 need a real Postgres and SKIP without one** (every `migrate` and
-> `bootstrap` test). A skip is **not** a pass — `Test Files 3 passed | 2 skipped` means the
-> schema was never exercised. Server CI does not exist until Phase 9, so nothing else catches
-> this. **Start a database before you trust a green run** — see §0 *Running the server tests*.
+> **⚠ 84 of those 106 need a real Postgres and SKIP without one** (every `migrate`, `bootstrap`
+> and `PostgresStore` test). A skip is **not** a pass — and it matters more now than in Phase 1,
+> because the conformance suite's entire job is to prove the two stores agree. Skipped, it proves
+> nothing. Server CI does not exist until Phase 9, so nothing else catches this. **Start a
+> database before you trust a green run** — see §0 *Running the server tests*.
 >
-> Read §5 Phase 2 and the decisions Phase 1 recorded at the foot of §5 before starting.
+> Read §5 Phase 3 and the decisions Phases 1 and 2 recorded at the foot of §5 before starting.
+> Phase 3 inherits two of Phase 2's calls in particular: the store already hashes credentials with
+> argon2id, so the auth layer must **verify**, not re-hash; and `getStaffByPin` works but must
+> never be given a route (§4-B).
 
 - [x] **Phase 0** — Workspace scaffolding + Fastify skeleton (no frontend files touched)
 - [x] **Phase 1** — Postgres schema + migrations
-- [ ] **Phase 2** — `PostgresStore` + the shared `DataStore` conformance suite  ⟵ the core
+- [x] **Phase 2** — `PostgresStore` + the shared `DataStore` conformance suite  ⟵ the core
 - [ ] **Phase 3** — Auth: password/PIN hashing, sessions, epoch revocation, rate limits
 - [ ] **Phase 4** — HTTP API surface + the authorization boundary
 - [ ] **Phase 5** — Server-side `Mailer` + recovery flow
@@ -100,7 +107,7 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 - [ ] **Phase 10** — Monorepo flip (`packages/shared` + `packages/web`) — **after** frontend lands
 - [ ] **Phase 11** — Docs (STATUS divergences, README, CLAUDE.md, SPEC §15 rows)
 
-Phase 2 is the big one and everything from 4 onward depends on it (Phases 0+1 landed together).
+Phase 2 was the big one and everything from 4 onward builds on it (Phases 0+1 landed together).
 The wallet phase is gone — the triage dropped wallet entirely.
 
 ---
@@ -393,6 +400,50 @@ ranged `AuditFilter` as a real indexed query. Generalize the IDB adapter tests i
 suite run against both stores.
 Done when: the same suite passes against `IndexedDbStore` and `PostgresStore`, including a
 **concurrency test** two tills committing at once — the case IndexedDB cannot win.
+
+#### Phase 2 — as built (2026-09-15), and the decisions taken
+
+**Files:** `packages/server/src/PostgresStore.ts` (+ `PostgresStore.test.ts`),
+`tests/conformance/dataStoreConformance.ts` (the shared suite),
+`tests/adapters/IndexedDbStore.conformance.test.ts` (runs it against the prototype), a trimmed
+`tests/adapters/IndexedDbStore.test.ts`, and a `@cafe/conformance` alias in the server's
+`tsconfig.json` + `vitest.config.ts`. **No `src/` file was touched** — Phase 6 is still the first.
+
+- **The conformance suite is imported by both projects, never copied.** It lives at
+  `tests/conformance/` and reaches the server through a `@cafe/conformance` alias, exactly as
+  `domain/`+`ports/` reach it through `@cafe/shared/*`. A duplicated suite would stop proving the
+  two stores agree the moment one copy was edited. It takes a `StoreHarness` (`create`, optional
+  `dispose`, `skip`) and asserts **behaviour only** — never storage shape, because the two stores
+  legitimately differ there (plaintext vs argon2id). It also never assumes an empty store is
+  *completely* empty: the prototype seeds mock staff, a production database does not.
+- **`Promise.all` is not a concurrency test.** The first version of the two-till race passed with
+  the row lock deleted — the two connections happened to serialize. Every race in
+  `PostgresStore.test.ts` now holds the customer row open on a **third connection** until both
+  commits are provably queued behind it. Re-verified by deleting `FOR UPDATE`: the two-till test
+  fails, as it must. If you touch the commit, re-run that check — it is the phase's whole claim.
+- **Four deliberate divergences from the prototype adapter**, each tested and each load-bearing:
+  (1) credentials are **hashed in the store** with argon2id, so no later caller can forget (§4-A);
+  (2) `softDeleteCustomer` erases the **token and short code** as well, so a dead card can never be
+  scanned and its address is freed (SCOPE-DECISIONS §3.3); (3) a **tombstone cannot be committed
+  against** — it keeps its history and gains none; (4) `redeemReward` **throws**. The schema
+  refuses the `'redemption'` entry it writes, and returning `ok: false` would read to staff as
+  "not enough points"; nothing in the product calls it (only tests do). It is excluded from the
+  conformance suite with that reasoning recorded there, and goes in Phase 11.
+- **`getStaffByPin` verifies against each active account** with a PIN, since a hashed PIN cannot
+  be looked up by value. That is the prototype's answer, for a café's handful of accounts.
+  **Phase 3/4 must not give it a route** (§4-B) — it is a credential oracle over HTTP.
+- **Recovery codes are SHA-256 at rest.** Right for the prototype's high-entropy code; Phase 5
+  reshapes recovery into a *short typed* code, where length stops carrying the security and the
+  `attempts` lockout column takes over. Revisit the hash choice there.
+- **No limit ceiling is clamped inside `listAudit` or `listAllTransactions`.** §4-E's cap is a
+  *route*-boundary concern (Phase 4): the same store call feeds the detectors' internal ranged
+  query and the stats derivation, and a silently truncated read would make both quietly wrong.
+- **`importAll` uses TRUNCATE**, which is what makes a restore possible at all — the append-only
+  triggers reject row deletes, and must. The `Snapshot` gap (§3-A-6: no rewards, reward events or
+  recovery codes) is carried, not fixed: widening `Snapshot` changes a shared domain type and
+  belongs with the export/import routes.
+- **Ledger reads order by `(timestamp, id)`.** The accrual and the `reward_issue` minted beside it
+  share one timestamp by design, so `id` is what keeps the order deterministic.
 
 ### Phase 3 — Auth: hashing, sessions, revocation, rate limits
 argon2id password + PIN, `sessions` table, cookie issue/verify, idle lock, epoch

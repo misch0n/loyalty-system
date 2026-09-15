@@ -1,8 +1,17 @@
 /**
- * Direct tests for the prototype DataStore adapter. The services tests already
- * exercise it indirectly; these pin down adapter-specific behaviour: the seed,
- * index-backed lookups, error paths, ordering, atomic redemption and the
- * export/import round-trip.
+ * IndexedDB-SPECIFIC behaviour of the prototype `DataStore` adapter.
+ *
+ * The port contract itself — customers, the ledger, the atomic commit, rewards,
+ * staff, config, recovery codes, audit, stats and backup — lives in the shared
+ * conformance suite (`tests/conformance/dataStoreConformance.ts`), which runs
+ * against this adapter from `IndexedDbStore.conformance.test.ts` and against
+ * `PostgresStore` in the server's test run. Keeping it in one place is what
+ * makes "both stores behave the same" a fact rather than a hope.
+ *
+ * What stays here is everything that is only true of IndexedDB: the prototype
+ * seed, the short-code backfill, the clean-reset upgrade and the self-heal that
+ * rescue a wedged database, `reset()`, and the retired `redeemReward` path the
+ * production schema deliberately refuses.
  */
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
@@ -17,9 +26,6 @@ beforeEach(() => {
   globalThis.indexedDB = new IDBFactory();
   store = new IndexedDbStore();
 });
-
-/** Small real delay so successive ISO timestamps are strictly ordered. */
-const tick = () => new Promise((r) => setTimeout(r, 5));
 
 describe('seed', () => {
   it('seeds the default config and the mock staff accounts', async () => {
@@ -49,28 +55,7 @@ describe('seed', () => {
   });
 });
 
-describe('customers', () => {
-  it('creates and resolves a customer by id and by token', async () => {
-    const created = await store.createCustomer({ token: 'tok', displayName: 'Maria' });
-    expect(await store.getCustomerById(created.id)).toMatchObject({ id: created.id });
-    expect(await store.getCustomerByToken('tok')).toMatchObject({ id: created.id });
-  });
-
-  it('returns null for unknown id/token', async () => {
-    expect(await store.getCustomerById('nope')).toBeNull();
-    expect(await store.getCustomerByToken('nope')).toBeNull();
-  });
-
-  it('assigns a unique short code on create and resolves by it', async () => {
-    const a = await store.createCustomer({ token: 'tok-a' });
-    const b = await store.createCustomer({ token: 'tok-b' });
-    expect(a.shortCode).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
-    expect(a.shortCode).not.toBe(b.shortCode);
-    expect(await store.getCustomerByShortCode(a.shortCode)).toMatchObject({ id: a.id });
-    expect(await store.getCustomerByShortCode('00000000')).toBeNull();
-    expect(await store.getCustomerByShortCode('')).toBeNull();
-  });
-
+describe('short-code backfill', () => {
   it('backfills a short code onto a pre-v4 customer on open', async () => {
     const c = await store.createCustomer({ token: 'tok-bf' });
     // Simulate a legacy row with no shortCode.
@@ -82,62 +67,16 @@ describe('customers', () => {
     const reopened = new IndexedDbStore();
     expect((await reopened.getCustomerById(c.id))?.shortCode).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
   });
-
-  it('finds active customers by name, email or phone and ignores deleted ones', async () => {
-    await store.createCustomer({ token: 't1', displayName: 'Maria', email: 'maria@cafe.test' });
-    await store.createCustomer({ token: 't2', phone: '+1 (555) 123-4567' });
-    const deleted = await store.createCustomer({ token: 't3', displayName: 'Gone' });
-    await store.softDeleteCustomer(deleted.id);
-
-    expect(await store.findCustomers({ term: 'mar' })).toHaveLength(1);
-    expect(await store.findCustomers({ term: 'MARIA@CAFE.TEST' })).toHaveLength(1);
-    expect(await store.findCustomers({ term: '5551234567' })).toHaveLength(1);
-    expect(await store.findCustomers({ term: 'Gone' })).toHaveLength(0);
-    expect(await store.findCustomers({ term: '   ' })).toEqual([]);
-  });
-
-  it('rotates the token and records consent', async () => {
-    const c = await store.createCustomer({ token: 'old' });
-    const rotated = await store.rotateToken(c.id, 'new');
-    expect(rotated.token).toBe('new');
-    const consented = await store.recordConsent(c.id, '2026-01-01T00:00:00.000Z');
-    expect(consented.consentAt).toBe('2026-01-01T00:00:00.000Z');
-  });
-
-  it('soft-deletes: status deleted, PII cleared', async () => {
-    const c = await store.createCustomer({
-      token: 't',
-      displayName: 'Maria',
-      email: 'm@cafe.test',
-      phone: '555',
-    });
-    await store.softDeleteCustomer(c.id);
-    const after = await store.getCustomerById(c.id);
-    expect(after?.status).toBe('deleted');
-    expect(after?.displayName).toBeUndefined();
-    expect(after?.email).toBeUndefined();
-    expect(after?.phone).toBeUndefined();
-  });
-
-  it('throws when updating a customer that does not exist', async () => {
-    await expect(store.updateCustomer('nope', { displayName: 'x' })).rejects.toThrow();
-  });
 });
 
-describe('loyalty ledger', () => {
-  // Pin the threshold so these mechanics tests are independent of the product
-  // default (now 9 — nine stamps, tenth coffee free).
+describe('redeemReward — the retired pre-rework path', () => {
+  // Kept here rather than in the conformance suite because the two stores
+  // genuinely differ: the rewards-as-objects rework replaced this call with
+  // `commitCounterTransaction`, and the production schema refuses the
+  // `'redemption'` ledger entry it writes (see `PostgresStore.redeemReward`).
+  // Both go in Phase 11 with the rest of the transitional surface.
   beforeEach(async () => {
     await store.updateConfig({ pointsPerReward: 8 });
-  });
-
-  it('appends transactions and lists them oldest-first', async () => {
-    const c = await store.createCustomer({ token: 't' });
-    await store.appendTransaction({ customerId: c.id, type: 'accrual', points: 1, staffId: 's' });
-    await tick();
-    await store.appendTransaction({ customerId: c.id, type: 'accrual', points: 2, staffId: 's' });
-    const txs = await store.listTransactions(c.id);
-    expect(txs.map((t) => t.points)).toEqual([1, 2]);
   });
 
   it('redeems atomically when the balance meets the threshold', async () => {
@@ -166,301 +105,6 @@ describe('loyalty ledger', () => {
       store.redeemReward(c.id, 's'),
     ]);
     expect([a, b].filter((r) => r.ok)).toHaveLength(1);
-  });
-});
-
-describe('rewards-as-objects (commitCounterTransaction)', () => {
-  // Pin the threshold so these mechanics tests are independent of the product
-  // default (now 9 — nine stamps, tenth coffee free).
-  beforeEach(async () => {
-    await store.updateConfig({ pointsPerReward: 8 });
-  });
-
-  let idem = 0;
-  const key = () => `idem-${++idem}`;
-
-  /** A counter transaction with the boilerplate filled in. */
-  const counter = (over: Partial<Parameters<IndexedDbStore['commitCounterTransaction']>[0]>) => ({
-    customerId: 'x',
-    pointsDelta: 0,
-    redeemRewardIds: [],
-    staffId: 's',
-    idempotencyKey: key(),
-    source: 'a' as const,
-    ...over,
-  });
-
-  /** Loosen the per-transaction cap so a single commit can cross the threshold. */
-  const widenCap = () => store.updateConfig({ maxPointsPerTransaction: 50 });
-
-  it('accrues points and settles the balance below the threshold', async () => {
-    const c = await store.createCustomer({ token: 't' });
-    const r = await store.commitCounterTransaction(counter({ customerId: c.id, pointsDelta: 3 }));
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.minted).toHaveLength(0);
-    expect(r.state.balance).toBe(3);
-    expect(r.state.progress).toEqual({ current: 3, threshold: 8, rewardsAvailable: 0 });
-  });
-
-  it('mints exactly one reward when an accrual crosses the threshold, balance settles', async () => {
-    await widenCap();
-    const c = await store.createCustomer({ token: 't' });
-    const r = await store.commitCounterTransaction(counter({ customerId: c.id, pointsDelta: 8 }));
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.minted).toHaveLength(1);
-    expect(r.minted[0].status).toBe('unspent');
-    expect(r.minted[0].token).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    expect(r.state.balance).toBe(0);
-    expect(r.state.rewards).toHaveLength(1);
-    // The ledger gained an accrual + a reward_issue(−threshold) entry.
-    expect((await store.listTransactions(c.id)).map((t) => t.type).sort()).toEqual([
-      'accrual',
-      'reward_issue',
-    ]);
-  });
-
-  it('mints several rewards in one commit when a big accrual crosses twice', async () => {
-    await widenCap();
-    const c = await store.createCustomer({ token: 't' });
-    const r = await store.commitCounterTransaction(counter({ customerId: c.id, pointsDelta: 19 }));
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.minted).toHaveLength(2); // 19 → two rewards, balance settles to 3
-    expect(r.state.balance).toBe(3);
-    expect(await store.listRewards(c.id, 'unspent')).toHaveLength(2);
-  });
-
-  it('is idempotent: a retried commit (same key) returns the same result with no extra writes', async () => {
-    const c = await store.createCustomer({ token: 't' });
-    const txn = counter({ customerId: c.id, pointsDelta: 3 });
-    const first = await store.commitCounterTransaction(txn);
-    const second = await store.commitCounterTransaction(txn); // same idempotencyKey
-    expect(second).toEqual(first);
-    // No double accrual: exactly one ledger entry, balance unchanged.
-    expect(await store.listTransactions(c.id)).toHaveLength(1);
-    expect((await store.getCustomerState(c.id)).balance).toBe(3);
-  });
-
-  it('redeems a reward and reports a stale id without aborting (subset redeem)', async () => {
-    await widenCap();
-    const c = await store.createCustomer({ token: 't' });
-    const minted = await store.commitCounterTransaction(
-      counter({ customerId: c.id, pointsDelta: 8 }),
-    );
-    expect(minted.ok && minted.minted).toBeTruthy();
-    if (!minted.ok) return;
-    const rewardId = minted.minted[0].id;
-
-    const r = await store.commitCounterTransaction(
-      counter({ customerId: c.id, redeemRewardIds: [rewardId, 'ghost-id'] }),
-    );
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.redeemed.map((x) => x.id)).toEqual([rewardId]);
-    expect(r.rejected).toEqual([{ rewardId: 'ghost-id', reason: 'reward_invalid' }]);
-    expect(await store.listRewards(c.id, 'unspent')).toHaveLength(0);
-    expect(await store.listRewards(c.id, 'spent')).toHaveLength(1);
-
-    // A second redeem of the same reward is rejected as already_spent.
-    const again = await store.commitCounterTransaction(
-      counter({ customerId: c.id, redeemRewardIds: [rewardId] }),
-    );
-    expect(again.ok && again.rejected).toEqual([{ rewardId, reason: 'already_spent' }]);
-  });
-
-  it("rejects redeeming another customer's reward as not_owner", async () => {
-    await widenCap();
-    const a = await store.createCustomer({ token: 'a' });
-    const b = await store.createCustomer({ token: 'b' });
-    const minted = await store.commitCounterTransaction(
-      counter({ customerId: a.id, pointsDelta: 8 }),
-    );
-    if (!minted.ok) throw new Error('mint failed');
-    const r = await store.commitCounterTransaction(
-      counter({ customerId: b.id, redeemRewardIds: [minted.minted[0].id] }),
-    );
-    expect(r.ok && r.rejected).toEqual([
-      { rewardId: minted.minted[0].id, reason: 'not_owner' },
-    ]);
-    // a's reward is untouched.
-    expect(await store.listRewards(a.id, 'unspent')).toHaveLength(1);
-  });
-
-  it('rejects an over-cap accrual with no writes', async () => {
-    const c = await store.createCustomer({ token: 't' });
-    const r = await store.commitCounterTransaction(
-      counter({ customerId: c.id, pointsDelta: 99 }),
-    );
-    expect(r).toEqual({ ok: false, error: 'over_cap' });
-    expect(await store.listTransactions(c.id)).toHaveLength(0);
-  });
-
-  it('rejects a commit for an unknown customer with no writes', async () => {
-    const r = await store.commitCounterTransaction(
-      counter({ customerId: 'nobody', pointsDelta: 1 }),
-    );
-    expect(r).toEqual({ ok: false, error: 'customer_not_found' });
-  });
-});
-
-describe('staff & config', () => {
-  it('creates and resolves a staff account by username', async () => {
-    const created = await store.createStaff({ username: 'bob', passwordHash: 'pw', role: 'staff' });
-    expect(created.active).toBe(true);
-    expect(await store.getStaffByUsername('bob')).toMatchObject({ id: created.id });
-  });
-
-  it('rejects a duplicate username (unique index)', async () => {
-    await store.createStaff({ username: 'dup', passwordHash: 'pw', role: 'staff' });
-    await expect(
-      store.createStaff({ username: 'dup', passwordHash: 'pw2', role: 'staff' }),
-    ).rejects.toThrow();
-  });
-
-  it('updates active flag and password, and throws on a missing account', async () => {
-    const s = await store.createStaff({ username: 'x', passwordHash: 'pw', role: 'staff' });
-    await store.setStaffActive(s.id, false);
-    await store.setStaffPassword(s.id, 'pw2');
-    const after = await store.getStaffByUsername('x');
-    expect(after?.active).toBe(false);
-    expect(after?.passwordHash).toBe('pw2');
-    await expect(store.setStaffActive('nope', false)).rejects.toThrow();
-    await expect(store.setStaffPassword('nope', 'pw')).rejects.toThrow();
-  });
-
-  it('persists an optional PIN on create and resolves it via getStaffByPin', async () => {
-    const s = await store.createStaff({
-      username: 'pinner',
-      passwordHash: 'pw',
-      role: 'staff',
-      pin: '5678',
-    });
-    expect(s.pin).toBe('5678');
-    expect(await store.getStaffByPin('5678')).toMatchObject({ id: s.id });
-  });
-
-  it('setStaffPin sets/replaces a PIN and throws on a missing account', async () => {
-    const s = await store.createStaff({ username: 'setpin', passwordHash: 'pw', role: 'staff' });
-    await store.setStaffPin(s.id, '4444');
-    expect(await store.getStaffByPin('4444')).toMatchObject({ id: s.id });
-    await store.setStaffPin(s.id, '5555');
-    expect(await store.getStaffByPin('4444')).toBeNull();
-    expect(await store.getStaffByPin('5555')).toMatchObject({ id: s.id });
-    await expect(store.setStaffPin('nope', '6666')).rejects.toThrow();
-  });
-
-  it('lists staff sorted by username', async () => {
-    await store.createStaff({ username: 'zara', passwordHash: 'pw', role: 'staff' });
-    await store.createStaff({ username: 'bea', passwordHash: 'pw', role: 'staff' });
-    expect((await store.listStaff()).map((s) => s.username)).toEqual([
-      'admin',
-      'bea',
-      'priya',
-      'staff',
-      'zara',
-    ]);
-  });
-
-  it('merges config patches without dropping other fields', async () => {
-    const updated = await store.updateConfig({ rewardDescription: 'Free pastry' });
-    expect(updated.rewardDescription).toBe('Free pastry');
-    expect(updated.pointsPerReward).toBe(DEFAULT_CONFIG.pointsPerReward);
-  });
-});
-
-describe('audit', () => {
-  it('filters by action and actorId, limits, and returns newest-first', async () => {
-    await store.appendAudit({ actorId: 'a', actorRole: 'admin', action: 'config.update' });
-    await tick();
-    await store.appendAudit({ actorId: 'b', actorRole: 'staff', action: 'loyalty.accrue' });
-    await tick();
-    await store.appendAudit({ actorId: 'b', actorRole: 'staff', action: 'loyalty.redeem' });
-
-    const all = await store.listAudit();
-    expect(all.map((e) => e.action)).toEqual([
-      'loyalty.redeem',
-      'loyalty.accrue',
-      'config.update',
-    ]);
-    expect(await store.listAudit({ action: 'loyalty.accrue' })).toHaveLength(1);
-    expect(await store.listAudit({ actorId: 'b' })).toHaveLength(2);
-    expect(await store.listAudit({ limit: 1 })).toHaveLength(1);
-  });
-
-  it('filters by an action / actor SET and by a timestamp range (export workflow)', async () => {
-    await store.appendAudit({ actorId: 'a', actorRole: 'admin', action: 'config.update' });
-    await tick();
-    await store.appendAudit({ actorId: 'b', actorRole: 'staff', action: 'loyalty.accrue' });
-    await tick();
-    await store.appendAudit({ actorId: 'c', actorRole: 'staff', action: 'loyalty.redeem' });
-
-    const all = await store.listAudit();
-    // Values within a field are OR'd…
-    const twoActions = await store.listAudit({
-      actions: ['loyalty.accrue', 'loyalty.redeem'],
-    });
-    expect(twoActions.map((e) => e.action).sort()).toEqual(['loyalty.accrue', 'loyalty.redeem']);
-    expect(await store.listAudit({ actorIds: ['b', 'c'] })).toHaveLength(2);
-    // …and across fields AND'd.
-    const both = await store.listAudit({ actions: ['loyalty.accrue'], actorIds: ['c'] });
-    expect(both).toHaveLength(0);
-
-    // A singular and its plural union together.
-    expect(
-      await store.listAudit({ action: 'config.update', actions: ['loyalty.accrue'] }),
-    ).toHaveLength(2);
-
-    // Range is inclusive on both ends and reads through the byTimestamp index.
-    const oldest = all[all.length - 1].timestamp;
-    const newest = all[0].timestamp;
-    expect(await store.listAudit({ from: oldest, to: newest })).toHaveLength(3);
-    expect(await store.listAudit({ from: newest })).toHaveLength(1);
-    expect(await store.listAudit({ to: oldest })).toHaveLength(1);
-  });
-});
-
-describe('stats & backup', () => {
-  it('counts active customers and lists all transactions', async () => {
-    const a = await store.createCustomer({ token: 'a' });
-    const b = await store.createCustomer({ token: 'b' });
-    await store.softDeleteCustomer(b.id);
-    await store.appendTransaction({ customerId: a.id, type: 'accrual', points: 2, staffId: 's' });
-    expect(await store.countActiveCustomers()).toBe(1);
-    expect(await store.listAllTransactions()).toHaveLength(1);
-  });
-
-  it('exports a snapshot and imports it into a fresh store', async () => {
-    const c = await store.createCustomer({ token: 't', displayName: 'Maria' });
-    await store.appendTransaction({ customerId: c.id, type: 'accrual', points: 3, staffId: 's' });
-    await store.appendAudit({ actorId: 's', actorRole: 'staff', action: 'card.issue' });
-    const snapshot = await store.exportAll();
-
-    globalThis.indexedDB = new IDBFactory();
-    const fresh = new IndexedDbStore();
-    await fresh.importAll(snapshot);
-
-    expect(await fresh.getCustomerByToken('t')).toMatchObject({ displayName: 'Maria' });
-    expect(await fresh.listTransactions(c.id)).toHaveLength(1);
-    expect(await fresh.listAudit()).toHaveLength(1);
-    expect(await fresh.getConfig()).toEqual(snapshot.config);
-  });
-
-  it('importAll replaces existing data (clears before writing)', async () => {
-    await store.createCustomer({ token: 'will-be-gone' });
-    const empty = {
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      config: DEFAULT_CONFIG,
-      staff: [],
-      customers: [],
-      transactions: [],
-      audit: [],
-    };
-    await store.importAll(empty);
-    expect(await store.getCustomerByToken('will-be-gone')).toBeNull();
-    expect(await store.listStaff()).toEqual([]);
   });
 });
 
