@@ -1,0 +1,27 @@
+{
+  "name": "@cafe/server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Café Loyalty production backend — Fastify + PostgreSQL.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "migrate": "tsx src/migrate.ts",
+    "bootstrap": "tsx src/bootstrap.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "argon2": "^0.41.1",
+    "fastify": "^5.2.1",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "vitest": "^2.0.5"
+  }
+}

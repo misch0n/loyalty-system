@@ -57,12 +57,13 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 
 ## 1 · Progress checklist
 
-> **NEXT TASK: Phase 0.** Nothing has been built yet — every box is unchecked and the
-> repository contains no server code. All scope questions are closed (SCOPE-DECISIONS §4), so
-> Phase 0 can start immediately. Phases 0 and 1 may land together.
+> **NEXT TASK: Phase 2** — `PostgresStore` + the shared `DataStore` conformance suite. Phases 0
+> and 1 landed together (2026-09-15): `packages/server` exists, the schema migrates clean, and
+> **50 server tests** pass alongside the SPA's unchanged 448. Read §5 Phase 2 and the decisions
+> Phase 1 recorded at the foot of §5 before starting.
 
-- [ ] **Phase 0** — Workspace scaffolding + Fastify skeleton (no frontend files touched)
-- [ ] **Phase 1** — Postgres schema + migrations
+- [x] **Phase 0** — Workspace scaffolding + Fastify skeleton (no frontend files touched)
+- [x] **Phase 1** — Postgres schema + migrations
 - [ ] **Phase 2** — `PostgresStore` + the shared `DataStore` conformance suite  ⟵ the core
 - [ ] **Phase 3** — Auth: password/PIN hashing, sessions, epoch revocation, rate limits
 - [ ] **Phase 4** — HTTP API surface + the authorization boundary
@@ -318,6 +319,48 @@ the SPA must be completely unaffected.
 
 **Done when:** a fresh `db` container migrates clean, re-running is a no-op, and a test
 asserts both.
+
+#### Phases 0–1 — as built (2026-09-15), and the decisions taken
+
+Everything above landed as specified. These are the calls the phases forced, recorded so the
+next session inherits them rather than re-deriving them:
+
+- **`tsx` is the server's runtime, and `build` is a typecheck.** The shared `domain/`/`ports/`
+  sources use *extensionless* relative specifiers, which `NodeNext` rejects — so the server
+  compiles under `moduleResolution: "Bundler"`, and `tsc` will not rewrite the `@cafe/shared/*`
+  alias on emit. `dev`/`start` therefore run through `tsx`, whose resolution matches. The
+  emit-based build lands with **Phase 10**, when `@cafe/shared` becomes a real package and the
+  alias stops being an alias. Phase 8's image must run `tsx` until then.
+- **No foreign key on `loyalty_transactions.staff_id` or `audit_log.actor_id`.** Staff accounts
+  are hard-deletable (`StaffService.remove` → `deleteStaff`) and historical attribution has to
+  survive that; an FK would either block the delete or cascade away the ledger. `customer_id`
+  *is* an FK, because customers are tombstoned, never deleted. **Open for Phase 4:** whether
+  staff deletion should become a soft-delete server-side — until it does, a deleted account's
+  id appears in the ledger with nothing to resolve it to.
+- **Append-only is a trigger (`reject_mutation`), not a role grant.** Self-contained in the
+  migration, so it holds however the app role is provisioned. It covers
+  `loyalty_transactions`, `reward_events` and `audit_log`; `rewards` stays mutable, being a
+  projection rather than a log.
+- **Two vocabularies are narrowed by CHECK constraints, deliberately.** The ledger rejects
+  `'redemption'` (retired by the rewards rework) and the audit log rejects `'audit.export'` —
+  the triage deleted the export surface, so the database refuses the row outright. That is the
+  cheapest possible enforcement of BACKEND-PLAN §4-F and SCOPE-DECISIONS §1.
+- **Detector thresholds carry CHECK bounds**, which is the server-side clamp §3-B-12 asks for.
+  Phase 4 still validates at the boundary so the client gets a clean error rather than a 500.
+- **The `program_config` singleton is seeded by migration 001, not by `bootstrap.ts`.** Its
+  values mirror `DEFAULT_CONFIG` in `src/adapters/storage/schema.ts`; going through the
+  migration keeps the server from importing a *prototype adapter* to learn its own defaults.
+  Phase 2's conformance suite is what will catch drift between the two.
+- **`bootstrap.ts` creates only the first admin**, from the environment, idempotently — once any
+  admin exists it is a no-op, so it can never reset a live credential. Explicitly not `demoSeed`.
+- **PII redaction needed a third layer.** The request serializer was not enough: Fastify's
+  *default* 404 handler logs the raw request URL as a plain message, which sailed past it (found
+  by curling a live server, now a regression test). Fixed with a custom `setNotFoundHandler`
+  plus a pino `logMethod` hook that scrubs every message, whoever logs it.
+- **The server suites need a real Postgres** at `TEST_DATABASE_URL` (default
+  `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`). They skip with a loud warning when
+  none is reachable — **Phase 9 must make CI provide one**, or the schema assertions silently
+  stop running.
 
 ### Phase 2 — `PostgresStore` + conformance suite  ⟵ the core
 All 33 `DataStore` methods; `commitCounterTransaction` with row locking (§3-A-4), and the

@@ -1,0 +1,40 @@
+{
+  // Standalone — deliberately NOT referenced from the root solution tsconfig, so
+  // the SPA's `tsc -b` is completely unaffected by the server (BACKEND-PLAN §5,
+  // Phase 0: "the SPA must be completely unaffected").
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    // `Bundler` (not NodeNext) because the shared `domain/`+`ports/` sources this
+    // server imports use extensionless relative specifiers, which NodeNext
+    // rejects. That choice is why `dev`/`start` run through `tsx`, whose esbuild
+    // resolution matches. Phase 10 turns `@cafe/shared` into a real package and
+    // the emit-based build lands with it.
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "verbatimModuleSyntax": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+
+    "types": ["node"],
+
+    // `domain/` and `ports/` are IMPORTED, never copied — one source of truth for
+    // the contract (BACKEND-PLAN §2, "Move timing"). Phase 10 repoints this at
+    // `packages/shared/src` once the physical move happens; nothing else changes.
+    "baseUrl": ".",
+    "paths": {
+      "@cafe/shared/*": ["../../src/*"]
+    }
+  },
+  "include": ["src", "vitest.config.ts"]
+}

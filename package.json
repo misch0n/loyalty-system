@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Single-café digital loyalty system — functional static prototype (v1).",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

@@ -1,4 +1,7 @@
 node_modules
+# Real server secrets (packages/server/.env). `.env.example` is committed; a
+# filled-in `.env` never is.
+.env
 dist
 dist-ssr
 *.local

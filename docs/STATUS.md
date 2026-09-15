@@ -6,7 +6,8 @@
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 >
 > **▶ Active initiative — the production backend.** [`BACKEND-PLAN.md`](BACKEND-PLAN.md) is the
-> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose, 11 phases, none started) and
+> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose, 12 phases; **Phases 0–1 done**,
+> next is Phase 2 — `PostgresStore` + the shared `DataStore` conformance suite) and
 > [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) is the maintainer's feature triage, which **overrides
 > scope statements elsewhere including `CLAUDE.md`** — mandatory name + email, wallet and transport
 > seams deleted, no admin stats or export surface. Everything described below is the prototype's
@@ -33,7 +34,38 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-09-01 (**Appendix E — staff integrity & observability — COMPLETE, all
+**Last updated:** 2026-09-15 (**Backend — Phases 0 + 1** (branch
+`claude/backend-implementation-2kqb08`)). First code of the
+[`BACKEND-PLAN`](BACKEND-PLAN.md) initiative. **Phase 0** turned the repo into an npm-workspaces
+monorepo (root `package.json` gains `"workspaces": ["packages/*"]`; **`src/` is not moved** — the
+physical flip is Phase 10) and scaffolded **`packages/server`** (`@cafe/server`): Fastify 5 + `pg`
++ `argon2`, `src/env.ts` (every variable validated at boot, process **exits** on a missing or
+malformed one), `src/server.ts` (`/healthz` liveness — deliberately does *not* touch the database
+— and `/readyz` reporting DB reachability with a 503, plus graceful `SIGTERM`/`SIGINT` shutdown),
+`src/logging.ts`, `src/db.ts` (pool + `withTransaction`), `src/hashing.ts` (argon2id, hashed
+**server-side from the plaintext** — BACKEND-PLAN §4-A). `domain/` and `ports/` are **imported,
+never copied**, through the `@cafe/shared/*` alias; the server runs on `tsx` because the shared
+sources use extensionless specifiers (see the plan's "Phases 0–1 — as built"). **Phase 1** added
+`migrations/001_initial.sql` — the **ten tables** (`program_config`, `staff_accounts`, `customers`,
+`loyalty_transactions`, `rewards`, `reward_events`, `idempotency_keys`, `recovery_codes`,
+`audit_log`, and the `sessions` table the prototype never needed) mirroring IndexedDB **v6**, plus
+the integrity IndexedDB cannot enforce: **name + email NOT NULL on active cards** and **one card
+per email** (SCOPE-DECISIONS §2.1/§3.4 — this is where token-only accounts end), the
+**tombstone** CHECK pair (§3.3: a deleted row keeps `id`/`created_at`/`status` and erases
+everything that resolves to a person, freeing the address for re-registration), short codes unique
+among *active* cards, **no PIN-uniqueness constraint** (§3.6 — unimplementable against argon2id
+hashes), and **append-only triggers** on `loyalty_transactions`/`reward_events`/`audit_log`. Two
+CHECKs enforce retired scope directly in the database: the ledger rejects `'redemption'` and the
+audit log rejects **`'audit.export'`** (the export surface is gone — BACKEND-PLAN §4-F resolved by
+deletion). `src/migrate.ts` applies numbered forward-only files under an advisory lock, records
+each with a checksum, and **refuses a file that changed after being applied**; `src/bootstrap.ts`
+creates the first admin from the environment, idempotently and **never** `demoSeed`. **PII
+discipline found a real hole:** Fastify's *default* 404 handler logs the raw request URL, sailing
+past the request serializer — fixed with a custom `setNotFoundHandler` and a pino `logMethod` hook
+that scrubs every message; both are regression-tested. **50 new server tests** (`npm test -w
+@cafe/server`, against a real Postgres at `TEST_DATABASE_URL`); the SPA is **completely
+unaffected** — `git diff` over `src/` is empty and its **448 tests**, tsc and production build are
+unchanged. Next: **Phase 2** (`PostgresStore` + the shared conformance suite). Prior — 2026-09-01 (**Appendix E — staff integrity & observability — COMPLETE, all
 phases 0–5** (branch `claude/github-pages-deploy-ku4gkj`)). **Phase 0** replaced the staff Scan's
 post-commit undo with a **3-second pre-commit hold**: the counter panel STAGES a transaction and
 blocks on a countdown summarizing exactly what's about to be written (points, redemptions, and
@@ -189,9 +221,20 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 ## At a glance
 
 - React + TypeScript + Vite SPA, IndexedDB storage, deployed to GitHub Pages.
+- **npm-workspaces monorepo** (root `package.json` `workspaces: ["packages/*"]`). The SPA still
+  lives at `src/` and builds exactly as before — the physical move into `packages/web` is
+  BACKEND-PLAN Phase 10, after frontend work settles.
+- **`packages/server`** (`@cafe/server`) — the production backend under construction: Fastify 5,
+  PostgreSQL via `pg`, argon2id, hand-written numbered SQL migrations, no ORM. Imports `domain/`
+  and `ports/` through the `@cafe/shared/*` alias rather than copying them, so there is one
+  source of truth for the contract. Phases 0–1 done; see [`BACKEND-PLAN.md`](BACKEND-PLAN.md).
 - Ports & adapters fully in place; composition root is
   [`src/services/Services.ts`](../src/services/Services.ts).
 - **448 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
+- **50 server tests** (`npm test -w @cafe/server`) — env validation, log redaction, health
+  endpoints, and the migration/schema suite against a **real** Postgres at `TEST_DATABASE_URL`
+  (default `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`; the suite skips with a warning
+  if none is reachable — CI wiring is Phase 9).
 - **Puppeteer e2e suite** (`e2e/`, run with `npm run e2e`) drives the built app in headless Chrome: welcome, register→card, staff PIN, prototype panel, and the reference bug-list regressions (13 checks).
 - CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`,
   `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets) → deploys on push to `main`.
