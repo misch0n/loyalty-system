@@ -7,6 +7,27 @@ state* of the implementation (what exists, where, what's stubbed), `README.md`
 for architecture + diagrams, then `docs/SPEC.md` for the authoritative spec. The
 concrete subagent definitions live in `.claude/agents/`.
 
+> ### ⚠ ACTIVE INITIATIVE — read before implementing anything
+> **`docs/SCOPE-DECISIONS.md` is the current scope and overrides rules in this file.** The
+> maintainer triaged all 123 features (2026-09-02, questions closed 2026-09-15). Rules below that
+> it **supersedes for all new work** — listed in full in its §5, summarised here so nobody builds
+> from a stale rule:
+> - **"PII is optional… support a fully token-only account" is no longer true.** Name and email are
+>   **required** at registration; email is unique per active card.
+> - **The `WalletProvider` port is deleted** — wallet is dropped end to end.
+> - **The `Transport` port is deleted** — registration is a customer opening a URL. (PeerJS survives
+>   *only* as prototype device pairing, which is a separate channel.)
+> - **The card "⋯" menu has one entry, delete** — remember/remove-from-device is gone.
+> - **After a commit the staff terminal returns to the counter**, not to the scanner.
+> - **No admin stats, breakdowns, or activity export.** The data is still collected; it has no UI.
+>
+> These describe where the code is *going*. The prototype still behaves as documented below until
+> each item is built, so treat the rules as current-state and the decisions doc as intent.
+>
+> **`docs/BACKEND-PLAN.md`** is the live, phase-by-phase build plan (Fastify + Postgres + Docker
+> Compose) with a resume protocol and progress checklist — a fresh session picks up the first
+> unchecked box. Re-read both files, and merge `main`, at the start of every phase.
+
 **Completed initiatives + handoff (read if continuing across cleared-context sessions):**
 `docs/REWARDS-PLAN.md` (rewards-as-objects — Appendices C+D + multi-reward) and
 `docs/INTEGRITY-PLAN.md` (Appendix E — staff integrity & observability) are the phase-by-phase

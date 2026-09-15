@@ -28,12 +28,12 @@ context cleared between tasks.
 5. Tick the box here, update the `STATUS.md` "Last updated" line, commit + push.
 6. Stop. The next session picks up the next box.
 
-**Parallel work warning.** A separate agent is finishing frontend work on `src/` at the
-same time as this initiative. **Phases 0–9 deliberately do not move or rewrite a single
+**Parallel work warning.** Frontend work has been landing on `main` in parallel with this
+initiative (Appendix E arrived mid-plan and changed the `DataStore` port — see *Baseline*). **Phases 0–9 deliberately do not move or rewrite a single
 existing frontend file** — new code lands in `packages/server/`, and the only edits to
 `src/` are the two additive adapter changes in Phase 6. The monorepo file move that would
-conflict with every frontend diff is isolated into **Phase 10**, to be run *after* the
-frontend work lands. Divergences get reconciled then.
+conflict with every frontend diff is isolated into **Phase 10**, to be run *after* frontend
+work has settled. Divergences get reconciled then. **Merge `main` at the start of every phase.**
 
 **Scope.** The maintainer's feature triage (2026-09-02) is recorded in
 [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) and **supersedes this plan wherever they differ** —

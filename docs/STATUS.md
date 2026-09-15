@@ -5,6 +5,14 @@
 > [`SPEC.md`](SPEC.md); working rules in [`../CLAUDE.md`](../CLAUDE.md).
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 >
+> **▶ Active initiative — the production backend.** [`BACKEND-PLAN.md`](BACKEND-PLAN.md) is the
+> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose, 11 phases, none started) and
+> [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) is the maintainer's feature triage, which **overrides
+> scope statements elsewhere including `CLAUDE.md`** — mandatory name + email, wallet and transport
+> seams deleted, no admin stats or export surface. Everything described below is the prototype's
+> **current** behaviour and stays true until each item is rebuilt. Work is on branch
+> `claude/backend-implementation-2kqb08`.
+>
 > **✓ Completed initiative:** the rewards-as-objects rework (Appendices C+D + multi-reward) is
 > **complete — all phases 0–8 done**. Rewards are now discrete, countable `Reward` objects behind a
 > single atomic/idempotent commit (accrue + mint + multi-reward subset redeem); see the
