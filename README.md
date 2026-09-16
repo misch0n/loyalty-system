@@ -450,7 +450,8 @@ packages/
     ├── e2e/                       # Puppeteer smoke suite (headless Chrome, drives built app)
     ├── index.html, public/, vite.config.ts, vitest.e2e.config.ts, tsconfig*.json
     └── .env.example               # documents required build-time secrets (stale post-Phase 6 — see STATUS.md)
-.github/workflows/deploy.yml   # build + test + deploy (injects secrets at build time)
+.github/workflows/ci.yml       # contract · server (+Postgres service) · bundle (compose) · web
+ops/                           # backup.sh, restore.sh, smoke.sh, drill.sh, nginx/, README.md
 ```
 
 ---
@@ -549,17 +550,22 @@ enter username/password (`admin / admin` or `staff / staff`). On a device you ti
 "Remember this device", a later idle visit asks only for the PIN (`4321` admin /
 `1234` staff). Reward threshold is 9 purchases — the tenth coffee is free (configurable via Admin → Program).
 
-### Deployment
-Pushing to `main` runs [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml):
-it installs, **runs tests**, builds with the Pages base path (`/loyalty-system/`),
-injects `VITE_EMAILJS_*`, `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets from
-GitHub repository secrets into the static bundle, and publishes to GitHub Pages. Routing uses `HashRouter`,
-so no server rewrites are needed (a `public/404.html` fallback is shipped as a
-belt-and-braces). `VITE_TRANSPORT` defaults to `peer`, so the deployed build uses
-PeerJS on real devices.
+### CI
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs four jobs on every push:
 
-> Pages source must be set to **GitHub Actions** (Settings → Pages → Source).
-> Secrets must be added under Settings → Secrets → Actions before the first deploy.
+| Job | What it proves |
+|---|---|
+| `contract` | `@cafe/shared` typechecks and its 73 domain tests pass — no database, no SPA |
+| `server` | the release gate against a **Postgres service container**, then a check that the suite still *refuses to run* without one (a skip is not a pass) |
+| `bundle` | `docker compose` up **from an empty volume** → [`ops/smoke.sh`](ops/smoke.sh) over HTTP → the container logs scanned for credentials and PII → [`ops/drill.sh`](ops/drill.sh), the backup/restore drill |
+| `web` | informational only (`continue-on-error`): the SPA is red by decision until the UI pass, and must not gate anything |
+
+### Deployment
+The bundle is [`compose.yml`](compose.yml) — see [`ops/README.md`](ops/README.md) for bringing it
+up, health, backups and the restore drill. The old GitHub Pages deploy (`deploy.yml`, which built
+the static prototype with `VITE_*` secrets injected) was deleted in Phase 6 along with the
+prototype adapters it shipped; **there is no deployable frontend until the UI pass**, which is why
+the `web` Compose service sits behind a profile.
 
 ---
 

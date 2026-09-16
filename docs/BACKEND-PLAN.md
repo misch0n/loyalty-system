@@ -45,7 +45,7 @@ context cleared between tasks.
 3. Find the first **unchecked** box in the *Progress checklist* (§1) — that's the next task.
 4. Do **only that phase**. Stay within its file list. Honour the architecture rules in
    [`../CLAUDE.md`](../CLAUDE.md), as amended by SCOPE-DECISIONS §5 and §6.
-5. Before committing, the gate is **`npm test -w @cafe/server`** (**434** as of Phase 7) plus
+5. Before committing, the gate is **`npm test -w @cafe/server`** (**442** as of Phase 8) plus
    **`npm run typecheck -w @cafe/server`** — the server suite does *not* typecheck itself.
    Phase 10 also gave `packages/shared` its own gate, and it is cheap, so run it too:
    **`npm test -w @cafe/shared`** (**73**) and **`npm run typecheck -w @cafe/shared`**.
@@ -55,6 +55,10 @@ context cleared between tasks.
    *(Pre-Phase-10 sessions ran `npx tsc --noEmit -p packages/server/tsconfig.json` for the
    typecheck. That still works, but it needs `packages/shared/dist` to exist first — the
    `pretypecheck` script is what builds it, so prefer the npm script.)*
+   **Since Phase 9 this gate also runs in CI** (`.github/workflows/ci.yml`), against a Postgres
+   service container, alongside a bundle job that brings Compose up from nothing and smoke-tests
+   it. CI is the check, not the substitute: run the four commands locally before you push, or you
+   find out eight minutes later.
 6. **Record every backend-vs-UI conflict you create** in
    [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md). This is not optional bookkeeping — it is the
    entire input to the UI pass, and the maintainer confirms from it.
@@ -114,12 +118,26 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 
 ## 1 · Progress checklist
 
-> **NEXT TASK: Phase 9** — CI + integration tests against a real Postgres. **Read the
-> revoked-promise box at the top of this file first.** CI is the piece that makes every earlier
-> phase's green self-checking: the server suite already refuses to run without a database
-> (`src/testing/globalSetup.ts`), so the workflow must give it a Postgres service container or the
-> job fails closed — which is the intended behaviour, not something to work around. `@cafe/web` is
-> red on purpose and its job must not gate the build.
+> **NEXT TASK: the UI pass** — and it is **a separate initiative, not the next box in this plan**.
+> Every backend phase is now built. **Read the revoked-promise box at the top of this file first,**
+> then [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md), which is the pass's entire input: 30-odd
+> rows, each saying what the server does, what the screens do today, and whether the maintainer
+> still has to rule on it. Several are **Open** or **Confirm** — the offline posture (X2), the PIN
+> that no longer identifies anyone (S1), the services that no longer compile (C3, A3, P5–P8) —
+> and those want answers before screens are written, not during. **It deserves its own
+> phase-by-phase plan**, written from the register the way this file was written from SPEC §14; do
+> not start editing screens straight out of this box. The other unchecked box, **Phase 11**
+> (docs), is deliberately *after* it: most of what it has to write down is what the UI pass
+> decides.
+>
+> Phase 9 landed 2026-09-16, and it is what makes every phase above self-checking rather than
+> merely once-verified: `.github/workflows/ci.yml` — four jobs, `contract` · `server` · `bundle` ·
+> `web`. `server` runs the suite against a **Postgres service container** and then proves the
+> database gate still fails closed by pointing the same suite at a dead port. `bundle` brings the
+> Compose stack up **from an empty volume**, smoke-tests the running API over HTTP
+> (`ops/smoke.sh`), scans the container logs for the credentials and PII that just passed through
+> it, and performs the **restore drill** (`ops/drill.sh`) into a scratch database. `web` is
+> `continue-on-error` — the SPA is red by decision and must not gate anything.
 >
 > Phase 8 landed 2026-09-16: `compose.yml` (db · migrate · api · web · backup · restore) and
 > `compose.dev.yml` (db · migrate · api · mailpit), non-root images, healthchecks, `.env.example`,
@@ -183,7 +201,7 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 - [x] **Phase 10** — Monorepo flip (`packages/shared` + `packages/web`) — pulled forward
 - [x] **Phase 7** — Realtime push (SSE) — replaces what device pairing provided
 - [x] **Phase 8** — Docker Compose bundle + ops (backups, health, logging)
-- [ ] **Phase 9** — CI + integration tests against a real Postgres
+- [x] **Phase 9** — CI + integration tests against a real Postgres  ⟵ **the backend build ends here**
 - [ ] **— UI pass —** a separate initiative: client adapters, services reshaped to the API,
       screens reconciled against [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md)
 - [ ] **Phase 11** — Docs (STATUS divergences, README, CLAUDE.md, SPEC §15 rows)
@@ -1050,6 +1068,83 @@ Extend `.github/workflows/` to build/test the server against a Postgres service 
 and build the images.
 Done when: CI is green on this branch.
 
+#### Phase 9 — as built (2026-09-16), and the decisions taken
+
+**Files (all new):** `.github/workflows/ci.yml`, `ops/smoke.sh`, `ops/drill.sh`. **Edited:**
+`ops/README.md` (the two scripts, and what the automated drill does and does not prove) and this
+file. **No code changed** — the phase adds no product behaviour, which is why the test counts are
+Phase 8's unchanged: **442 server**, **73 shared**.
+
+**Four jobs, and three of them exist because an obvious default would have been wrong.**
+
+- **`contract`** — `@cafe/shared` typecheck + 73 tests. No database, no network, and no
+  `@cafe/web`: these are the only tests `domain/` has and they must run in a package that is green.
+- **`server`** — the gate, against a **`postgres:16-alpine` service container**. It carries
+  `POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'` to match `compose.yml`, because a cluster
+  initialised with the runner's collation orders text differently from the deployed one — a
+  difference that shows up as a test that passes in one place and not the other. The healthcheck
+  names the database rather than just running `pg_isready`, for the reason `compose.yml` already
+  records: `pg_isready` answers true while a first boot is still running its init scripts.
+- **`bundle`** — `docker compose build api`, then **up from an empty volume**, then
+  `ops/smoke.sh`, then a log scan, then `ops/drill.sh`. See below.
+- **`web`** — `continue-on-error`, at the job **and** at the typecheck step (without the second
+  one the typecheck's failure would stop the job before the test run, which is the half that
+  reports the *shape* of the red). It judges nothing; it reports. The `web` **image is not built
+  at all**: the SPA does not compile by decision, and a red image build is a red nobody should act
+  on.
+
+**The most valuable ten lines in the workflow are a test of the test suite.** `globalSetup.ts`
+exists because a run with no database once reported `22 passed | 84 skipped` and exited 0 — green,
+having tested nothing. A CI job whose Postgres quietly failed to come up would be that same bug
+wearing a bigger hat. So after the suite passes, the workflow runs it **again** against a closed
+port and requires it to fail *at the gate*, matching on the message. Verified locally before it was
+committed: exit non-zero, `needs a real PostgreSQL database` present.
+
+**`ops/smoke.sh` is the phase's real integration test, and it is a script rather than inline YAML
+on purpose.** Every other test in the repo reaches the server in-process (`app.inject`) or reaches
+Postgres directly. This one talks to the artifact: emitted `dist/` in a non-root container, behind
+the real cookie and CSRF rules, on a database a one-shot `migrate` container built from nothing. It
+is what Phases 0, 3, 5 and 10 each did by hand at the end of the phase — sixteen assertions,
+including the two refusals (no CSRF header, cross-origin sign-in) that prove the boundary is wired
+into the *running* server and not merely into the tests, and a repeated commit that must come back
+`replayed: true` with the balance still 1. Living in `ops/` means an operator can run it against a
+deployment after a change, which is the other half of why it was worth writing down.
+
+- **Cookies are carried by hand, not in a curl jar**, and that is not a style choice: the bundle
+  sets `Secure` cookies (it is meant to sit behind TLS) and **curl will not send a Secure cookie
+  back over plain HTTP** — so a jar would have silently smoke-tested an unauthenticated server and
+  passed. Holding the pair in a variable keeps the test honest about the production cookie flags.
+- **`.env` is read, never sourced.** A real one holds `MAIL_FROM="Ckyka" <no-reply@…>`, and
+  `.`-ing that file has the shell treat the angle bracket as a redirect.
+- **The log scan names the values that just went through the server** — the admin password, the
+  admin PIN, the customer's name and the customer's address — rather than grepping for a pattern.
+  `CLAUDE.md` says never log PII, and this is Phase 0's 404-handler leak turned into a check that
+  runs every time. The CI bootstrap PIN is **eight digits**, because a four-digit needle is short
+  enough to turn up inside a timestamp and fail the build for nothing.
+
+**`ops/drill.sh` turns Phase 8's restore drill from a thing that was done once into a thing that is
+done every commit.** A backup path proven in September and never exercised again is a backup path
+whose state nobody knows, and the moment it matters is the worst possible moment to find out. It
+backs the live database up with `ops/backup.sh`, restores into a **scratch** database (so a failed
+drill costs nothing and the live data is never touched), and asserts what a row count does not: the
+ledger still **sums** to the same number, the append-only triggers still refuse an `UPDATE` on
+`loyalty_transactions` and a `DELETE` on `audit_log`, the unique-active-email index still refuses a
+second card on one address, and the argon2id digests came back. All four assertions were run
+against a real migrated database before being committed — each refusal fires for the intended
+reason, not an incidental one.
+
+**What it deliberately does not automate**, and `ops/README.md` keeps as a manual step: a real
+sign-in and a real commit *through the API* against the restored database. That needs the bundle
+re-pointed at the scratch database, which is a lot of moving parts to assert something the digest
+check covers most of. What is automated is the part that rots silently — schema objects,
+constraints and credentials surviving the round trip.
+
+**The whole phase was verified against a live server before it was pushed**, since no Docker daemon
+is available in the session container: the server was built, migrated and bootstrapped against a
+local Postgres, `ops/smoke.sh` run against it (16/16), then re-run with a wrong password to confirm
+it **fails loudly and non-zero** rather than passing over a broken assertion, and the drill's four
+SQL assertions executed directly. The Compose-level steps are the part CI is the first to run.
+
 ### Phase 10 — Monorepo flip (**runs second, straight after Phase 6**)
 Move `src/domain` + `src/ports` → `packages/shared/src`, what remains of `src/` →
 `packages/web/src`; point the alias at the real package. Pure move, no logic change. Also the
@@ -1178,8 +1273,9 @@ is one record rather than two.
 | Credentials are never stored or logged recoverably | argon2id at rest; redacting log serializer; PIN/password never in logs |
 | No PII in logs, URLs, or error payloads | Log-redaction test + a route audit |
 | Customer recognition survives iOS ITP | HttpOnly cookie identity (manual device check) |
-| The bundle comes up clean from nothing | `docker compose up` on a fresh machine |
-| Backups restore | A restore drill actually performed, not just scripted |
+| The bundle comes up clean from nothing | `docker compose up` on a fresh machine — and on every commit, from an empty volume, in CI's `bundle` job |
+| Backups restore | A restore drill actually performed, not just scripted — by hand in Phase 8, and by `ops/drill.sh` in CI since Phase 9 |
+| Every claim above stays true | CI (`.github/workflows/ci.yml`), including a check that the suite still **refuses to run** without a database — the failure mode that would make every other green meaningless |
 
 ---
 

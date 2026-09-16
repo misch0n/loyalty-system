@@ -1,0 +1,254 @@
+name: CI
+
+# Phase 9 of docs/BACKEND-PLAN.md.
+#
+# CI is what makes every earlier phase's green self-checking. Three things are
+# load-bearing about the shape below, and each is the opposite of an obvious
+# default:
+#
+#   1. THE SERVER SUITE NEEDS A REAL POSTGRES AND FAILS WITHOUT ONE. It does not
+#      skip (`packages/server/src/testing/globalSetup.ts`). So the `server` job
+#      gives it a service container, and a workflow that forgot to would fail
+#      closed rather than reporting a green tick over 84 tests that never ran —
+#      which is exactly what this repo used to do. The `database gate` step below
+#      proves that failure mode is still wired up.
+#
+#   2. `@cafe/web` IS RED ON PURPOSE AND MUST NOT GATE ANYTHING. The maintainer
+#      retired the IndexedDB prototype before the UI was adjusted to the backend
+#      (SCOPE-DECISIONS §6), so the SPA knowingly does not compile until the UI
+#      pass. Its job is `continue-on-error` and reports the state rather than
+#      judging it. The `web` image is not built here for the same reason — see
+#      `packages/web/Dockerfile`.
+#
+#   3. THE BUNDLE IS TESTED AS AN ARTIFACT, NOT AS A CONFIG FILE. `docker compose
+#      build` proving the image compiles says nothing about whether the system it
+#      is part of comes up. The `bundle` job brings the whole thing up from an
+#      empty volume and exercises it over HTTP, then backs it up and restores it.
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+  workflow_dispatch:
+
+# A second push supersedes the first: nothing here is a deploy, so a superseded
+# run has no value worth the runner minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # The pure contract — `domain/` + `ports/`. No database, no network, and
+  # deliberately no `@cafe/web`: these 73 tests are the only tests `domain/` has,
+  # and they must be runnable in a package that is green.
+  contract:
+    name: contract (@cafe/shared)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # Scoped exactly as `packages/server/Dockerfile` scopes it. A bare
+      # `npm ci` would install the SPA's devDependencies, `puppeteer` among
+      # them, which downloads a browser nothing in this job runs.
+      - run: npm ci --include-workspace-root --workspace @cafe/shared
+
+      - run: npm run typecheck --workspace @cafe/shared
+      - run: npm test --workspace @cafe/shared
+
+  server:
+    name: server (@cafe/server + Postgres)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cafe
+          POSTGRES_PASSWORD: cafe
+          POSTGRES_DB: cafe_loyalty_test
+          # Matches `compose.yml`. Without it the cluster is initialised with the
+          # runner's collation, which changes text ordering — so a test that
+          # passes here could fail on the deployed database, or the reverse.
+          POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+        ports:
+          - 5432:5432
+        # `pg_isready` answers true while a first boot is still running its init
+        # scripts, so the healthcheck names the database it must actually serve.
+        options: >-
+          --health-cmd "pg_isready -q -U cafe -d cafe_loyalty_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      TEST_DATABASE_URL: postgres://cafe:cafe@localhost:5432/cafe_loyalty_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci --include-workspace-root --workspace @cafe/shared --workspace @cafe/server
+
+      # The suite does not typecheck itself — `vitest` transpiles without
+      # checking types — so this is a separate gate, not a formality.
+      - run: npm run typecheck --workspace @cafe/server
+
+      - run: npm test --workspace @cafe/server
+
+      # The guard on the guard. Most of the suite above is database-backed, so
+      # the single most dangerous failure this workflow can have is a Postgres
+      # that did not come up while the run still reports success. Point the suite
+      # at a closed port and it must FAIL, with the message that says why.
+      - name: The database gate fails closed
+        run: |
+          if TEST_DATABASE_URL=postgres://cafe:cafe@127.0.0.1:1/nope \
+             npm test --workspace @cafe/server > gate.log 2>&1; then
+            echo '::error::the server suite passed with no database reachable — globalSetup.ts is not gating'
+            exit 1
+          fi
+          if ! grep -q 'needs a real PostgreSQL database' gate.log; then
+            echo '::error::the suite failed without a database, but not at the gate — check globalSetup.ts'
+            tail -40 gate.log
+            exit 1
+          fi
+          echo 'The suite refuses to run without a database, as designed.'
+
+  bundle:
+    name: bundle (compose up from nothing)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # None of this is a secret. It is a throwaway database and a throwaway
+      # admin on a container that exists for four minutes and is never reachable
+      # from outside the runner — so the values are in the open on purpose, where
+      # they can be read alongside the assertions that use them, rather than in a
+      # repository secret that would imply they protect something.
+      - name: Configure the bundle
+        run: |
+          cat > .env <<'EOF'
+          POSTGRES_USER=cafe
+          POSTGRES_PASSWORD=ci-throwaway-password
+          POSTGRES_DB=cafe_loyalty
+          BOOTSTRAP_ADMIN_USERNAME=ci-admin
+          BOOTSTRAP_ADMIN_PASSWORD=ci-throwaway-admin-password
+          BOOTSTRAP_ADMIN_PIN=43265187
+          BOOTSTRAP_ADMIN_NAME=CI Admin
+          LOG_LEVEL=info
+          EOF
+          # The PIN is eight digits rather than the usual four so that the log
+          # scan below can match it literally: a four-digit needle is short
+          # enough to turn up inside a timestamp or a port number and fail the
+          # build for nothing.
+
+      # Builds the one image the bundle ships: `api` and `migrate` are the same
+      # image with a different command, so this covers both. `web` is not built —
+      # the SPA does not compile, by decision (SCOPE-DECISIONS §6), and a job
+      # that built it would be red for a reason nobody should act on.
+      - name: Build the server image
+        run: docker compose build api
+
+      # Naming `api` rather than waiting on every service is deliberate: its
+      # `depends_on` already requires `db` healthy and `migrate` exited 0, so
+      # waiting for `api` to answer `/readyz` waits for all three — and it keeps
+      # `--wait` away from the one-shot `migrate` container, whose "success" is
+      # exiting rather than staying up. The bundle's own dependency graph is the
+      # definition of "came up"; this step does not restate it, and there is no
+      # sleep here to go stale.
+      - name: Bring the bundle up from an empty volume
+        run: docker compose up -d --wait --wait-timeout 240 api
+
+      - name: The first admin was bootstrapped
+        run: |
+          docker compose logs migrate | grep -q 'Created the first admin account' \
+            || { echo '::error::migrate did not create the first admin'; docker compose logs migrate; exit 1; }
+
+      - name: Smoke test the running bundle
+        run: ops/smoke.sh
+
+      # `CLAUDE.md`: never log PII. Phases 0, 3 and 10 each checked this by hand
+      # against a live socket — Phase 0's 404-handler leak was found exactly this
+      # way — and the values below are the ones the smoke test just pushed
+      # through the running server.
+      - name: No credentials or PII in the container logs
+        run: |
+          docker compose logs --no-color > bundle.log
+          status=0
+          while IFS='|' read -r needle what; do
+            if grep -qiF -- "$needle" bundle.log; then
+              echo "::error::$what appears in the container logs"
+              status=1
+            fi
+          done <<'EOF'
+          ci-throwaway-admin-password|the admin password
+          43265187|the admin PIN
+          Smoke Test|a customer's name
+          @example.test|a customer's email address
+          EOF
+          exit $status
+
+      - name: Back up and restore into a scratch database
+        run: ops/drill.sh
+
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes --remove-orphans
+
+  # Informational, and deliberately not a gate.
+  #
+  # `@cafe/web` does not compile: Phase 6 retired the IndexedDB prototype and
+  # left the screens that used it standing, which the maintainer chose on
+  # 2026-09-16 so the backend could be built without the UI constraining it. The
+  # UI pass is what turns this green.
+  #
+  # It runs anyway because the SHAPE of the red matters. Phase 10 pinned it at
+  # nine failing test files, each traceable to a Phase 6 deletion; a tenth would
+  # be something else, and the UI pass should not be the thing that discovers it.
+  web:
+    name: web (known red — informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # The SPA's devDependencies include `puppeteer`, which downloads a browser
+      # on install for an e2e suite this job does not run.
+      - run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: '1'
+
+      - name: Build the contract the SPA imports
+        run: npm run build --workspace @cafe/shared
+
+      # Step-level too, or the typecheck's failure would stop the job before the
+      # test run — and the test run is the half that reports the shape of the red.
+      - name: Typecheck (expected to fail until the UI pass)
+        continue-on-error: true
+        run: npm run typecheck --workspace @cafe/web
+
+      - name: 'Unit tests (expected: 9 failing files, all Phase 6 deletions)'
+        run: npm test --workspace @cafe/web

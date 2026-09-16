@@ -57,7 +57,49 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-09-16 (**Backend — Phase 8: the Docker Compose bundle + ops** (branch
+**Last updated:** 2026-09-16 (**Backend — Phase 9: CI + integration tests** (branch
+`claude/backend-implementation-2kqb08`)). **The backend build is complete**; what remains is the
+UI pass (a separate initiative, starting from [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md)) and
+the Phase 11 doc sweep. This phase changes no product behaviour — it makes every earlier phase's
+green *self-checking* rather than once-verified. **New:** `.github/workflows/ci.yml` and two ops
+scripts, `ops/smoke.sh` and `ops/drill.sh`. **Four CI jobs.** `contract` — `@cafe/shared`
+typecheck + 73 tests, no database. `server` — the release gate against a **`postgres:16-alpine`
+service container**, initialised with the same `--locale=C` as `compose.yml` so text ordering
+cannot differ between CI and the deployment. `bundle` — `docker compose build api`, then the stack
+**up from an empty volume**, then a smoke test, a log scan and the restore drill. `web` —
+`continue-on-error` at the job *and* at the typecheck step, because `@cafe/web` is red by decision
+and its failure must not gate anything (register row **X8**); the `web` image is not built at all.
+**The workflow tests the test suite.** `globalSetup.ts` exists because a run with no database once
+reported `22 passed | 84 skipped` and exited 0; a CI Postgres that quietly failed to come up would
+be that same bug at a larger scale. So after the suite passes, CI runs it **again** against a
+closed port and requires it to fail *at the gate*, matching on the message.
+**`ops/smoke.sh` is the phase's integration test** — 16 assertions against the running bundle over
+HTTP, where every other test in the repo reaches the server in-process (`app.inject`) or Postgres
+directly. Liveness, readiness, the bootstrapped admin signing in, both cookies set, a mutating
+request without the CSRF header refused, a cross-origin sign-in refused, a card registered,
+resolved by token, credited by staff, the same idempotency key **replayed** rather than
+double-written, and the derived balance coming back 1 rather than 2. Cookies are carried by hand
+rather than in a curl jar on purpose: the bundle sets `Secure` cookies and curl will not send one
+back over plain HTTP, so a jar would have smoke-tested an unauthenticated server and passed. CI
+then greps the container logs for the admin password, the admin PIN, the customer's name and the
+customer's address — the values that had just passed through the server — per `CLAUDE.md`'s "never
+log PII".
+**`ops/drill.sh` makes Phase 8's restore drill continuous.** It backs the live database up,
+restores into a **scratch** database (the live one is never touched), and asserts what a row count
+does not: the ledger still **sums** to the same number, the append-only triggers still refuse an
+`UPDATE` on `loyalty_transactions` and a `DELETE` on `audit_log`, the unique-active-email index
+still refuses a second card on one address, and every argon2id digest came back. A real sign-in and
+commit *through the API* against restored data stays the manual drill in `ops/README.md`.
+**Verification.** **442 server tests** and **73 shared tests**, both unchanged with both typechecks
+green — no code changed. With no Docker daemon in the session container, everything but the Compose
+steps was verified against a live server: migrate + bootstrap against a local Postgres,
+`ops/smoke.sh` green 16/16, then re-run with a wrong password to confirm it **fails non-zero**
+rather than passing over a broken assertion; the drill's four SQL assertions executed directly
+against the migrated schema, each refusal firing for the intended reason; the database-gate check
+confirmed to exit non-zero with the right message; the live log searched for all four secrets and
+clean. `@cafe/web` remains red on purpose.
+
+**Prior:** 2026-09-16 (**Backend — Phase 8: the Docker Compose bundle + ops** (branch
 `claude/backend-implementation-2kqb08`)). The system now comes up from nothing on one command.
 **New:** `compose.yml` (`db` · `migrate` · `api` · `web` · `backup` · `restore`) and
 `compose.dev.yml` (`db` · `migrate` · `api` · `mailpit`), multi-stage non-root images for the API
@@ -521,13 +563,18 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
   of the SPA's run in Phase 10). **`@cafe/server`: 390 tests** pass, `tsc` green, `dist/` emits and
   runs on plain `node`, all against a **real** Postgres at `TEST_DATABASE_URL` (default
   `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`; the run **aborts** in `globalSetup` if
-  none is reachable — **a skip is not a pass**, and CI wiring is Phase 9). The release gate is
-  `@cafe/shared` + `@cafe/server`; a red `@cafe/web` is expected until the UI pass.
+  none is reachable — **a skip is not a pass**). The release gate is `@cafe/shared` +
+  `@cafe/server`; a red `@cafe/web` is expected until the UI pass. *(Counts are Phase 10's;
+  Phase 8 took the server suite to **442**.)*
 - **Puppeteer e2e suite** (`packages/web/e2e/`, run with `npm run e2e`) drives the built app in
   headless Chrome: welcome, register→card, staff PIN, prototype panel, and the reference bug-list
   regressions (13 checks).
-- CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`,
-  `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets) → deploys on push to `main`.
+- CI: `.github/workflows/ci.yml` (Phase 9) — four jobs. `contract` (`@cafe/shared`), `server`
+  (the release gate against a Postgres service container, plus a check that the suite still
+  **refuses** to run without one), `bundle` (Compose up from an empty volume → `ops/smoke.sh` →
+  a PII log scan → `ops/drill.sh`), and `web` (`continue-on-error`; red by decision, gates
+  nothing). The old `deploy.yml` — test → build with the `VITE_*` secrets → publish to GitHub
+  Pages — was deleted in Phase 6 with the prototype it deployed.
 - Five swappable seams: `DataStore`, `Transport`, `Mailer`, `IdentityStore`, `WalletProvider`.
 - Prototype device-pairing layer in `adapters/sync/` — deleted in Phase 6; production coordinates state on the server.
 - UI rebuilt to Ckyka reference design: `packages/web/src/ui/theme/` (token slices),

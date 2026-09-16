@@ -88,6 +88,30 @@ is 30s, which is far more than it needs.
 
 ---
 
+## Smoke test
+
+```bash
+ops/smoke.sh                      # or: ops/smoke.sh https://cafe.example
+```
+
+Sixteen assertions against a **running** bundle, over HTTP: liveness and
+readiness, the bootstrapped admin signing in, both cookies being set, a mutating
+request without the CSRF header being refused, a cross-origin sign-in being
+refused, a card registering, resolving by its token, being credited by staff, the
+same idempotency key replaying instead of double-writing, and the balance derived
+from the ledger coming back as 1 rather than 2.
+
+It reads the admin credentials from the `.env` beside `compose.yml`, so after a
+`docker compose up` it runs with no arguments. Needs `curl` and `jq`.
+
+This is the check to run after changing anything about the deployment — a proxy,
+a certificate, an environment variable — because it exercises the parts that a
+unit test cannot reach: the emitted `dist/` inside the container, the real cookie
+flags, and the database the `migrate` container actually built. CI runs it on
+every commit against a bundle brought up from an empty volume.
+
+---
+
 ## Backups
 
 ```bash
@@ -136,6 +160,37 @@ which is why the drill below is meant to be **performed**, not read.
 
 ### The drill
 
+```bash
+ops/drill.sh
+```
+
+Backs the live database up, restores the dump into a **scratch** database, and
+asserts the things a row count does not prove — then drops the scratch database
+again. The live one is never written to, so a failed drill costs nothing, which
+is what makes it safe to run this often. CI runs it on every commit.
+
+What it asserts:
+
+1. Every table came back with the same row count, **and the ledger still sums to
+   the same number.** The balance is summed from the ledger, never stored, so
+   this is the assertion that the history restored coherently rather than merely
+   completely.
+2. **The append-only triggers came back.** `UPDATE loyalty_transactions` and
+   `DELETE FROM audit_log` must both be refused. They are restored as post-data
+   objects, so a restore that loaded every row and stopped short would leave a
+   mutable ledger that looks perfectly healthy.
+3. **The constraints came back.** A second active card on an existing address
+   must hit `customers_email_active_key`.
+4. **The credential digests came back**, as argon2id, for every account.
+
+What it does **not** cover, and what the manual drill below is still for: a real
+sign-in and a real commit *through the API* against the restored data. That needs
+the bundle re-pointed at the scratch database. Assertion 4 covers most of the
+risk — if the digests were missing, the café would discover it at the counter —
+but it is not the same as watching someone sign in.
+
+### The drill, by hand
+
 Restore into a scratch database rather than over the live one, so a failed drill
 costs nothing:
 
@@ -160,8 +215,10 @@ Then check the four things that a row count alone does not prove:
    the derived balance moves by one. The balance is summed from the ledger, not
    stored, so this is the assertion that the history restored coherently.
 
-**Last performed: 2026-09-16** (Phase 8), against PostgreSQL 16.13 with the
-scripts in this directory. A card with 9 accruals, a minted `unspent` reward, 10
+**Last performed by hand: 2026-09-16** (Phase 8), against PostgreSQL 16.13 with
+the scripts in this directory. Since Phase 9 the automated drill above also runs
+on every commit, so the answer to "when was the restore path last exercised?" is
+no longer a date somebody has to remember to update. A card with 9 accruals, a minted `unspent` reward, 10
 ledger rows and 12 audit rows was dumped and restored into an empty database:
 every count matched, both append-only triggers and the unique-email constraint
 refused their test mutations, the bootstrapped admin signed in, and a commit
