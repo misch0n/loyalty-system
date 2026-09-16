@@ -2,6 +2,10 @@ node_modules
 # Real server secrets (packages/server/.env). `.env.example` is committed; a
 # filled-in `.env` never is.
 .env
+# Database dumps written by ops/backup.sh and the restore drill. These are real
+# data, not artefacts to version — the scripts that produce them are committed,
+# the output never is.
+backups/
 dist
 dist-ssr
 *.local

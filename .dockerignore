@@ -1,0 +1,32 @@
+# Build context exclusions. The context is the repo ROOT for every image, because
+# npm workspaces resolve `@cafe/shared` through the root `node_modules` — an image
+# built from `packages/server/` alone could not install its own dependencies.
+#
+# Keep `package-lock.json`: `npm ci` refuses to run without it, and a reproducible
+# install is the whole reason the images use `ci` rather than `install`.
+
+.git
+.github
+.claude
+docs
+
+# Installed and built on the host. Copying either in would defeat the layer cache
+# and risk shipping a Linux image full of another platform's native modules.
+node_modules
+**/node_modules
+dist
+**/dist
+*.tsbuildinfo
+
+# Real secrets never enter an image. `.env.example` is committed and carries none.
+.env
+**/.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Test and tooling output.
+coverage
+*.log
+packages/web/e2e
+backups

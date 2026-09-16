@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CALL_SITE_SENSITIVE_KEYS,
   CENSOR,
   loggerOptions,
   safeUrl,
@@ -8,6 +9,29 @@ import {
   serializeError,
   serializeRequest,
 } from './logging.js';
+import { buildServer } from './server.js';
+
+/**
+ * Emits one line through a real, fully-configured logger and returns it parsed.
+ *
+ * The redaction under test is pino's, not ours: `redactPaths()` produces path
+ * strings that only pino knows how to apply, so asserting on the path list
+ * proves the intent while this proves the effect. Goes through `buildServer` for
+ * the same reason `server.test.ts` does — that is the assembly that actually
+ * ships.
+ */
+async function logged(details: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const lines: string[] = [];
+  const app = buildServer({
+    logLevel: 'info',
+    loggerDestination: { write: (line: string) => lines.push(line) },
+  });
+  app.log.info(details, 'under test');
+  await app.close();
+
+  const line = lines.find((entry) => entry.includes('under test'));
+  return JSON.parse(line ?? '{}') as Record<string, unknown>;
+}
 
 describe('log redaction', () => {
   it('scrubs an email address out of free text', () => {
@@ -62,6 +86,48 @@ describe('log redaction', () => {
 
     expect(logged).toEqual({ id: 'req-1', method: 'POST', url: '/customers?[redacted]' });
     expect(loggerOptions('info').serializers.req).toBe(serializeRequest);
+  });
+
+  it("keeps a database error's SQLSTATE, which is what a 500 is diagnosed from", async () => {
+    // Carried from Phase 4 and sharpened by Phase 5: `code` was redacted at
+    // every depth, which hid recovery codes (right) and every `err.code` with
+    // them (wrong). Phase 5 worked around it by writing the provider's code into
+    // the error *message*; this is the fix that workaround was waiting for.
+    const line = await logged({ err: Object.assign(new Error('duplicate key'), { code: '23505' }) });
+
+    expect((line.err as { code: string }).code).toBe('23505');
+  });
+
+  it('still redacts a `code` a call site logs itself', async () => {
+    // The other half. A recovery code is six typed characters (SCOPE-DECISIONS
+    // §2.3) and would be a credential in a log line, so the prefixes a call site
+    // uses stay covered — only the one-level wildcard that `err.code` matches
+    // was given up.
+    const line = await logged({ code: 'K39XQ4', details: { code: 'K39XQ4' } });
+
+    expect(line.code).toBe(CENSOR);
+    expect((line.details as { code: string }).code).toBe(CENSOR);
+  });
+
+  it('redacts an explicitly-named recovery code at any depth', async () => {
+    // The belt to that braces: `recoveryCode` is in SENSITIVE_KEYS, so it keeps
+    // the one-level wildcard a bare `code` gave up. If a recovery code ever does
+    // belong in a line, this is the key to log it under.
+    const line = await logged({ mail: { recoveryCode: 'K39XQ4' }, recovery_code: 'K39XQ4' });
+
+    expect((line.mail as { recoveryCode: string }).recoveryCode).toBe(CENSOR);
+    expect(line.recovery_code).toBe(CENSOR);
+  });
+
+  it('exempts `code` from the wildcard and from nothing else', () => {
+    const { redact } = loggerOptions('info');
+
+    expect(CALL_SITE_SENSITIVE_KEYS).toEqual(['code']);
+    expect(redact.paths).toContain('code');
+    expect(redact.paths).toContain('details.code');
+    expect(redact.paths).toContain('req.body.code');
+    // The one path deliberately absent — `err.code` is what matches it.
+    expect(redact.paths).not.toContain('*.code');
   });
 
   it('scrubs an error message and its stack', () => {

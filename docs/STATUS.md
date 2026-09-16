@@ -57,7 +57,24 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-09-16 (**Backend — Phase 7: realtime push over SSE** (branch
+**Last updated:** 2026-09-16 (**Backend — Phase 8: the Docker Compose bundle + ops** (branch
+`claude/backend-implementation-2kqb08`)). The system now comes up from nothing on one command.
+**New:** `compose.yml` (`db` · `migrate` · `api` · `web` · `backup` · `restore`) and
+`compose.dev.yml` (`db` · `migrate` · `api` · `mailpit`), multi-stage non-root images for the API
+and the SPA, healthchecks and dependency ordering so `api` waits for a migrated database,
+`.env.example`, and `ops/` — `backup.sh` (custom-format `pg_dump`, verified readable by
+`pg_restore` before it is kept), `restore.sh` (drops and recreates the schema rather than
+`pg_restore --clean`, and demands `RESTORE_CONFIRM=yes`), `nginx/default.conf` (which must not
+buffer `GET /events`), and `README.md`. **The restore drill was performed, not merely scripted:**
+a dump round-tripped all 11 tables into a fresh database. **`docker compose up` deliberately does
+not build the SPA** — the `web` service sits behind a `web` profile because `@cafe/web` does not
+compile (the 2026-09-16 decision), so the bundle brings up the database and API without stalling
+on a known-red package; the Dockerfile is written and reviewed so the UI pass inherits a working
+proxy. `logging.ts` now distinguishes `code` (a recovery credential where a call site puts it)
+from `err.code` (a Postgres SQLSTATE or Node error code) — blanket redaction had been censoring
+the most useful field in a 500. Database dumps are gitignored: the scripts are versioned, their
+output never is. **442 server tests** (was 434), **73 shared tests** unchanged; `@cafe/web`
+remains red on purpose. Prior — (**Backend — Phase 7: realtime push over SSE** (branch
 `claude/backend-implementation-2kqb08`)). The replacement for the one thing Phase 6 deleted
 without replacing: the PeerJS pairing layer's live cross-device refresh. **New:**
 `packages/server/src/events/hub.ts` (the in-process `EventHub` — who is listening to which

@@ -16,7 +16,7 @@
  *     interpolated into it before it ever reached a serializer.
  */
 
-/** Keys whose values must never appear in a log line. */
+/** Keys whose values must never appear in a log line, wherever they appear. */
 export const SENSITIVE_KEYS = [
   'name',
   'displayName',
@@ -32,7 +32,8 @@ export const SENSITIVE_KEYS = [
   'token',
   'tokenHash',
   'token_hash',
-  'code',
+  'recoveryCode',
+  'recovery_code',
   'codeHash',
   'code_hash',
   'shortCode',
@@ -41,6 +42,25 @@ export const SENSITIVE_KEYS = [
   'cookie',
   'set-cookie',
 ] as const;
+
+/**
+ * Keys that are a secret where a **call site** puts them and load-bearing where
+ * the **error serializer** does.
+ *
+ * `code` is the only one, and it is the reason this list exists at all. Phase 5
+ * gave recovery a short typed code, so `{ code }` on a log call is a credential;
+ * but `err.code` is a Postgres SQLSTATE (`23505` — unique violation) or a Node
+ * error code (`ECONNREFUSED`), which is the single most useful field when
+ * diagnosing a 500. Blanket-redacting the key censored both, and Phase 5 worked
+ * around it by writing the provider's code into the error *message* instead.
+ *
+ * So these are redacted under every prefix a call site uses, and deliberately
+ * NOT under the one-level wildcard — which is what `err.code` matches. The
+ * credential keeps a belt of its own: `recoveryCode`/`recovery_code` are in
+ * {@link SENSITIVE_KEYS} above, and a guardrail fails if any server source logs
+ * a bare `code` (`routes/guardrails.test.ts`).
+ */
+export const CALL_SITE_SENSITIVE_KEYS = ['code'] as const;
 
 export const CENSOR = '[redacted]';
 
@@ -85,9 +105,18 @@ export function safeUrl(url: string | undefined): string {
 }
 
 /** Every nesting a sensitive key is plausibly logged under, for pino `redact`. */
+const PREFIXES = ['', '*.', 'req.body.', 'req.query.', 'req.params.', 'details.', 'context.'];
+
+/** The one-level wildcard — and so the prefix that `err.code` matches. */
+const WILDCARD = '*.';
+
 function redactPaths(): string[] {
-  const prefixes = ['', '*.', 'req.body.', 'req.query.', 'req.params.', 'details.', 'context.'];
-  return prefixes.flatMap((prefix) => SENSITIVE_KEYS.map((key) => `${prefix}${key}`));
+  return [
+    ...PREFIXES.flatMap((prefix) => SENSITIVE_KEYS.map((key) => `${prefix}${key}`)),
+    ...PREFIXES.filter((prefix) => prefix !== WILDCARD).flatMap((prefix) =>
+      CALL_SITE_SENSITIVE_KEYS.map((key) => `${prefix}${key}`),
+    ),
+  ];
 }
 
 /**

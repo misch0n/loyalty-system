@@ -105,6 +105,22 @@ describe('a short typed code is never consumed globally', () => {
   });
 });
 
+describe('a recovery code is never logged under a bare `code` key', () => {
+  it('has no log call naming `code` in its details object', () => {
+    // Phase 8 narrowed the log deny-list: `code` is no longer redacted under the
+    // one-level wildcard, so that `err.code` — a Postgres SQLSTATE, the most
+    // useful field on a 500 — survives (`logging.ts`, CALL_SITE_SENSITIVE_KEYS).
+    // The prefixes a call site actually uses are still covered, so this guard is
+    // belt rather than braces; it exists because narrowing a redaction rule is
+    // the kind of change whose cost shows up much later, in a log nobody is
+    // reading at the time. Log `recoveryCode` if one ever genuinely belongs in a
+    // line — that key is redacted at every depth.
+    expect(sourcesMatching(/log\.(?:fatal|error|warn|info|debug|trace)\(\s*\{[^}]*\bcode\b/)).toEqual(
+      [],
+    );
+  });
+});
+
 describe('§6 — no post-commit undo was reintroduced', () => {
   it('has no undo, undoCommit or planUndo anywhere in the server', () => {
     // Appendix E replaced the 5-second post-commit undo with a 3-second

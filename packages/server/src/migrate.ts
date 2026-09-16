@@ -3,18 +3,29 @@
  *
  * Numbered, forward-only `.sql` files applied in filename order and recorded in
  * `schema_migrations`. Idempotent: re-running applies nothing. Run as a one-shot
- * `migrate` container before `api` starts (Phase 8).
+ * `migrate` container before `api` starts.
  *
  * There are no down-migrations — a restore comes from a backup, not from
  * unwinding DDL. A correction is a new numbered file.
+ *
+ * The CLI also **bootstraps the first admin** ({@link provision}). Phase 4 found
+ * that nothing called `bootstrap.ts` at all, which left a freshly migrated
+ * database with no admin and no way to create one over HTTP — every `POST
+ * /staff` route is admin-tier, so the system came up locked. The one-shot
+ * container is where that belongs, and putting it in the CLI rather than in the
+ * container's command keeps one path: `npm run migrate` and the `migrate`
+ * service do the same thing.
  */
 
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { BootstrapOutcome } from './bootstrap.js';
+import { bootstrap } from './bootstrap.js';
 import type { Db } from './db.js';
 import { createPool } from './db.js';
+import type { BootstrapAdmin } from './env.js';
 import { loadEnv } from './env.js';
 
 export const MIGRATIONS_DIR = fileURLToPath(new URL('../migrations', import.meta.url));
@@ -126,16 +137,63 @@ export async function migrate(db: Db, dir: string = MIGRATIONS_DIR): Promise<Mig
   return { applied, skipped };
 }
 
+export interface ProvisionResult {
+  migration: MigrateResult;
+  bootstrap: BootstrapOutcome;
+}
+
+/**
+ * What the one-shot `migrate` container does: bring the schema up to date, then
+ * make sure an admin exists.
+ *
+ * Strictly ordered — `bootstrap` writes to `staff_accounts`, which the first
+ * migration creates. Both halves are idempotent, so the whole thing is safe to
+ * run on every deploy; the bootstrap is additionally a no-op once any admin
+ * exists, so it can never reset a live credential back to the environment's.
+ */
+export async function provision(
+  db: Db,
+  admin: BootstrapAdmin | null,
+  dir: string = MIGRATIONS_DIR,
+): Promise<ProvisionResult> {
+  const migration = await migrate(db, dir);
+  return { migration, bootstrap: await bootstrap(db, admin) };
+}
+
 /** CLI entrypoint: `npm run migrate -w @cafe/server`. */
 async function main(): Promise<void> {
   const env = loadEnv();
   const db = createPool(env.databaseUrl);
   try {
-    const result = await migrate(db);
-    if (result.applied.length === 0) {
-      console.log(`Database up to date (${result.skipped.length} migrations already applied).`);
+    const { migration, bootstrap: seeded } = await provision(db, env.bootstrapAdmin);
+
+    if (migration.applied.length === 0) {
+      console.log(`Database up to date (${migration.skipped.length} migrations already applied).`);
     } else {
-      console.log(`Applied ${result.applied.length} migration(s): ${result.applied.join(', ')}`);
+      console.log(
+        `Applied ${migration.applied.length} migration(s): ${migration.applied.join(', ')}`,
+      );
+    }
+
+    switch (seeded.status) {
+      case 'created':
+        // The username is an operational fact, not PII, and an operator needs to
+        // know which account to sign in as. The credential is never logged.
+        console.log(`Created the first admin account: ${seeded.username}`);
+        break;
+      case 'already-bootstrapped':
+        break;
+      case 'not-configured':
+        // Not fatal: a migration run against a database that already has its
+        // admin is the common case, and this is the one that does not. Loud,
+        // because the alternative is an operator discovering it at the sign-in
+        // screen with no way forward.
+        console.warn(
+          'WARNING: no admin account exists and no bootstrap credentials are set. ' +
+            'Nobody can sign in. Set BOOTSTRAP_ADMIN_USERNAME, BOOTSTRAP_ADMIN_PASSWORD ' +
+            'and BOOTSTRAP_ADMIN_PIN, then run this again.',
+        );
+        break;
     }
   } finally {
     await db.end();

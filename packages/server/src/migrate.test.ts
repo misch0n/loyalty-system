@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from './db.js';
-import { migrate } from './migrate.js';
+import { verifySecret } from './hashing.js';
+import { migrate, provision } from './migrate.js';
 import { listTables, resetSchema, testPool } from './testing/database.js';
 
 const EXPECTED_TABLES = [
@@ -96,6 +97,62 @@ describe('migrations', () => {
     expect(await listTables(db)).toEqual(['schema_migrations', 'widgets']);
     const { rows } = await db.query('SELECT name FROM schema_migrations');
     expect(rows).toEqual([{ name: '001_ok.sql' }]);
+  });
+});
+
+describe('provisioning a database from nothing', () => {
+  // Phase 4 built and tested `bootstrap.ts` and then found that NOTHING called
+  // it: `index.ts` does not (a long-running API should not seed) and the migrate
+  // CLI did not either. A fresh deployment therefore migrated clean and came up
+  // with no admin — and `POST /staff` is admin-tier, so there was no way to
+  // create one over HTTP. These tests are the wiring that closes it.
+  const admin = { username: 'ada', password: 'correct horse', pin: '4821' };
+  let db: Db;
+
+  beforeAll(() => {
+    db = testPool();
+  });
+  afterAll(async () => {
+    await db.end();
+  });
+  beforeEach(async () => {
+    await resetSchema(db);
+  });
+
+  it('migrates and then creates the first admin', async () => {
+    const result = await provision(db, admin);
+
+    expect(result.migration.applied).toEqual(['001_initial.sql']);
+    expect(result.bootstrap.status).toBe('created');
+
+    const { rows } = await db.query("SELECT username, role, active FROM staff_accounts");
+    expect(rows).toEqual([{ username: 'ada', role: 'admin', active: true }]);
+  });
+
+  it('is idempotent — a redeploy migrates nothing and reseeds nothing', async () => {
+    await provision(db, admin);
+    const second = await provision(db, { ...admin, password: 'a different one' });
+
+    expect(second.migration.applied).toEqual([]);
+    expect(second.bootstrap.status).toBe('already-bootstrapped');
+
+    // The point of the second half: running this on every deploy must never
+    // reset a live credential back to whatever is in the environment.
+    const { rows } = await db.query<{ password_hash: string }>(
+      'SELECT password_hash FROM staff_accounts',
+    );
+    expect(rows).toHaveLength(1);
+    await expect(verifySecret(rows[0]!.password_hash, 'correct horse')).resolves.toBe(true);
+  });
+
+  it('migrates anyway when no bootstrap credentials are configured', async () => {
+    // A stack brought up without them still gets its schema; it just has nobody
+    // who can sign in, which the CLI warns about loudly.
+    const result = await provision(db, null);
+
+    expect(result.migration.applied).toEqual(['001_initial.sql']);
+    expect(result.bootstrap.status).toBe('not-configured');
+    expect(await listTables(db)).toEqual(EXPECTED_TABLES);
   });
 });
 

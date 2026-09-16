@@ -1,0 +1,173 @@
+# Café Loyalty — the deployable bundle.
+#
+#   docker compose up -d                  database + migrations + API
+#   docker compose --profile web up -d    …and nginx serving the SPA (see below)
+#
+# Configuration comes from a `.env` beside this file; copy `.env.example` and
+# fill it in. Every value the server reads is validated at boot by
+# `packages/server/src/env.ts`, which EXITS on a missing or malformed one — a
+# misconfigured container fails immediately and says why, rather than failing on
+# the first request that happens to need the value.
+#
+# ⚠ `web` is behind a profile because the SPA does not compile. Phase 6 retired
+# the IndexedDB prototype and left its screens standing; the UI is reconciled
+# against the backend in a later pass (SCOPE-DECISIONS §6). Removing
+# `profiles: [web]` is the whole of what the UI pass has to change here.
+
+name: cafe-loyalty
+
+# Everything the API and the migrate job read. Anchored rather than repeated so
+# the two containers cannot drift — they are the same image and must agree about
+# the database they are pointed at.
+x-server-env: &server-env
+  NODE_ENV: production
+  DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  APP_URL: ${APP_URL:-}
+  MAIL_SMTP_URL: ${MAIL_SMTP_URL:-}
+  MAIL_FROM: ${MAIL_FROM:-}
+  COOKIE_SECURE: ${COOKIE_SECURE:-true}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      # Without this a `docker compose down -v` and a re-`up` silently rebuild the
+      # cluster with the host's collation, which changes text ordering.
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    # Deliberately unpublished: the database is reachable only on the Compose
+    # network. `compose.dev.yml` opens a loopback port for psql.
+    healthcheck:
+      # `pg_isready` alone answers true while the cluster is still running its
+      # init scripts on a first boot, so `migrate` would race it.
+      test: ['CMD-SHELL', 'pg_isready -q -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # One-shot, and the API waits for it to exit 0. It migrates and then creates the
+  # first admin (`provision` in `migrate.ts`); both halves are idempotent, so this
+  # runs on every deploy and does nothing on most of them.
+  migrate:
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile
+    image: cafe-loyalty/server:latest
+    command: ['node', 'dist/migrate.js']
+    restart: 'no'
+    environment:
+      <<: *server-env
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_PIN: ${BOOTSTRAP_ADMIN_PIN:-}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile
+    image: cafe-loyalty/server:latest
+    restart: unless-stopped
+    environment: *server-env
+    # Loopback only. nginx reaches the API over the Compose network and needs
+    # nothing published; this exists so an operator can probe `/readyz` and so the
+    # bundle is usable while `web` is behind a profile. Drop it once nginx fronts
+    # everything.
+    ports:
+      - '127.0.0.1:${API_PORT:-3000}:3000'
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # `/readyz` rather than `/healthz`: this gates `web`, and "ready to serve"
+    # means the database is reachable. Liveness is the other endpoint and
+    # deliberately never touches it — a database blip must not look like a dead
+    # process.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/readyz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    # The server drains in-flight requests on SIGTERM (`installShutdownHandlers`),
+    # including the background mail sender and the open SSE streams. 30s is the
+    # Compose default and is ample; naming it stops a future edit from shortening
+    # it by accident.
+    stop_grace_period: 30s
+
+  web:
+    profiles: ['web']
+    build:
+      context: .
+      dockerfile: packages/web/Dockerfile
+    image: cafe-loyalty/web:latest
+    restart: unless-stopped
+    ports:
+      - '${WEB_PORT:-8080}:8080'
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # `docker compose --profile backup run --rm backup`
+  #
+  # A profile rather than a long-running service: this is a job, and a container
+  # that sleeps between runs is a worse cron than cron. `ops/README.md` has the
+  # schedule line.
+  backup:
+    profiles: ['backup']
+    image: postgres:16-alpine
+    restart: 'no'
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
+    volumes:
+      - ./ops:/ops:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+    entrypoint: ['/ops/backup.sh']
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # `docker compose --profile restore run --rm restore <file>`
+  #
+  # Destructive, and refuses to run without `RESTORE_CONFIRM=yes`. Stop `api`
+  # first — see the drill in `ops/README.md`.
+  restore:
+    profiles: ['restore']
+    image: postgres:16-alpine
+    restart: 'no'
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      RESTORE_CONFIRM: ${RESTORE_CONFIRM:-}
+    volumes:
+      - ./ops:/ops:ro
+      - ${BACKUP_DIR:-./backups}:/backups:ro
+    entrypoint: ['/ops/restore.sh']
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db-data:

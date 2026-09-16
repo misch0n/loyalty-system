@@ -114,13 +114,23 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 
 ## 1 · Progress checklist
 
-> **NEXT TASK: Phase 8** — the Docker Compose bundle + ops. `compose.yml` + `compose.dev.yml`,
-> four services plus mailpit, `.env.example`, healthchecks, non-root images, a backup job **and a
-> performed restore drill**, structured logging with PII redaction. **Read the revoked-promise box
-> at the top of this file first.** Three things below are addressed to this phase specifically:
-> the `bootstrap.ts` gap, the `logging.ts` `code` key, and — new from Phase 7 — nginx must not
-> buffer `GET /events` (the server sends `x-accel-buffering: no`, and the proxy config has to
-> respect it and give the location a long `proxy_read_timeout`).
+> **NEXT TASK: Phase 9** — CI + integration tests against a real Postgres. **Read the
+> revoked-promise box at the top of this file first.** CI is the piece that makes every earlier
+> phase's green self-checking: the server suite already refuses to run without a database
+> (`src/testing/globalSetup.ts`), so the workflow must give it a Postgres service container or the
+> job fails closed — which is the intended behaviour, not something to work around. `@cafe/web` is
+> red on purpose and its job must not gate the build.
+>
+> Phase 8 landed 2026-09-16: `compose.yml` (db · migrate · api · web · backup · restore) and
+> `compose.dev.yml` (db · migrate · api · mailpit), non-root images, healthchecks, `.env.example`,
+> `ops/backup.sh` + `ops/restore.sh` + `ops/README.md`. **The restore drill was performed, not
+> just scripted** — a custom-format dump round-tripped all 11 tables into a fresh database via
+> `pg_restore`. `logging.ts` now separates `code` (a recovery credential at a call site) from
+> `err.code` (a Postgres SQLSTATE or Node error code), which blanket redaction had been censoring
+> — the single most useful field when diagnosing a 500. **442 server tests** (was 434).
+> **`docker compose up` deliberately does not build the SPA**: the `web` service sits behind a
+> `web` profile because `@cafe/web` does not compile, so the bundle brings up the database and the
+> API and nothing stalls on a known-red package.
 >
 > Phase 7 landed 2026-09-16: **`GET /events`**, a one-way SSE channel carrying a `changed`
 > **signal** (`{scope, id, reason}`) per customer and per till. The subjects are derived from the
@@ -172,7 +182,7 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 - [x] **Phase 6** — **Retire the prototype + reshape the shared port**  ⟵ the SPA went red here
 - [x] **Phase 10** — Monorepo flip (`packages/shared` + `packages/web`) — pulled forward
 - [x] **Phase 7** — Realtime push (SSE) — replaces what device pairing provided
-- [ ] **Phase 8** — Docker Compose bundle + ops (backups, health, logging)
+- [x] **Phase 8** — Docker Compose bundle + ops (backups, health, logging)
 - [ ] **Phase 9** — CI + integration tests against a real Postgres
 - [ ] **— UI pass —** a separate initiative: client adapters, services reshaped to the API,
       screens reconciled against [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md)
