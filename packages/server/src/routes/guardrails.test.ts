@@ -62,6 +62,26 @@ describe('§4-B — the PIN is never searched for globally', () => {
   });
 });
 
+describe('Phase 5 — a short typed code is never consumed globally', () => {
+  it('gives the port’s recovery pair no caller outside the store', () => {
+    // `DataStore.consumeRecoveryCode` looks a code up by value across the whole
+    // table, which is right for the prototype's 128-bit token and wrong for six
+    // typed characters: it would let one guess play against every live code in
+    // the café at once. `recovery/codes.ts` scopes the lookup to the address
+    // that asked (the recovery twin of §4-B's PIN inversion), and the port pair
+    // keeps working for the prototype with no route attached.
+    //
+    // Matched through the `store.` receiver rather than by bare name, because
+    // `recovery/codes.ts` exports a *scoped* `consumeRecoveryCode` of its own
+    // and `routes/recovery.ts` is supposed to call that one. What must not
+    // appear anywhere — that file included — is the call through the port.
+    const callers = sourcesMatching(
+      /\bstore\.(createRecoveryCode|consumeRecoveryCode)\b/,
+    ).filter((path) => !path.endsWith('.test.ts'));
+    expect(callers).toEqual([]);
+  });
+});
+
 describe('§6 — no post-commit undo was reintroduced', () => {
   it('has no undo, undoCommit or planUndo anywhere in the server', () => {
     // Appendix E replaced the 5-second post-commit undo with a 3-second
@@ -166,6 +186,9 @@ describe('§6 — the API surface is exactly this', () => {
 ├── /audit (GET, HEAD, POST)
 ├── /alerts (GET, HEAD)
 ├── /me (GET, HEAD, PUT, DELETE)
+├── /recovery/request (POST)
+├── /recovery/consume (POST)
+├── /readyz (GET, HEAD)
 ├── /customers (POST)
 │   ├── /by-token/:token (GET, HEAD)
 │   ├── /by-code/:shortCode (GET, HEAD)
@@ -186,8 +209,7 @@ describe('§6 — the API surface is exactly this', () => {
 ├── /transactions (GET, HEAD)
 ├── /export (GET, HEAD)
 ├── /import (POST)
-├── /healthz (GET, HEAD)
-└── /readyz (GET, HEAD)
+└── /healthz (GET, HEAD)
 `.trim(),
     );
   });

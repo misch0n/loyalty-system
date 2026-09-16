@@ -9,6 +9,8 @@
  *     `POST /customers`                      register (rate-limited)
  *     `GET  /customers/by-token/:token`      read a card by its own credential
  *     `GET|PUT|DELETE /me`                   this device's card recognition
+ *     `POST /recovery/request`               email in, a code goes to the inbox
+ *     `POST /recovery/consume`               email + code in, card bound here
  *     `GET  /auth/session`                   am I signed in? (Phase 3)
  *     `POST /auth/login` · `/auth/unlock` · `/auth/logout`
  *
@@ -37,6 +39,12 @@
  *     no `POST /staff/by-pin`                 a credential oracle (§4-B)
  *     no `GET  /staff/by-username/:username`  returns the credential digests
  *     no `POST /customers/:id/redeem`         retired by rewards-as-objects
+ *     no `POST /recovery/codes`               minting a code is an internal step
+ *                                             of `/recovery/request`, never a
+ *                                             thing a client asks for; and the
+ *                                             port's `consumeRecoveryCode` is
+ *                                             global-by-code, which a six-digit
+ *                                             typed code cannot be (Phase 5)
  *     no cross-account activity read at all   (§4-F, SCOPE-DECISIONS §1)
  *     no undo of any kind                     (Appendix E)
  * `routes/guardrails.test.ts` fails if any of them appears.
@@ -49,12 +57,14 @@ import { registerAuthRoutes } from './auth';
 import { registerConfigRoutes } from './config';
 import { registerCustomerRoutes } from './customers';
 import { registerIdentityRoutes } from './identity';
+import { registerRecoveryRoutes } from './recovery';
 import { registerSnapshotRoutes } from './snapshot';
 import { registerStaffRoutes } from './staff';
 
 export function registerApiRoutes(app: FastifyInstance, deps: AuthDeps): void {
   registerAuthRoutes(app, deps);
   registerIdentityRoutes(app, deps);
+  registerRecoveryRoutes(app, deps);
   registerCustomerRoutes(app, deps);
   registerStaffRoutes(app, deps);
   registerConfigRoutes(app, deps);

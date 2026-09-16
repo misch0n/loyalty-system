@@ -31,7 +31,6 @@
  *   • **`redeemReward` is refused.** See the method.
  */
 
-import { createHash } from 'node:crypto';
 import type {
   AppendAuditInput,
   AppendTransactionInput,
@@ -70,6 +69,7 @@ import { normalizeEmail, normalizePhone } from '@cafe/shared/domain/validation';
 import type { Db, Queryable } from './db';
 import { withTransaction } from './db';
 import { hashSecret, verifySecret } from './hashing';
+import { hashRecoveryCode } from './recovery/codes';
 
 // ── row shapes ────────────────────────────────────────────────────────────────
 
@@ -908,16 +908,22 @@ export class PostgresStore implements DataStore {
 
   /**
    * Codes are hashed at rest (SCOPE-DECISIONS §2.3) — a stolen database must not
-   * hand over live recovery codes. SHA-256 suits the prototype's high-entropy
-   * code; Phase 5 reshapes recovery into a **short typed** code, where length
-   * stops carrying the security and rate limiting plus the `attempts` lockout
-   * take over.
+   * hand over live recovery codes. The hash is {@link hashRecoveryCode}, shared
+   * with `recovery/codes.ts` so the two can never disagree about what is stored.
+   *
+   * **This pair is the prototype's shape and has no route** (Phase 5). The
+   * prototype's code is a 128-bit token, so "consume whatever code this is"
+   * carries its own security; the server's code is six typed characters, and the
+   * same call over HTTP would be the recovery twin of §4-B's global PIN lookup.
+   * `recovery/codes.ts` inverts it to "verify this code for the address that
+   * asked", and these two keep working for the prototype, held to its answer by
+   * the conformance suite.
    */
   async createRecoveryCode(input: CreateRecoveryCodeInput): Promise<void> {
     await this.db.query(
       `INSERT INTO recovery_codes (id, code_hash, customer_id, expires_at)
        VALUES ($1, $2, $3, to_timestamp($4 / 1000.0))`,
-      [generateId(), hashCode(input.code), input.customerId, input.expiresAt],
+      [generateId(), hashRecoveryCode(input.code), input.customerId, input.expiresAt],
     );
   }
 
@@ -932,7 +938,7 @@ export class PostgresStore implements DataStore {
       `UPDATE recovery_codes SET used_at = now()
         WHERE code_hash = $1 AND used_at IS NULL AND expires_at > now()
         RETURNING customer_id`,
-      [hashCode(code)],
+      [hashRecoveryCode(code)],
     );
     const row = rows[0];
     return row ? row.customer_id : null;
@@ -1148,11 +1154,6 @@ export class PostgresStore implements DataStore {
       }
     });
   }
-}
-
-/** SHA-256 hex — recovery codes are never stored in the clear. */
-function hashCode(code: string): string {
-  return createHash('sha256').update(code).digest('hex');
 }
 
 /** `noUncheckedIndexedAccess` guard: a query that must have returned a row. */

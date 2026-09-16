@@ -36,10 +36,12 @@ import type {
   RewardStatus,
 } from '@cafe/shared/domain/models';
 import type { CommitResult } from '@cafe/shared/ports/DataStore';
+import type { OutboundMail } from '@cafe/shared/ports/Mailer';
 import { generateToken, isValidToken, normalizeShortCode } from '@cafe/shared/domain/tokens';
 import { isValidEmail } from '@cafe/shared/domain/validation';
 import type { AuthDeps } from '../auth/guards';
 import { cookieMaxAgeSec, requireStaff, setSessionCookies } from '../auth/guards';
+import { cardLink } from '../mail/links';
 import {
   isActiveStaff,
   isCommitReplay,
@@ -200,6 +202,34 @@ function clampAccrual(points: number, config: ProgramConfig): number {
   return Math.max(0, Math.min(cap, Math.floor(points)));
 }
 
+/**
+ * Sends a transactional mail without making the request wait for it.
+ *
+ * **The server is the only sender in a server-backed build** (Phase 5). The
+ * prototype's `CustomerService` and `LoyaltyService` send the welcome and
+ * reward-available mails from the browser through the `Mailer` port; here the
+ * routes do, because the route is what actually knows a card was created or a
+ * reward minted, and because the provider credential must not be in a client
+ * bundle (BACKEND-PLAN §3-C-13). Phase 6 must therefore wire the SPA's services
+ * with `NoopMailer` under `VITE_DATASTORE=api` — two senders would mean two
+ * mails, and the client's would be the one that cannot be trusted.
+ *
+ * Best-effort, exactly as the services are: a mail that fails must never fail
+ * the registration or the commit that triggered it. The error goes to the log,
+ * where the serializer scrubs it — `CLAUDE.md` rules PII out of logs, and a
+ * provider error routinely quotes the recipient.
+ */
+function sendMail(
+  deps: AuthDeps,
+  request: FastifyRequest,
+  mail: OutboundMail,
+): void {
+  deps.background.run(
+    () => deps.mailer.send(mail),
+    (err) => request.log.error({ err, kind: mail.kind }, 'transactional mail failed'),
+  );
+}
+
 // ── routes ────────────────────────────────────────────────────────────────────
 
 export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): void {
@@ -273,6 +303,15 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): vo
         action: 'customer.register',
         targetId: customer.id,
         details: 'with-details',
+      });
+
+      // Email is mandatory now (SCOPE-DECISIONS §2.1), so the welcome mail is
+      // guaranteed rather than best-effort on whether one was given — which is
+      // also what makes every card recoverable (§2.2).
+      sendMail(deps, request, {
+        to: customer.email as string,
+        kind: 'card-created',
+        params: { card_link: cardLink(deps.appUrl, customer.token) },
       });
 
       // A till registering a card for someone at the counter must not become
@@ -548,6 +587,24 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): vo
             targetId: request.params.id,
             details: body.source,
           });
+        }
+
+        // One reward-available mail per commit that minted something, matching
+        // `LoyaltyService.commit`. A replay sends none, for the same reason it
+        // writes no audit rows: the customer already got this mail.
+        if (result.minted.length > 0) {
+          const customer = await store.getCustomerById(request.params.id);
+          const config = await store.getConfig();
+          if (customer?.email) {
+            sendMail(deps, request, {
+              to: customer.email,
+              kind: 'reward-available',
+              params: {
+                reward: config.rewardDescription,
+                card_link: cardLink(deps.appUrl, customer.token),
+              },
+            });
+          }
         }
       }
 

@@ -18,7 +18,10 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { DataStore } from '@cafe/shared/ports/DataStore';
+import type { Mailer } from '@cafe/shared/ports/Mailer';
+import { BackgroundWork } from '../background';
 import type { Db } from '../db';
+import { LogMailer } from '../mail/LogMailer';
 import { clearCookie, parseCookies, serializeCookie, type CookieOptions } from './cookies';
 import { AttemptLimiter } from './rateLimit';
 import {
@@ -78,6 +81,29 @@ export interface AuthDeps {
    * fails every time and locks out.
    */
   commitLimiter: AttemptLimiter;
+  /**
+   * Recovery *requests*, per address and per source (Phase 5). The odd one out:
+   * it counts every request rather than every failure, because a recovery
+   * request has no observable failure to count — SCOPE-DECISIONS §2.3 requires
+   * an unknown address to be indistinguishable from a known one, so the route
+   * cannot tell the caller (or this limiter) which it got.
+   */
+  recoveryRequestAddressLimiter: AttemptLimiter;
+  recoveryRequestIpLimiter: AttemptLimiter;
+  /**
+   * Wrong recovery codes, per address and per source. Back to counting failures,
+   * and this is the control §2.3 says carries the security that a six-character
+   * code no longer can. The durable half lives in the `recovery_codes.attempts`
+   * column, which survives a restart.
+   */
+  recoveryConsumeAddressLimiter: AttemptLimiter;
+  recoveryConsumeIpLimiter: AttemptLimiter;
+  /** Outbound mail. `LogMailer` when no SMTP is configured — never absent. */
+  mailer: Mailer;
+  /** Public origin of the SPA, for the card links in outbound mail. */
+  appUrl: string;
+  /** Work a route starts without waiting for it — the recovery mail, and only it. */
+  background: BackgroundWork;
 }
 
 export interface CreateAuthDepsInput {
@@ -87,6 +113,10 @@ export interface CreateAuthDepsInput {
   allowedOrigins?: readonly string[];
   /** Injectable clock — sessions and limiters share it, so tests move one dial. */
   now?: () => number;
+  /** Defaults to a `LogMailer` that drops the line, for suites that send no mail. */
+  mailer?: Mailer;
+  /** Defaults to the Vite dev server, matching `parseEnv`'s own default. */
+  appUrl?: string;
 }
 
 /** Failure window and lockout, shared by all three buckets. */
@@ -107,6 +137,13 @@ const LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
  *     mistyping their address, not enough to enumerate one.
  *   • **20** failed commits per staff account — loose, because a genuine till
  *     hitting a real error should not lock itself out mid-service.
+ *   • **3** recovery requests per *address* and **20** per source address —
+ *     counting requests, not failures (see {@link AuthDeps}). Three is enough
+ *     for a customer who deleted the first mail by accident, and few enough that
+ *     the route cannot be used to bombard an inbox.
+ *   • **5** wrong recovery codes per address, **20** per source address. The
+ *     per-address number is the one SCOPE-DECISIONS §2.3 leans on, and it is
+ *     backed by a durable count in `recovery_codes.attempts`.
  */
 export function createAuthDeps(input: CreateAuthDepsInput): AuthDeps {
   const { now } = input;
@@ -122,6 +159,13 @@ export function createAuthDeps(input: CreateAuthDepsInput): AuthDeps {
     pinLimiter: new AttemptLimiter({ limit: 5, ...shared }),
     registerLimiter: new AttemptLimiter({ limit: 5, ...shared }),
     commitLimiter: new AttemptLimiter({ limit: 20, ...shared }),
+    recoveryRequestAddressLimiter: new AttemptLimiter({ limit: 3, ...shared }),
+    recoveryRequestIpLimiter: new AttemptLimiter({ limit: 20, ...shared }),
+    recoveryConsumeAddressLimiter: new AttemptLimiter({ limit: 5, ...shared }),
+    recoveryConsumeIpLimiter: new AttemptLimiter({ limit: 20, ...shared }),
+    mailer: input.mailer ?? new LogMailer(() => {}),
+    appUrl: input.appUrl ?? 'http://localhost:5173',
+    background: new BackgroundWork(),
   };
 }
 

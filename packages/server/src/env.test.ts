@@ -107,6 +107,77 @@ describe('parseEnv', () => {
     expect(parseEnv({ ...MINIMAL, PORT: '   ' }).port).toBe(3000);
   });
 
+  describe('mail', () => {
+    const MAIL = {
+      MAIL_SMTP_URL: 'smtp://user:hunter2@mail.example:587',
+      MAIL_FROM: '"Ckyka" <no-reply@cafe.example>',
+      APP_URL: 'https://cafe.example',
+    };
+
+    it('is absent by default — the server runs without a mail server', () => {
+      expect(parseEnv(MINIMAL).mail).toBeNull();
+    });
+
+    it('reads both halves together', () => {
+      expect(parseEnv({ ...MINIMAL, ...MAIL }).mail).toEqual({
+        smtpUrl: MAIL.MAIL_SMTP_URL,
+        from: MAIL.MAIL_FROM,
+      });
+    });
+
+    it('is all-or-nothing — half a mailer is a deployment mistake', () => {
+      // The failure it prevents is the quiet kind: customers never receive a
+      // recovery code and nothing in the logs says why.
+      expect(problems({ ...MINIMAL, MAIL_FROM: 'no-reply@cafe.example' })).toEqual([
+        expect.stringContaining('must be set together'),
+      ]);
+    });
+
+    it('never echoes the SMTP URL — it carries a password', () => {
+      const found = problems({ ...MINIMAL, ...MAIL, MAIL_SMTP_URL: 'mail.example:587' });
+
+      expect(found).toHaveLength(1);
+      expect(found.join(' ')).not.toContain('hunter2');
+      expect(found.join(' ')).not.toContain('mail.example');
+    });
+
+    it('rejects a sender with no address in it', () => {
+      expect(problems({ ...MINIMAL, ...MAIL, MAIL_FROM: 'Ckyka' })).toEqual([
+        expect.stringContaining('MAIL_FROM'),
+      ]);
+    });
+  });
+
+  describe('APP_URL', () => {
+    it('defaults to the Vite dev server when nothing sends mail', () => {
+      expect(parseEnv(MINIMAL).appUrl).toBe('http://localhost:5173');
+    });
+
+    it('is required once mail is configured', () => {
+      // Tied to the mailer rather than to NODE_ENV because that is what it is
+      // *for*: a card link pointing at localhost arrives in a customer's inbox
+      // and is simply dead.
+      const found = problems({
+        ...MINIMAL,
+        MAIL_SMTP_URL: 'smtp://mail.example:587',
+        MAIL_FROM: 'no-reply@cafe.example',
+      });
+      expect(found).toEqual([expect.stringContaining('APP_URL is required')]);
+    });
+
+    it('trims a trailing slash so link building can always join with one', () => {
+      expect(parseEnv({ ...MINIMAL, APP_URL: 'https://cafe.example/' }).appUrl).toBe(
+        'https://cafe.example',
+      );
+    });
+
+    it('rejects a value that is not a URL', () => {
+      expect(problems({ ...MINIMAL, APP_URL: 'cafe.example' })).toEqual([
+        expect.stringContaining('APP_URL'),
+      ]);
+    });
+  });
+
   describe('bootstrap admin', () => {
     const ADMIN = {
       BOOTSTRAP_ADMIN_USERNAME: 'manager',

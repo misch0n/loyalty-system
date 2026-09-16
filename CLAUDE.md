@@ -80,7 +80,7 @@ PeerJS also backs a second, separate channel: **session-scoped device pairing** 
 
 ## Stack
 - Prototype: React + TypeScript + Vite, react-router (`HashRouter` or 404.html SPA fallback), IndexedDB (`idb`/Dexie), `qrcode` + `html5-qrcode`/`@zxing/browser`, `peerjs` (real dep, not devDep), EmailJS (via `fetch`, no npm dep), Metered TURN relay, Vitest + jsdom (unit/component), `puppeteer` devDep (e2e smoke suite in `e2e/`).
-- Production (target): same React frontend; **Node + TypeScript + Express/Fastify + PostgreSQL** backend; flat-rate VPS + Cloudflare. Apple Wallet updates need the backend (PassKit + APNs); Google Wallet via REST. Email via a server-side provider.
+- Production (target): same React frontend; **Node + TypeScript + Express/Fastify + PostgreSQL** backend; flat-rate VPS + Cloudflare. Apple Wallet updates need the backend (PassKit + APNs); Google Wallet via REST. Email via a server-side provider — **built** (`packages/server/src/mail/`, SMTP via `nodemailer`; mailpit in dev, SES/Brevo/Resend in production, all over one `MAIL_SMTP_URL`), which retires `EmailJsMailer` in the server build.
 - TypeScript throughout. The `src/domain/`, `src/ports/`, `src/adapters/`, and `src/services/` layers match `docs/SPEC.md §12`. The `src/ui/` layout diverges (see STATUS.md divergences g, k) — record any further UI deviations there.
 
 ## UI

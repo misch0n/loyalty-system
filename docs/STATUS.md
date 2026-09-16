@@ -6,8 +6,8 @@
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 >
 > **▶ Active initiative — the production backend.** [`BACKEND-PLAN.md`](BACKEND-PLAN.md) is the
-> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose, 12 phases; **Phases 0–4 done**,
-> next is Phase 5 — the server-side `Mailer` + the recovery flow) and
+> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose, 12 phases; **Phases 0–5 done**,
+> next is Phase 6 — the client adapters + the composition root) and
 > [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) is the maintainer's feature triage, which **overrides
 > scope statements elsewhere including `CLAUDE.md`** — mandatory name + email, wallet and transport
 > seams deleted, no admin stats or export surface. Everything described below is the prototype's
@@ -34,8 +34,36 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-09-15 (**Backend — Phase 4: the HTTP API surface + the authorization
-boundary** (branch `claude/backend-implementation-2kqb08`)). Every `ApiStore` path now has a route
+**Last updated:** 2026-09-16 (**Backend — Phase 5: the server-side `Mailer` + the recovery flow**
+(branch `claude/backend-implementation-2kqb08`)). Mail leaves the browser and recovery becomes a
+**typed code** (SCOPE-DECISIONS §2.3). New under `packages/server/src/`: **`mail/`** —
+`SmtpMailer` (nodemailer; mailpit in dev, SES/Brevo/Resend in production, all over one
+`MAIL_SMTP_URL`), `LogMailer` as the unconfigured fallback with a boot-time warning, and
+`templates.ts`, which moves the three mail bodies out of an EmailJS dashboard and into the
+repository — **`recovery/codes.ts`** and **`routes/recovery.ts`** (`POST /recovery/request` ·
+`POST /recovery/consume`, both public), and **`background.ts`**. The phase's two claims are both
+tested directly. *The round trip works:* a code is mailed, typed back hyphenated and in lower case,
+and the card is bound to the device that typed it by an HttpOnly cookie — proved end to end through
+a real SMTP socket, not a double. *An unknown address is indistinguishable from a known one:* the
+same 202 and the same body, and the **same timing**, because the lookup and the send happen after
+the response as background work; every way a consume can fail answers one `invalid_code`. What
+makes six characters safe is stated where it is enforced — the guess is checked **against the card
+that asked for it** (never globally, the recovery twin of §4-B's PIN inversion, with a guardrail to
+keep it that way), wrong guesses are counted **durably** in `recovery_codes.attempts` so a restart
+does not buy five more, and issuing a code supersedes the last one. The **welcome and
+reward-available mails move to the routes** — the route is what knows a card was created or a
+reward minted, and a replayed commit sends nothing, for the same reason it writes no audit rows;
+**Phase 6 must wire the SPA with `NoopMailer`** or every mail goes out twice. New env:
+`MAIL_SMTP_URL` + `MAIL_FROM` (both or neither) and `APP_URL`, required once mail is configured
+because a card link pointing at `localhost` is a silent failure. Five security-critical rules were
+**deleted to confirm the tests fail without them** (the per-address scoping, the `attempts`
+predicate, code superseding, the constant-shape response, the till refusal on consume), and the
+whole flow was then driven over a real socket with `curl` against a live SMTP sink, with the log
+checked afterwards for the name, address, phone, card token, short code, recovery code and both
+session tokens — none present. Divergences **x–z** record the shape changes. **+74 server tests →
+389**, none skipped; the SPA's **461** and every file under `src/` are untouched. Prior —
+**Backend — Phase 4: the HTTP API surface + the authorization
+boundary**. Every `ApiStore` path now has a route
 behind it, on three tiers built on Phase 3's `requireStaff`/`requireAdmin`. New under
 `packages/server/src/routes/`: **`customers.ts`** (registration, card reads, the counter commit,
 corrections, tombstone deletion), **`identity.ts`** (`GET/PUT/DELETE /me` — the `IdentityStore`
@@ -1182,6 +1210,48 @@ w. **Config clamping is stricter than `ConfigService.sanitizeConfig`
    (`400 rejected_field`): revocation is `POST /auth/logout-all`, and a config
    field a client can set would let it *lower* the epoch and un-revoke what it
    had just cancelled.
+
+x. **Recovery becomes a typed code, and the code is never consumed globally
+   (SCOPE-DECISIONS §2.3, Phase 5).** The prototype mails a single-use **link**
+   carrying a 128-bit token and `RecoveryService.redeem(code)` consumes it by
+   value, wherever it came from. The server mails a **six-character Crockford
+   code** the customer types on the device in their hand, over two public routes:
+   `POST /recovery/request` (email in) and `POST /recovery/consume` (email +
+   code in, identity cookie out). The change is not cosmetic — a short code
+   cannot carry its own security, so `packages/server/src/recovery/codes.ts`
+   checks a guess **against the card that asked for it**, counts wrong guesses in
+   the `recovery_codes.attempts` column (durably: a restart does not buy five
+   more), and supersedes an outstanding code when a new one is issued. This is
+   the recovery twin of divergence **p**: the port's `createRecoveryCode` /
+   `consumeRecoveryCode` keep working for the prototype and are given **no
+   route**, enforced by a guardrail. Consequence for Phase 6: `RecoveryService`
+   cannot survive the swap unchanged — `request` mints a code and sends mail
+   client-side, and `redeem` now needs the address alongside the code — so it
+   joins `getAlerts` (divergence **u**) as a service the composition root must
+   point at a route. The screens' calls do not change shape.
+
+y. **The server is the only sender of transactional mail (BACKEND-PLAN §3-C-13,
+   Phase 5).** `EmailJsMailer` exposes its public key in the client bundle, so it
+   is retired in the server build; `SmtpMailer` (nodemailer, `MAIL_SMTP_URL`)
+   takes over, with `LogMailer` as the unconfigured fallback and a boot-time
+   warning when there is none. The **welcome** and **reward-available** mails move
+   with it — they are sent by `POST /customers` and `POST /customers/:id/commit`
+   rather than by `CustomerService` and `LoyaltyService`, because the route is
+   what knows a card was created or a reward minted. **Phase 6 must therefore
+   wire the SPA with `NoopMailer` under `VITE_DATASTORE=api`**, or every mail
+   goes out twice. The bodies also move into the repository
+   (`packages/server/src/mail/templates.ts`) instead of living in an EmailJS
+   dashboard, which retires divergence **b** for the server build.
+
+z. **Transactional mail is sent after the response, not during it (Phase 5).**
+   `background.ts` runs the send outside the request. For recovery this is a
+   security property, not an optimisation: an awaited send makes a known address
+   measurably slower than an unknown one, which is the enumeration oracle §2.3
+   forbids — `POST /recovery/request` answers `202 {"status":"sent"}` before it
+   has looked the address up at all. For the welcome and reward mails it is the
+   prototype's own "best-effort, never blocks" rule, kept. The cost is that a
+   send in flight when the process dies is lost; `installShutdownHandlers` drains
+   before closing the pool, and a customer can always ask for another code.
 
 ## Pointers
 

@@ -19,12 +19,32 @@ export interface BootstrapAdmin {
   name?: string;
 }
 
+/**
+ * Outbound mail. All-or-nothing, like {@link BootstrapAdmin}: a half-configured
+ * mailer is a deployment mistake that shows up as customers never receiving a
+ * recovery code, which is the hardest kind of failure to notice.
+ */
+export interface MailConfig {
+  /** `smtp://user:pass@host:port` (or `smtps://`). Carries a password; never logged. */
+  smtpUrl: string;
+  /** Envelope sender, e.g. `"Ckyka" <no-reply@example.test>`. */
+  from: string;
+}
+
 export interface Env {
   nodeEnv: NodeEnv;
   host: string;
   port: number;
   logLevel: string;
   databaseUrl: string;
+  /**
+   * Public origin of the SPA, used to build the card links in outbound mail. The
+   * server cannot infer it — behind Cloudflare the request host is the proxy's
+   * and a link built from it would point somewhere the customer cannot reach.
+   */
+  appUrl: string;
+  /** `null` when no SMTP is configured — mail is logged, not sent. */
+  mail: MailConfig | null;
   /**
    * `Secure` on the session cookies. Defaults to on under `NODE_ENV=production`
    * and off elsewhere, because plain-HTTP local development cannot receive a
@@ -99,6 +119,8 @@ export function parseEnv(source: Source = process.env): Env {
   const cookieSecure = parseCookieSecure(source, nodeEnv, problems);
   const allowedOrigins = parseAllowedOrigins(source, problems);
   const bootstrapAdmin = parseBootstrapAdmin(source, problems);
+  const mail = parseMail(source, problems);
+  const appUrl = parseAppUrl(source, mail !== null, problems);
 
   if (problems.length > 0) throw new EnvError(problems);
 
@@ -108,10 +130,68 @@ export function parseEnv(source: Source = process.env): Env {
     port,
     logLevel,
     databaseUrl: databaseUrl as string,
+    appUrl,
+    mail,
     cookieSecure,
     allowedOrigins,
     bootstrapAdmin,
   };
+}
+
+/**
+ * Where the SPA is served.
+ *
+ * Only outbound mail uses it — it is what the card links in the welcome and
+ * reward-available mails point at — so it is **required exactly when mail is
+ * configured** and defaults to the Vite dev server otherwise. Tying it to the
+ * mailer rather than to `NODE_ENV` is what stops a deployment sending links to
+ * `localhost`, which is a silent failure: the mail arrives and the link is dead.
+ *
+ * Trailing slashes are trimmed so link building can always join with `/`.
+ */
+function parseAppUrl(source: Source, mailConfigured: boolean, problems: string[]): string {
+  const raw = read(source, 'APP_URL');
+  if (!raw) {
+    if (mailConfigured) {
+      problems.push('APP_URL is required when mail is configured (the public origin of the SPA)');
+    }
+    return 'http://localhost:5173';
+  }
+  try {
+    new URL(raw);
+  } catch {
+    problems.push(`APP_URL must be a URL (got "${raw}")`);
+    return raw;
+  }
+  return raw.replace(/\/+$/, '');
+}
+
+/**
+ * SMTP, all-or-nothing. With neither variable set the server runs and *logs*
+ * what it would have sent (`LogMailer`) — the right behaviour for a test run or
+ * a stack brought up before mailpit, and the wrong behaviour to reach production
+ * silently, which is why the absence is warned about at boot rather than being
+ * a quiet default.
+ */
+function parseMail(source: Source, problems: string[]): MailConfig | null {
+  const smtpUrl = read(source, 'MAIL_SMTP_URL');
+  const from = read(source, 'MAIL_FROM');
+
+  if (!smtpUrl && !from) return null;
+  if (!smtpUrl || !from) {
+    problems.push('MAIL_SMTP_URL and MAIL_FROM must be set together, or both left unset');
+    return null;
+  }
+  if (!/^smtps?:\/\//.test(smtpUrl)) {
+    // Deliberately does not echo the value — it contains a password.
+    problems.push('MAIL_SMTP_URL must be an smtp:// or smtps:// connection string');
+  }
+  // Accepts both `no-reply@example.test` and `"Ckyka" <no-reply@example.test>`.
+  if (!/@/.test(from)) {
+    problems.push('MAIL_FROM must contain an email address');
+  }
+
+  return { smtpUrl, from };
 }
 
 /**

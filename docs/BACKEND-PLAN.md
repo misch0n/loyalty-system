@@ -28,7 +28,10 @@ context cleared between tasks.
 4. Do **only that phase**. Stay within its file list. Honour the architecture rules in
    [`../CLAUDE.md`](../CLAUDE.md), as amended by SCOPE-DECISIONS §5.
 5. Before committing: root `npx tsc --noEmit` + `npm test` + `npm run build` must pass **and**,
-   from Phase 0 on, the server's own `npm test -w @cafe/server` (**315** as of Phase 4). The SPA's
+   from Phase 0 on, the server's own `npm test -w @cafe/server` (**389** as of Phase 5). Note that
+   `npm test -w @cafe/server` does **not** typecheck — run `npx tsc --noEmit -p
+   packages/server/tsconfig.json` too; it is the server's `build` script and it covers the tests.
+   The SPA's
    461 tests must not regress — if a phase breaks them, the phase is wrong, not the tests. (They
    were 448 until Phase 2 moved the port contract into the shared conformance suite: +41
    conformance tests, −28 duplicates the shared suite absorbed from `IndexedDbStore.test.ts`.)
@@ -47,7 +50,7 @@ work has settled. Divergences get reconciled then. **Merge `main` at the start o
 
 **Running the server tests.** The suite **requires** a real Postgres and fails without one:
 `packages/server/src/testing/globalSetup.ts` checks reachability once per run and aborts with
-setup instructions, so there is no way to get a green tick without a database. Most of the 208
+setup instructions, so there is no way to get a green tick without a database. Most of the 389
 tests are database-backed. Point the suite somewhere with `TEST_DATABASE_URL` (default
 `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`). Until the Compose bundle lands in
 Phase 8, a local server does the job:
@@ -59,7 +62,7 @@ su postgres -c "/usr/lib/postgresql/16/bin/initdb -D $PGDATA -A trust"
 su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D $PGDATA -l /tmp/pg.log -w start"
 su postgres -c "psql -h localhost -c \"CREATE ROLE cafe LOGIN PASSWORD 'cafe' SUPERUSER;\""
 su postgres -c "psql -h localhost -c 'CREATE DATABASE cafe_loyalty_test OWNER cafe;'"
-npm test -w @cafe/server                             # expect: 208 passed, 0 skipped
+npm test -w @cafe/server                             # expect: 389 passed, 0 skipped
 ```
 
 **Do not reintroduce a skip.** The conformance harness has no `skip` option, and the database
@@ -84,11 +87,11 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 
 ## 1 · Progress checklist
 
-> **NEXT TASK: Phase 5** — the server-side `Mailer` + the recovery flow.
-> Phase 4 landed 2026-09-15: every `ApiStore` path has a route, on three tiers, with the actor
-> derived from the session, audit written server-side, cross-account activity reachable only as
-> derived *findings*, and the whole surface pinned by a route inventory and an authorization
-> matrix. **315 server tests** (was 208); the SPA's **461** are untouched.
+> **NEXT TASK: Phase 6** — the client adapters + the composition root.
+> Phase 5 landed 2026-09-16: mail left the browser (`SmtpMailer` / `LogMailer`, templates in the
+> repo), recovery became a typed code over two public routes, and the welcome + reward-available
+> mails moved to the routes that know they happened. **389 server tests** (was 315); the SPA's
+> **461** are untouched.
 >
 > **The server suite needs a real Postgres and FAILS without one** — it does not skip. Most of
 > its tests are database-backed, and before Phase 2 they skipped themselves when no database was
@@ -96,36 +99,44 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 > having tested nothing. It now aborts in `globalSetup` with the commands to start one. See §0
 > *Running the server tests*.
 >
-> Read §5 Phase 5 and the decisions Phases 1–4 recorded at the foot of §5 before starting. Phase 5
-> inherits four calls in particular:
-> - **`createRecoveryCode` and `consumeRecoveryCode` deliberately have no routes yet.** Phase 4
->   built neither: minting a recovery code is an *internal step* of the request flow, not something
->   a client asks for, and the consume route's security is the lockout that Phase 5's reshape
->   introduces. Build both here, together, or neither.
-> - **Recovery codes are SHA-256 at rest, sized for the prototype's high-entropy code.** The typed
->   code (SCOPE-DECISIONS §2.3) is short, so length stops carrying the security: the `attempts`
->   column and per-address rate limiting do. Revisit the hash choice, and add the limiter to
->   `createAuthDeps` beside `registerLimiter` and `commitLimiter`.
-> - **Registration already answers `email_in_use`** (§3.4 requires it), and that answer is an
->   enumeration oracle held shut by a failure-counting lockout. Recovery must be the opposite —
->   an unknown address indistinguishable from a known one — so do not copy registration's shape.
-> - **`LoyaltyService` sends the reward-available and welcome mails through the `Mailer` port
->   client-side.** In a server build the routes are where the send belongs (the commit route knows
->   what was minted; the register route knows the card was created). Decide that explicitly rather
->   than leaving two senders.
+> Read §5 Phase 6 and the decisions Phases 1–5 recorded at the foot of §5 before starting. Phase 6
+> inherits four calls in particular, and the first two are the phase's real work:
+> - **Two services cannot survive the swap as written, and both were left for this phase
+>   deliberately.** `LoyaltyService.getAlerts` derives alerts from two cross-account `listAudit`
+>   reads that `GET /audit` no longer permits (Phase 4; `GET /alerts` returns findings instead).
+>   `RecoveryService` mints its own code and sends its own mail, which a client may not do, and its
+>   `redeem(code)` now needs the address alongside the code (Phase 5; `POST /recovery/request` and
+>   `/recovery/consume`). Neither screen's *call* changes — `services.recovery.request(email)` and
+>   `getAlerts()` stay — so the swap belongs in the composition root, as a server-backed sibling
+>   behind the same shape. This is where "no service rewrite" is under real pressure; decide it,
+>   don't discover it.
+> - **Wire the SPA with `NoopMailer` under `VITE_DATASTORE=api`.** The routes now send the welcome
+>   and reward-available mails. Leaving `EmailJsMailer` in the client build means every customer
+>   gets each mail twice, and the client's copy is the one that cannot be trusted.
+> - **`ApiStore` needs no route for `createRecoveryCode` / `consumeRecoveryCode`, and must not gain
+>   one.** They are the prototype's shape (global-by-code, right for a 128-bit token, wrong for six
+>   typed characters) and `guardrails.test.ts` fails if anything outside `PostgresStore` calls them.
+> - **The offline posture is still undecided** (§4, last item). `IndexedDbStore` never fails;
+>   `ApiStore` will. The intended answer is a shared error surface in the adapter plus the existing
+>   toast, not per-screen changes — and SCOPE-DECISIONS §2.4 already specifies what staff should see.
 >
 > **A live gap Phase 4 found and did not fix, for whoever reaches Phase 8:** `bootstrap.ts` is
 > built and tested but **nothing calls it**. `index.ts` does not (a long-running API should not
 > seed), and `migrate.ts`'s CLI entrypoint does not either — so a freshly migrated database has no
 > admin and no way to create one over HTTP, since `POST /staff` is admin-tier. The one-shot
 > `migrate` container is the natural place; wire it there.
+>
+> **And one for Phase 8, carried from Phase 4 and now slightly sharper:** `logging.ts` lists `code`
+> among `SENSITIVE_KEYS`, which is exactly right for a recovery code and also redacts a Postgres
+> error's SQLSTATE. Phase 5 works around it by putting the provider's error code in the *message*
+> (`SMTP send failed for a "recovery" mail (ESOCKET)`); narrow the key when Phase 8 revisits logging.
 
 - [x] **Phase 0** — Workspace scaffolding + Fastify skeleton (no frontend files touched)
 - [x] **Phase 1** — Postgres schema + migrations
 - [x] **Phase 2** — `PostgresStore` + the shared `DataStore` conformance suite  ⟵ the core
 - [x] **Phase 3** — Auth: password/PIN hashing, sessions, epoch revocation, rate limits
 - [x] **Phase 4** — HTTP API surface + the authorization boundary
-- [ ] **Phase 5** — Server-side `Mailer` + recovery flow
+- [x] **Phase 5** — Server-side `Mailer` + recovery flow
 - [ ] **Phase 6** — Client adapters: real `ApiStore`, `ServerIdentityStore`, composition root
 - [ ] **Phase 7** — Realtime push (SSE) — replaces what device pairing provided
 - [ ] **Phase 8** — Docker Compose bundle + ops (backups, health, logging)
@@ -678,6 +689,96 @@ Provider adapter behind the `Mailer` port, templates, hashed single-use codes, n
 enumeration oracle, rate limits.
 Done when: the recovery round-trip works against mailpit, and an unknown address is
 indistinguishable from a known one.
+
+#### Phase 5 — as built (2026-09-16), and the decisions taken
+
+**Files (all new under `packages/server/src/` unless noted):** `mail/templates.ts`,
+`mail/SmtpMailer.ts`, `mail/LogMailer.ts`, `mail/links.ts`, `mail/index.ts` (the mail composition
+root), `recovery/codes.ts`, `routes/recovery.ts`, `background.ts`, `testing/mail.ts`,
+`testing/smtp.ts`, each with a test beside it. Edited: `env.ts` (+`MAIL_SMTP_URL`, `MAIL_FROM`,
+`APP_URL`), `auth/guards.ts` (+mailer, +appUrl, +background, +4 limiters), `index.ts`,
+`routes/index.ts`, `routes/customers.ts` (the two transactional sends), `PostgresStore.ts` (the
+recovery hash is now shared), `routes/guardrails.test.ts`, `routes/authz.test.ts`, `.env.example`.
+**No `src/` file was touched** — Phase 6 is still the first.
+
+- **`nodemailer` is the one new dependency, and SMTP is the one transport.** `CLAUDE.md` rules out
+  dependencies the spec didn't call for; §3-C-13 called for a server-side mail provider, and SMTP
+  with STARTTLS and AUTH is where hand-rolling is the *clever* option rather than the boring one.
+  One transport also covers every case the plan needs — mailpit in Phase 8's dev override, and SES,
+  Brevo or Resend in production, all three over `MAIL_SMTP_URL` — so changing provider is a change
+  to an environment variable and to nothing else. A provider-specific HTTP adapter would have been
+  a second adapter to write and a second one to keep working.
+- **The mail bodies move into the repository** (`mail/templates.ts`). The prototype's `Mailer` port
+  carries a `kind` and a bag of params because EmailJS holds the template; a server has no
+  provider-side template, and the three mails are transactional product copy that belongs beside
+  the routes that send them rather than in a third-party dashboard. A missing param **throws**
+  rather than substituting a blank: "your code is undefined" is worse than a failed send, because
+  the customer cannot tell it went wrong and waits for a second one. This retires divergence **b**
+  for the server build.
+- **The routes are the only sender.** `POST /customers` sends the welcome mail and
+  `POST /customers/:id/commit` the reward-available one, because the route is what knows a card was
+  created or a reward minted — and the provider credential must not be in a client bundle, which is
+  the whole reason `EmailJsMailer` is retired. A **replayed commit sends nothing**, for the same
+  reason it writes no audit rows. **Phase 6 must wire the SPA with `NoopMailer`**, or every mail
+  goes out twice.
+- **Sending happens *after* the response, and for recovery that is a security property.** An
+  awaited send makes a known address measurably slower than an unknown one — the enumeration oracle
+  §2.3 forbids, readable with a stopwatch, and the same one `routes/auth.ts` spends an argon2
+  verify to close on sign-in. `background.ts` removes the difference instead of paying to hide it:
+  `POST /recovery/request` answers `202 {"status":"sent"}` **before it has looked the address up at
+  all**, which is the strongest available form of the guarantee. It tracks its promises rather than
+  bare `void`-ing them, which buys a shutdown that drains before the pool closes and tests that can
+  await the work instead of sleeping. It must not become a job queue: a task lost to a crash is
+  acceptable for a mail the customer can ask for again, and not for anything that writes the ledger.
+- **A short code cannot carry its own security, so three other things do** (`recovery/codes.ts`).
+  (1) **Scoping** — a guess is checked against the codes issued to *that address*, never against
+  every live code in the table; without it a guesser plays the whole outstanding set at once and
+  the odds improve with every customer who asks for a code. (2) **A durable `attempts` count** —
+  five wrong guesses burn the code *in the database*, so restarting the process does not buy five
+  more, which an in-memory limiter alone would. (3) **Superseding** — issuing a code kills the last
+  one, so a caller cannot stack live codes to widen the target. The in-memory limiters are the
+  cheap first line on top of all three.
+- **The port's recovery pair keeps working and gets no route — the recovery twin of §4-B.**
+  `DataStore.consumeRecoveryCode` looks a code up by value across the whole table, which is right
+  for the prototype's 128-bit token and wrong for six typed characters. `recovery/codes.ts` inverts
+  it to "verify this code for the address that asked", exactly as `/auth/unlock` inverted the PIN
+  lookup, and `guardrails.test.ts` fails if anything outside `PostgresStore` calls the port pair.
+  Recorded as divergence **x**; the conformance suite still holds the port methods to the
+  prototype's answer. **The SHA-256 hash stays** (the open question Phase 2 left): it is not what
+  stands between a guesser and the code, and a stretched hash would only slow down someone who has
+  already read the database — and who can equally read the customer's address and walk in.
+- **The consume takes `{ email, code }`, which Phase 6 has to carry into `RecoveryService`.** The
+  page already has the address from step 1, so it costs the customer nothing; it costs the service
+  a signature. Together with `getAlerts` (divergence **u**) that is two services the composition
+  root must point at routes — see the Phase 6 note in §1.
+- **`APP_URL` is required exactly when mail is configured**, not when `NODE_ENV=production`. It
+  exists only to build the card links in outbound mail, and the failure it prevents is the quiet
+  kind: a link pointing at `localhost` arrives in a customer's inbox and is simply dead. The server
+  cannot infer it — behind Cloudflare the request host is the proxy's.
+- **The recovery mail carries no link, and the absence is asserted.** That is the entire point of
+  §2.3: a link opens on whichever device reads the mail, which is frequently the wrong one. A
+  helpful "or just click here" would quietly undo the decision.
+- **`SmtpSink` (≈60 lines of `node:net`) stands in for mailpit until Phase 8.** It proves what a
+  fake transport cannot — that the adapter genuinely speaks SMTP, that the envelope carries
+  `MAIL_FROM` and the customer's address, and that the rendered subject and body reach a server.
+  Test scaffolding only; nothing outside `testing/` may import it.
+- **A provider error never reaches a log intact.** `SmtpMailer` replaces it with the mail *kind*
+  plus the error code, because a rejection routinely quotes the recipient ("550 no such user
+  <someone@example.com>") and that travels straight into a log line or an error payload.
+- **The security-critical rules were verified by breaking them**, as Phases 2–4 did. Removing the
+  per-address scoping, the `attempts` predicate, the code superseding, the constant-shape response
+  (answering 404 for an unknown address) and the till refusal on consume each fail the tests that
+  claim them (2, 1, 1, 1 and 4 failures). One of those checks found a real gap first: the original
+  `attempts` test passed with the predicate deleted, because `recordFailedAttempt` was burning the
+  code anyway — so the predicate now has a test that drives it directly. **Re-run the whole check
+  if you touch any of them.**
+- **Smoke-tested against a live socket and a live SMTP sink**, not just `app.inject`: registration,
+  the welcome mail, a recovery request for a known and an unknown address (same status, same body,
+  1–3 ms either way), a consume with the wrong address, a consume with the wrong code, a successful
+  consume typed hyphenated and in lower case, the identity cookie it sets, a replay of the spent
+  code, and a delivery against a **dead** mail server (still 202, error logged, nothing leaked).
+  The log was then searched for the name, address, phone, card token, short code, recovery code,
+  sender address and both session tokens — none present.
 
 ### Phase 6 — Client adapters + composition root
 Fill in `ApiStore.request` (credentials, CSRF header, typed errors, one error surface); new

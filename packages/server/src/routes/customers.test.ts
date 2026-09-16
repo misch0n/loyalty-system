@@ -20,6 +20,7 @@ import { PostgresStore } from '../PostgresStore';
 import { buildServer } from '../server';
 import { resetSchema, testPool } from '../testing/database';
 import { send, signIn, type Jar } from '../testing/http';
+import { CollectingMailer } from '../testing/mail';
 
 const ADMIN = { username: 'owner', password: 'owner-password-1', pin: '1111' };
 const STAFF = { username: 'barista', password: 'barista-password-1', pin: '2222' };
@@ -32,13 +33,21 @@ let app: FastifyInstance;
 let staffId: string;
 let otherStaffId: string;
 let adminId: string;
+let mailer: CollectingMailer;
 
 beforeEach(async () => {
   db = testPool();
   await resetSchema(db);
   await migrate(db);
   store = new PostgresStore(db);
-  deps = createAuthDeps({ db, store, cookieSecure: true });
+  mailer = new CollectingMailer();
+  deps = createAuthDeps({
+    db,
+    store,
+    cookieSecure: true,
+    mailer,
+    appUrl: 'https://cafe.example',
+  });
   app = buildServer({ logLevel: 'silent', auth: deps });
   await app.ready();
 
@@ -50,6 +59,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // Transactional mail is background work; drain it before the pool closes.
+  await deps.background.drain();
   await app.close();
   await db.end();
 });
@@ -518,5 +529,109 @@ describe('DELETE /customers/:id', () => {
     const response = await send(app, admin, { method: 'DELETE', url: `/customers/${customer.id}` });
     expect(response.statusCode).toBe(204);
     expect((await auditRows('customer.delete'))[0]?.actorId).toBe(adminId);
+  });
+});
+
+// ── transactional mail ────────────────────────────────────────────────────────
+
+/**
+ * Phase 5 moved the welcome and reward-available mails from the browser to the
+ * routes, so that a server-backed build has exactly **one** sender. The tests
+ * are about where the send sits, not about the wording: it must not block the
+ * request it belongs to, and a replayed commit must not mail twice.
+ */
+describe('transactional mail', () => {
+  const key = () => `mail-key-${Math.random().toString(36).slice(2)}`;
+
+  it('welcomes a new card with a link to it', async () => {
+    const { body: customer } = await register('welcome@example.test');
+    await deps.background.drain();
+
+    const mail = mailer.last('card-created');
+    expect(mail?.to).toBe('welcome@example.test');
+    expect(mail?.params.card_link).toBe(`https://cafe.example/#/card/${customer.token}`);
+  });
+
+  it('answers the registration before the mail is sent', async () => {
+    // Best-effort, exactly as `CustomerService.sendWelcome` is: a slow or broken
+    // mail server must never be what fails a registration. The hold is a stalled
+    // provider — the registration has to come back regardless.
+    const release = mailer.hold();
+    const { status } = await register('async@example.test');
+    expect(status).toBe(201);
+    expect(mailer.outbox).toHaveLength(0);
+
+    release();
+    await deps.background.drain();
+    expect(mailer.outbox).toHaveLength(1);
+  });
+
+  it('still registers the card when the mail fails', async () => {
+    mailer.failWith = new Error('smtp is down');
+    const { status, body } = await register('failing@example.test');
+    await deps.background.drain();
+
+    expect(status).toBe(201);
+    expect(await store.getCustomerById(body.id)).not.toBeNull();
+  });
+
+  it('mails once when a commit mints a reward, and not before', async () => {
+    const { body: customer } = await register('rewarded@example.test');
+    const jar = await staffJar();
+    // Threshold is 9 and the per-scan cap is 3, so the reward is crossed on the
+    // third commit — not the first two.
+    for (let i = 0; i < 3; i += 1) {
+      await send(app, jar, {
+        method: 'POST',
+        url: `/customers/${customer.id}/commit`,
+        payload: { pointsDelta: 3, redeemRewardIds: [], idempotencyKey: key(), source: 'a' },
+      });
+      await deps.background.drain();
+      expect(mailer.outbox.filter((mail) => mail.kind === 'reward-available')).toHaveLength(
+        i === 2 ? 1 : 0,
+      );
+    }
+
+    const mail = mailer.last('reward-available');
+    expect(mail?.to).toBe('rewarded@example.test');
+    expect(mail?.params.reward).toBe('Free regular coffee');
+  });
+
+  it('sends no second mail when a commit is replayed', async () => {
+    // Same reason a replay writes no second audit row: the customer already had
+    // this mail, and a retry after a timeout must be invisible to them.
+    const { body: customer } = await register('replay@example.test');
+    const jar = await staffJar();
+    const idempotencyKey = key();
+    for (let i = 0; i < 2; i += 1) {
+      await send(app, jar, {
+        method: 'POST',
+        url: `/customers/${customer.id}/commit`,
+        payload: { pointsDelta: 3, redeemRewardIds: [], idempotencyKey: key(), source: 'a' },
+      });
+    }
+    for (let i = 0; i < 2; i += 1) {
+      await send(app, jar, {
+        method: 'POST',
+        url: `/customers/${customer.id}/commit`,
+        payload: { pointsDelta: 3, redeemRewardIds: [], idempotencyKey, source: 'a' },
+      });
+    }
+    await deps.background.drain();
+
+    expect(mailer.outbox.filter((mail) => mail.kind === 'reward-available')).toHaveLength(1);
+  });
+
+  it('sends nothing on a commit that mints nothing', async () => {
+    const { body: customer } = await register('quiet@example.test');
+    const jar = await staffJar();
+    await send(app, jar, {
+      method: 'POST',
+      url: `/customers/${customer.id}/commit`,
+      payload: { pointsDelta: 1, redeemRewardIds: [], idempotencyKey: key(), source: 'a' },
+    });
+    await deps.background.drain();
+
+    expect(mailer.outbox.filter((mail) => mail.kind === 'reward-available')).toEqual([]);
   });
 });

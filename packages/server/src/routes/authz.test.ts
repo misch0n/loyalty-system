@@ -69,6 +69,20 @@ const ROUTES: RouteCase[] = [
   { method: 'GET', path: '/me', allow: ALL_CALLERS },
   { method: 'PUT', path: '/me', payload: { token: ':tokenValue' }, allow: ['anon', 'customer', 'other'] },
   { method: 'DELETE', path: '/me', allow: ALL_CALLERS },
+  {
+    method: 'POST',
+    path: '/recovery/request',
+    payload: { email: 'card-a@example.test' },
+    allow: ALL_CALLERS,
+  },
+  // Public, but a till is refused: a terminal must not become a customer's
+  // device (the same refusal `PUT /me` makes).
+  {
+    method: 'POST',
+    path: '/recovery/consume',
+    payload: { email: 'card-a@example.test', code: 'ZZZZZZ' },
+    allow: ['anon', 'customer', 'other'],
+  },
   { method: 'GET', path: '/auth/session', allow: ALL_CALLERS },
 
   // ── the card's own device, or staff ───────────────────────────────────────
