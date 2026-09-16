@@ -91,13 +91,23 @@ does not: the ledger still **sums** to the same number, the append-only triggers
 still refuses a second card on one address, and every argon2id digest came back. A real sign-in and
 commit *through the API* against restored data stays the manual drill in `ops/README.md`.
 **Verification.** **442 server tests** and **73 shared tests**, both unchanged with both typechecks
-green — no code changed. With no Docker daemon in the session container, everything but the Compose
-steps was verified against a live server: migrate + bootstrap against a local Postgres,
+green — no product code changed. With no Docker daemon in the session container, everything but the
+Compose steps was verified against a live server: migrate + bootstrap against a local Postgres,
 `ops/smoke.sh` green 16/16, then re-run with a wrong password to confirm it **fails non-zero**
 rather than passing over a broken assertion; the drill's four SQL assertions executed directly
 against the migrated schema, each refusal firing for the intended reason; the database-gate check
 confirmed to exit non-zero with the right message; the live log searched for all four secrets and
-clean. `@cafe/web` remains red on purpose.
+clean. **CI then found a real bug on its first run**, which is the argument for the phase in one
+sentence: the image build failed on `packages/server/Dockerfile`'s own hoisting guard, which
+listed *directories* and so read the empty `@types/` scope folder that `npm prune` leaves behind as
+a stranded production dependency. It now looks for `*/node_modules/*/package.json` — a real
+unhoisted dependency still fails the build, an empty directory does not. Phase 8 built that image
+by hand and never hit it. **Run 2 is green**: 442 tests against the service container in 85s, the
+image in 17s, the bundle healthy 16s after `up`, 16/16 smoke assertions in 240ms, and the drill in
+4s. The drill reported the live database as *1 customer, 1 ledger row, 1 point, **4** audit rows* —
+exactly `card.issue`, `customer.register`, `staff.login`, `loyalty.accrue`, which independently
+confirms the replayed commit wrote neither a ledger row nor an audit row. `@cafe/web` remains red
+on purpose.
 
 **Prior:** 2026-09-16 (**Backend — Phase 8: the Docker Compose bundle + ops** (branch
 `claude/backend-implementation-2kqb08`)). The system now comes up from nothing on one command.

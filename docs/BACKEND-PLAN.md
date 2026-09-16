@@ -1143,7 +1143,27 @@ constraints and credentials surviving the round trip.
 is available in the session container: the server was built, migrated and bootstrapped against a
 local Postgres, `ops/smoke.sh` run against it (16/16), then re-run with a wrong password to confirm
 it **fails loudly and non-zero** rather than passing over a broken assertion, and the drill's four
-SQL assertions executed directly. The Compose-level steps are the part CI is the first to run.
+SQL assertions executed directly. The Compose-level steps were the part CI ran first.
+
+**And it earned its keep on the first run, which is the whole argument for the phase.** The image
+build failed — on `packages/server/Dockerfile`'s *own* "did a production dependency fail to hoist?"
+guard, reporting `packages/server/node_modules/@types`. Nothing had failed to hoist: `@types/node`
+does not hoist (the workspaces pin different versions), so `npm prune --omit=dev` deletes it as a
+devDependency and leaves the empty `@types/` scope directory standing, which a check that listed
+*directories* read as a stranded dependency. The guard now looks for
+`*/node_modules/*/package.json` — a real unhoisted production dependency still fails the build,
+scoped or not, and an empty directory no longer does. Phase 8 built that image by hand and never
+hit it; the difference is that CI builds it from a clean checkout every time.
+
+**The second run is green** (`contract` · `server` · `bundle` all pass; `web` fails and does not
+gate). Numbers from it, worth keeping because they set the expectation for the next session:
+`server` runs 442 tests against the service container in **85s**; the image builds in **17s**; the
+bundle is healthy **16s** after `up`; `ops/smoke.sh` clears all 16 assertions in **240ms**; the
+drill dumps, restores and asserts in **4s**. One quiet corroboration in the drill's output: it
+reports the live database as *1 customer, 1 ledger row, 1 point, 4 audit rows*. Four is exactly
+right for what the smoke test did — `card.issue`, `customer.register`, `staff.login`,
+`loyalty.accrue` — which is a second, independent proof that the **replayed** commit wrote no
+ledger row and no audit row. A fifth would have meant the idempotency cache was not holding.
 
 ### Phase 10 — Monorepo flip (**runs second, straight after Phase 6**)
 Move `src/domain` + `src/ports` → `packages/shared/src`, what remains of `src/` →
