@@ -26,6 +26,11 @@
  * Reads that name a customer by id are allowed to staff **or** to the device
  * that card is bound to — a customer must be able to read their own card, and
  * nobody else's.
+ *
+ * Every route here that changes something also **publishes a change signal**
+ * (Phase 7, `events/hub.ts`) so an open card refreshes without a reload. It is
+ * fire-and-forget and deliberately outside the store call: a publish that failed
+ * must never be able to fail a commit.
  */
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -41,6 +46,7 @@ import { generateToken, isValidToken, normalizeShortCode } from '@cafe/shared/do
 import { isValidEmail } from '@cafe/shared/domain/validation';
 import type { AuthDeps } from '../auth/guards.js';
 import { cookieMaxAgeSec, requireStaff, setSessionCookies } from '../auth/guards.js';
+import type { ChangeReason } from '../events/hub.js';
 import { cardLink } from '../mail/links.js';
 import {
   isActiveStaff,
@@ -232,7 +238,22 @@ function sendMail(
 // ── routes ────────────────────────────────────────────────────────────────────
 
 export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): void {
-  const { sessions, store } = deps;
+  const { events, sessions, store } = deps;
+
+  /**
+   * "This card changed" and "this actor's trail changed", as two one-liners so
+   * the call sites below read as one line of intent each.
+   *
+   * The staff half is what keeps the counter's own-last-hour feed (Appendix E)
+   * live when the same account is signed in at a second terminal; it says only
+   * that there is something new to re-read, never what.
+   */
+  const cardChanged = (customerId: string, reason: ChangeReason): void => {
+    events.publish({ scope: 'customer', id: customerId, reason });
+  };
+  const actorActed = (staffId: string): void => {
+    events.publish({ scope: 'staff', id: staffId, reason: 'activity' });
+  };
 
   /**
    * Registration — public, because a customer registering has nothing to
@@ -442,6 +463,8 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): vo
         targetId: updated.id,
         details: Object.keys(request.body).sort().join(','),
       });
+      cardChanged(updated.id, 'card');
+      actorActed(actor.id);
       return updated;
     },
   );
@@ -456,7 +479,9 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): vo
     if (!customer) return reply;
     // The timestamp is the server's, not the body's: a consent record a client
     // can date is not a consent record.
-    return store.recordConsent(customer.id, new Date().toISOString());
+    const updated = await store.recordConsent(customer.id, new Date().toISOString());
+    cardChanged(customer.id, 'card');
+    return updated;
   });
 
   /**
@@ -479,6 +504,10 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): vo
         action: 'card.reissue',
         targetId: rotated.id,
       });
+      // The card's own device may be showing the QR that just stopped working,
+      // which makes this the one signal a screen must not miss.
+      cardChanged(rotated.id, 'card');
+      actorActed(actor.id);
       return rotated;
     },
   );
@@ -510,6 +539,15 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): vo
       action: 'customer.delete',
       targetId: id,
     });
+
+    // Last word down the channel, then the channel itself: a device listening to
+    // a tombstone has nothing further to hear, and its session is about to stop
+    // existing. An admin deleting someone else's card reaches that device the
+    // same way — this is the only route where the signal is how the customer
+    // finds out at all.
+    cardChanged(id, 'deleted');
+    events.closeTopic('customer', id);
+    if (actor) actorActed(actor.id);
 
     // The card is gone; the cookie that recognised it must go with it, or the
     // device keeps a session pointing at a tombstone.
@@ -609,6 +647,13 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): vo
             });
           }
         }
+
+        // The signal the phone in the customer's hand is waiting for, and the
+        // whole reason Phase 7 exists: the cups fill while they are still at the
+        // counter. A **replayed** commit publishes nothing, for the same reason
+        // it writes no audit rows — nothing changed the second time.
+        cardChanged(request.params.id, 'commit');
+        actorActed(actor.id);
       }
 
       return result;
@@ -653,6 +698,8 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): vo
           targetId: customerId,
           details: `+${points}`,
         });
+        cardChanged(customerId, 'ledger');
+        actorActed(actor.id);
         return tx;
       }
 
@@ -683,6 +730,8 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): vo
         targetId: customerId,
         details: targetId,
       });
+      cardChanged(customerId, 'ledger');
+      actorActed(actor.id);
       return tx;
     },
   );

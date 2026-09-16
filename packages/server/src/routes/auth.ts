@@ -242,7 +242,13 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
    * all succeeds too — the caller wanted to be signed out, and they are.
    */
   app.post('/auth/logout', async (request, reply) => {
-    if (request.auth) await sessions.revoke(request.auth.record.id);
+    if (request.auth) {
+      // An `/events` stream outlives the request that opened it, so it is the
+      // one thing a sign-out has to end explicitly. Without this the device
+      // keeps a live channel on a session row that no longer exists.
+      deps.events.closeSession(request.auth.record.id);
+      await sessions.revoke(request.auth.record.id);
+    }
     clearSessionCookies(reply, deps);
     return reply.code(204).send();
   });
@@ -261,6 +267,10 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
     if (!actor) return reply.code(401).send({ error: 'unauthorized' });
 
     const epoch = await sessions.revokeAllStaff();
+    // Every staff stream, and only staff streams — the same line `revokeAllStaff`
+    // draws. "Sign out all devices" is about terminals; a customer's card
+    // recognition, and the channel keeping their card fresh, is untouched by it.
+    deps.events.closeScope('staff');
     await store.appendAudit({
       actorId: actor.id,
       actorRole: actor.role,

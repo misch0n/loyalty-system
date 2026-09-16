@@ -172,6 +172,18 @@ describe('§4 — the routes that must not exist', () => {
   }
 });
 
+describe('Phase 7 — a stream listens to its own subject and no other', () => {
+  it('derives an `/events` subscription from the session, never from the request', () => {
+    // `topicsFor` reads `request.auth` and nothing else. A query parameter, a
+    // body or a path segment naming a subject would make `GET /events` a
+    // cross-account read wearing a different verb — precisely what
+    // `routes/activity.ts` spends a whole file refusing, and easier to add here
+    // because a stream looks like plumbing rather than like a read.
+    const source = code(join(SERVER_SRC, 'routes', 'events.ts'));
+    expect(source).not.toMatch(/request\.(query|body|params)/);
+  });
+});
+
 /**
  * The route inventory.
  *
@@ -232,6 +244,7 @@ describe('§6 — the API surface is exactly this', () => {
 ├── /stats/active-customers (GET, HEAD)
 ├── /transactions (GET, HEAD)
 ├── /export (GET, HEAD)
+├── /events (GET, HEAD)
 ├── /import (POST)
 └── /healthz (GET, HEAD)
 `.trim(),

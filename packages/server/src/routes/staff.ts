@@ -169,6 +169,10 @@ export function registerStaffRoutes(app: FastifyInstance, deps: AuthDeps): void 
       }
 
       await store.setStaffActive(target.id, request.body.active);
+      // Same exception as the delete below: every other consequence of being
+      // disabled arrives on the account's next request, and a held-open stream
+      // never makes one.
+      if (!request.body.active) deps.events.closeTopic('staff', target.id);
       await store.appendAudit({
         actorId: actor.id,
         actorRole: actor.role,
@@ -244,9 +248,11 @@ export function registerStaffRoutes(app: FastifyInstance, deps: AuthDeps): void 
       const accounts = await store.listStaff();
       if (!accounts.some((account) => account.id === id)) return notFound(reply);
 
-      // No session cleanup needed: `SessionStore.resolve` joins
-      // `staff_accounts`, so the deleted account's sessions stop resolving —
-      // and delete themselves — on their very next request.
+      // Sessions need no cleanup: `SessionStore.resolve` joins `staff_accounts`,
+      // so the deleted account's sessions stop resolving — and delete themselves
+      // — on their very next request. An `/events` stream is the exception that
+      // reasoning has, because it makes no next request: it is closed here.
+      deps.events.closeTopic('staff', id);
       await store.deleteStaff(id);
       await store.appendAudit({
         actorId: actor.id,

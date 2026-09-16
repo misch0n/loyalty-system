@@ -14,6 +14,10 @@
  *     `GET  /auth/session`                   am I signed in? (Phase 3)
  *     `POST /auth/login` · `/auth/unlock` · `/auth/logout`
  *
+ *   **any session** — a customer's device or a till, listening to its own
+ *   subject and no other (Phase 7):
+ *     `GET  /events`                         SSE; topics derived from the session
+ *
  *   **customer's own card** — the device that card is bound to, or staff:
  *     `GET  /customers/:id` · `/state` · `/rewards` · `/transactions`
  *     `POST /customers/:id/consent`
@@ -46,6 +50,10 @@
  *                                             rather than `DataStore` (Phase 6)
  *     no cross-account activity read at all   (§4-F, SCOPE-DECISIONS §1)
  *     no undo of any kind                     (Appendix E)
+ *     no `GET /events?topic=…`                a stream's subjects come from the
+ *                                             session; a client-named subject
+ *                                             would be a cross-account read
+ *                                             wearing a different verb
  * `routes/guardrails.test.ts` fails if any of them appears.
  */
 
@@ -55,6 +63,7 @@ import { registerActivityRoutes } from './activity.js';
 import { registerAuthRoutes } from './auth.js';
 import { registerConfigRoutes } from './config.js';
 import { registerCustomerRoutes } from './customers.js';
+import { registerEventRoutes } from './events.js';
 import { registerIdentityRoutes } from './identity.js';
 import { registerRecoveryRoutes } from './recovery.js';
 import { registerSnapshotRoutes } from './snapshot.js';
@@ -69,4 +78,5 @@ export function registerApiRoutes(app: FastifyInstance, deps: AuthDeps): void {
   registerConfigRoutes(app, deps);
   registerActivityRoutes(app, deps);
   registerSnapshotRoutes(app, deps);
+  registerEventRoutes(app, deps);
 }

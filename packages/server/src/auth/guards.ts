@@ -21,6 +21,7 @@ import type { TrustedStore } from '@cafe/shared/ports/DataStore';
 import type { Mailer } from '@cafe/shared/ports/Mailer';
 import { BackgroundWork } from '../background.js';
 import type { Db } from '../db.js';
+import { EventHub } from '../events/hub.js';
 import { LogMailer } from '../mail/LogMailer.js';
 import { clearCookie, parseCookies, serializeCookie, type CookieOptions } from './cookies.js';
 import { AttemptLimiter } from './rateLimit.js';
@@ -104,6 +105,13 @@ export interface AuthDeps {
    */
   recoveryConsumeAddressLimiter: AttemptLimiter;
   recoveryConsumeIpLimiter: AttemptLimiter;
+  /**
+   * The realtime change hub (Phase 7). Routes publish what they changed; the
+   * `GET /events` streams listening to that subject hear about it. In-process
+   * and single-instance, exactly like the limiters above — see
+   * {@link EventHub}.
+   */
+  events: EventHub;
   /** Outbound mail. `LogMailer` when no SMTP is configured — never absent. */
   mailer: Mailer;
   /** Public origin of the SPA, for the card links in outbound mail. */
@@ -169,6 +177,7 @@ export function createAuthDeps(input: CreateAuthDepsInput): AuthDeps {
     recoveryRequestIpLimiter: new AttemptLimiter({ limit: 20, ...shared }),
     recoveryConsumeAddressLimiter: new AttemptLimiter({ limit: 5, ...shared }),
     recoveryConsumeIpLimiter: new AttemptLimiter({ limit: 20, ...shared }),
+    events: new EventHub(),
     mailer: input.mailer ?? new LogMailer(() => {}),
     appUrl: input.appUrl ?? 'http://localhost:5173',
     background: new BackgroundWork(),

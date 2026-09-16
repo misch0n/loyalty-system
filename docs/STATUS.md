@@ -57,7 +57,44 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-09-16 (**Backend — Phase 10: the monorepo flip** (branch
+**Last updated:** 2026-09-16 (**Backend — Phase 7: realtime push over SSE** (branch
+`claude/backend-implementation-2kqb08`)). The replacement for the one thing Phase 6 deleted
+without replacing: the PeerJS pairing layer's live cross-device refresh. **New:**
+`packages/server/src/events/hub.ts` (the in-process `EventHub` — who is listening to which
+subject), `events/sse.ts` (the `text/event-stream` framing, ~20 lines rather than a dependency),
+`routes/events.ts` (`GET /events`), `testing/sse.ts` (an `EventSource`-shaped client for the
+tests), each with a test beside it. **Edited:** `auth/guards.ts` (+`events` on `AuthDeps`),
+`routes/index.ts` (the surface doc + registration), `routes/customers.ts` (the publish call
+sites), `routes/auth.ts`, `routes/identity.ts`, `routes/staff.ts` (streams end with the session
+they belong to), `routes/authz.test.ts` and `routes/guardrails.test.ts`.
+**The shape:** one-way SSE carrying a **signal**, never data — `event: changed` with
+`{scope, id, reason}`, where `reason` is `commit` / `ledger` / `card` / `deleted` / `activity`.
+The screen re-reads through the routes it already had, so the authorization boundary stays in one
+place and a stream cannot carry a row its subscriber could not have fetched.
+**The subjects are the session's**, never the client's: a customer's device is subscribed to its
+own card, a till to its own actor. A guardrail fails if `routes/events.ts` ever reads
+`request.query`/`body`/`params`, and a route test asks for another card's subject and gets its
+own. Anonymous is refused, and so is a terminal that has idled into the lock. A session may hold
+**3** concurrent streams (429 beyond that); a stream that stops being read is hung up on at 64 KiB
+of backpressure; a keep-alive comment every 25s keeps proxies from reaping it; `x-accel-buffering:
+no` stops Phase 8's nginx buffering it into uselessness. A `preClose` hook ends every stream so
+`SIGTERM` does not hang. Streams end when the session does — sign-out, "sign out all devices"
+(staff only), the account being disabled or deleted, `PUT`/`DELETE /me`, and the card being
+deleted (which sends `deleted` first). **In-process and single-instance**, like `AttemptLimiter`:
+a second `api` container would need `LISTEN`/`NOTIFY`. Recorded as divergence **ae**; the client
+subscriber is UI-pass work (register row **X6**).
+**Verification.** **434 server tests** (was 390) and server `tsc` green; `@cafe/shared` 73 tests
+and `tsc` green. The four security-critical claims were checked **by breaking them**, as Phases
+2–6 did: letting a client name its own subject fails the guardrail; publishing on a replayed
+commit, skipping the `logout-all` close, and removing the per-session cap each fail the tests that
+claim them (1, 1, 1 and 2 failures). Smoke-tested from `dist/` against a live socket with `curl
+-N`: `hello`, a commit pushing `changed` to the customer's open card, a replay pushing nothing, a
+delete pushing `deleted` and ending the stream, and `SIGTERM` completing in 1.8s with a stream
+open. The log was then searched for the name, address, phone, card token, password, PIN, both
+session tokens and the CSRF token — none present. **The SPA is still red for the Phase 6 reasons
+and no new ones**; the gate remains the server suite.
+
+**Previously:** 2026-09-16 (**Backend — Phase 10: the monorepo flip** (branch
 `claude/backend-implementation-2kqb08`)). A file move plus the config to make it real — nothing
 moved in or out of the product. The repo is now a **three-package npm-workspaces monorepo**.
 **`@cafe/shared`** (`packages/shared/src/domain/` + `packages/shared/src/ports/`, tests at
@@ -1427,6 +1464,31 @@ ad. **`CommitResult` says whether it was replayed, and `Snapshot` carries reward
    carrying credential hashes in a file that travels to laptops is the thing
    `publicStaff` already blanks digests to avoid. A version-6 file still imports,
    minus those tables, rather than being refused.
+
+ae. **Cross-device liveness is an SSE channel, and a stream hears only its own
+   subject (BACKEND-PLAN §3-C-15, Phase 7).** The prototype's live refresh came
+   from the PeerJS pairing layer: a till served its peers' `DataStore` over RPC,
+   so a commit at the counter bumped `dataVersion` on the customer's phone.
+   Phase 6 deleted that layer, and the replacement is **`GET /events`** — a
+   one-way Server-Sent Events stream carrying a `changed` **signal**
+   (`{scope, id, reason}`), never data. The screen re-reads through the routes it
+   was already entitled to, so a stream can never carry a row the subscriber
+   could not have fetched. **What it listens to is derived from the session**,
+   exactly as `GET /audit` derives its actor filter: a customer's device hears
+   about its own card, a till about its own actor's activity, and there is no
+   parameter that changes either (`routes/guardrails.test.ts` fails if
+   `routes/events.ts` ever reads the query, the body or the params). An
+   anonymous caller is refused — there is nothing to subscribe to — and so is a
+   terminal that has idled into the lock, which is the one part of the session
+   an open socket would otherwise outlive. Three further consequences the
+   pairing layer never had: a stream is **ended** by sign-out, by "sign out all
+   devices" (staff streams only — a customer's card recognition is outside staff
+   revocation, as it is in `SessionStore.resolve`), by the account being disabled
+   or deleted, by the device rebinding to another card, and by the card being
+   deleted; a session may hold at most **3** concurrent streams; and the hub is
+   **in-process and single-instance**, like `AttemptLimiter` and for the same
+   reason — a second `api` container would need `LISTEN`/`NOTIFY` rather than a
+   `Map`. The client subscriber is UI-pass work (register row X6).
 
 ## Pointers
 

@@ -51,6 +51,13 @@ interface RouteCase {
   payload?: Record<string, unknown>;
   /** Callers entitled to reach the handler. Everyone else must be refused. */
   allow: Caller[];
+  /**
+   * The handler never ends the response (`GET /events`). `inject` would wait
+   * forever for a body, so the response is taken as a stream — which resolves
+   * as soon as the headers are written, and is destroyed once the status code
+   * has been read. The entitled caller is checked exactly like every other.
+   */
+  stream?: true;
 }
 
 /**
@@ -84,6 +91,11 @@ const ROUTES: RouteCase[] = [
     allow: ['anon', 'customer', 'other'],
   },
   { method: 'GET', path: '/auth/session', allow: ALL_CALLERS },
+
+  // ── any session, listening to its own subject and no other (Phase 7) ──────
+  // Not public: an anonymous caller has nothing to subscribe to. A stream's
+  // topics are derived from the session, so entitlement is "have one".
+  { method: 'GET', path: '/events', allow: ['customer', 'other', 'staff', 'admin'], stream: true },
 
   // ── the card's own device, or staff ───────────────────────────────────────
   { method: 'GET', path: '/customers/:id', allow: ['customer', 'staff', 'admin'] },
@@ -232,7 +244,19 @@ function materialize(route: RouteCase): InjectOptions {
     ? JSON.parse(JSON.stringify(route.payload).replace(':tokenValue', cardA.token))
     : undefined;
 
-  return { method: route.method, url, ...(payload ? { payload } : {}) };
+  return {
+    method: route.method,
+    url,
+    ...(payload ? { payload } : {}),
+    ...(route.stream ? { payloadAsStream: true as const } : {}),
+  };
+}
+
+/** Drives one case and releases the socket if the route holds one open. */
+async function attempt(route: RouteCase, jar: Jar): Promise<number> {
+  const response = await send(app, jar, materialize(route));
+  if (route.stream) response.stream().destroy();
+  return response.statusCode;
 }
 
 const REFUSALS = [401, 403, 404];
@@ -245,9 +269,9 @@ describe('the authorization matrix', () => {
       const wrongly: string[] = [];
       for (const route of ROUTES) {
         if (route.allow.includes(caller)) continue;
-        const response = await send(app, { ...jars[caller] }, materialize(route));
-        if (!REFUSALS.includes(response.statusCode)) {
-          wrongly.push(`${route.method} ${route.path} → ${response.statusCode}`);
+        const status = await attempt(route, { ...jars[caller] });
+        if (!REFUSALS.includes(status)) {
+          wrongly.push(`${route.method} ${route.path} → ${status}`);
         }
       }
       expect(wrongly).toEqual([]);
@@ -267,9 +291,9 @@ describe('the authorization matrix', () => {
       // `requireStaff` plus a role check).
       const caller = ALL_CALLERS.find((candidate) => route.allow.includes(candidate));
       if (!caller) continue;
-      const response = await send(app, { ...jars[caller] }, materialize(route));
-      if (response.statusCode === 401 || response.statusCode === 403) {
-        blocked.push(`${caller} ${route.method} ${route.path} → ${response.statusCode}`);
+      const status = await attempt(route, { ...jars[caller] });
+      if (status === 401 || status === 403) {
+        blocked.push(`${caller} ${route.method} ${route.path} → ${status}`);
       }
     }
     expect(blocked).toEqual([]);

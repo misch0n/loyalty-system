@@ -73,8 +73,13 @@ export function registerIdentityRoutes(app: FastifyInstance, deps: AuthDeps): vo
       if (!customer || customer.status !== 'active') return refuse(reply, 404, 'not_found');
 
       // Replace rather than add: a device is recognised as exactly one card, the
-      // same one-token-in-localStorage shape the prototype has.
-      if (request.auth) await sessions.revoke(request.auth.record.id);
+      // same one-token-in-localStorage shape the prototype has. Any `/events`
+      // stream on the old session goes with it, or the device keeps listening to
+      // the card it just stopped being.
+      if (request.auth) {
+        deps.events.closeSession(request.auth.record.id);
+        await sessions.revoke(request.auth.record.id);
+      }
       const issued = await sessions.issueCustomer(customer.id);
       setSessionCookies(reply, deps, issued, cookieMaxAgeSec('customer', false));
       return { token: customer.token };
@@ -88,6 +93,7 @@ export function registerIdentityRoutes(app: FastifyInstance, deps: AuthDeps): vo
    */
   app.delete('/me', async (request, reply) => {
     if (request.auth?.record.kind === 'customer') {
+      deps.events.closeSession(request.auth.record.id);
       await sessions.revoke(request.auth.record.id);
       clearSessionCookies(reply, deps);
     }

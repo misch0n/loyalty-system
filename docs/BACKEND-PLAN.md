@@ -45,7 +45,7 @@ context cleared between tasks.
 3. Find the first **unchecked** box in the *Progress checklist* (§1) — that's the next task.
 4. Do **only that phase**. Stay within its file list. Honour the architecture rules in
    [`../CLAUDE.md`](../CLAUDE.md), as amended by SCOPE-DECISIONS §5 and §6.
-5. Before committing, the gate is **`npm test -w @cafe/server`** (**390** as of Phase 6) plus
+5. Before committing, the gate is **`npm test -w @cafe/server`** (**434** as of Phase 7) plus
    **`npm run typecheck -w @cafe/server`** — the server suite does *not* typecheck itself.
    Phase 10 also gave `packages/shared` its own gate, and it is cheap, so run it too:
    **`npm test -w @cafe/shared`** (**73**) and **`npm run typecheck -w @cafe/shared`**.
@@ -75,7 +75,7 @@ tsconfig and it is the strict one, so there is no second, looser compiler left t
 
 **Running the server tests.** The suite **requires** a real Postgres and fails without one:
 `packages/server/src/testing/globalSetup.ts` checks reachability once per run and aborts with
-setup instructions, so there is no way to get a green tick without a database. Most of the 390
+setup instructions, so there is no way to get a green tick without a database. Most of the 434
 tests are database-backed. Point the suite somewhere with `TEST_DATABASE_URL` (default
 `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`). Until the Compose bundle lands in
 Phase 8, a local server does the job:
@@ -87,7 +87,7 @@ su postgres -c "/usr/lib/postgresql/16/bin/initdb -D $PGDATA -A trust"
 su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D $PGDATA -l /tmp/pg.log -w start"
 su postgres -c "psql -h localhost -c \"CREATE ROLE cafe LOGIN PASSWORD 'cafe' SUPERUSER;\""
 su postgres -c "psql -h localhost -c 'CREATE DATABASE cafe_loyalty_test OWNER cafe;'"
-npm test -w @cafe/server                             # expect: 390 passed, 0 skipped
+npm test -w @cafe/server                             # expect: 434 passed, 0 skipped
 ```
 
 **Do not reintroduce a skip.** The conformance harness has no `skip` option, and the database
@@ -114,17 +114,23 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 
 ## 1 · Progress checklist
 
-> **NEXT TASK: Phase 7** — realtime push over SSE. `GET /events` pushing a `changed` signal per
-> customer and per till, replacing the live cross-device refresh the deleted PeerJS pairing layer
-> used to provide. **Read the revoked-promise box at the top of this file first.** The client
-> subscriber is UI-pass work — build the channel and its tests server-side, and record the
-> screen-level half in [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md).
+> **NEXT TASK: Phase 8** — the Docker Compose bundle + ops. `compose.yml` + `compose.dev.yml`,
+> four services plus mailpit, `.env.example`, healthchecks, non-root images, a backup job **and a
+> performed restore drill**, structured logging with PII redaction. **Read the revoked-promise box
+> at the top of this file first.** Three things below are addressed to this phase specifically:
+> the `bootstrap.ts` gap, the `logging.ts` `code` key, and — new from Phase 7 — nginx must not
+> buffer `GET /events` (the server sends `x-accel-buffering: no`, and the proxy config has to
+> respect it and give the location a long `proxy_read_timeout`).
+>
+> Phase 7 landed 2026-09-16: **`GET /events`**, a one-way SSE channel carrying a `changed`
+> **signal** (`{scope, id, reason}`) per customer and per till. The subjects are derived from the
+> session, never named by the client. **434 server tests** (was 390); **73 shared tests**,
+> unchanged. The client subscriber is UI-pass work — register rows **X6** and **X7**.
 >
 > Phase 10 landed 2026-09-16: the repo is a **three-package npm workspaces monorepo** —
 > `@cafe/shared` (the contract), `@cafe/server`, `@cafe/web`. `@cafe/shared` is a real package
 > resolved through its `exports` map, not an alias, and the server **emits and runs on plain
-> `node`** — `tsx` is only the `dev` watcher now, which closes the Phases 0–1 open item. **390
-> server tests**, unchanged; **73 shared tests**, newly green in their own package.
+> `node`** — `tsx` is only the `dev` watcher now, which closes the Phases 0–1 open item.
 >
 > **The SPA is still red, on purpose** — 9 of its now-47 test files fail to load and `tsc -b`
 > fails, which is the outcome the 2026-09-16 decision chose. Do not chase it. **The gate is
@@ -165,7 +171,7 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 - [x] **Phase 5** — Server-side `Mailer` + recovery flow
 - [x] **Phase 6** — **Retire the prototype + reshape the shared port**  ⟵ the SPA went red here
 - [x] **Phase 10** — Monorepo flip (`packages/shared` + `packages/web`) — pulled forward
-- [ ] **Phase 7** — Realtime push (SSE) — replaces what device pairing provided
+- [x] **Phase 7** — Realtime push (SSE) — replaces what device pairing provided
 - [ ] **Phase 8** — Docker Compose bundle + ops (backups, health, logging)
 - [ ] **Phase 9** — CI + integration tests against a real Postgres
 - [ ] **— UI pass —** a separate initiative: client adapters, services reshaped to the API,
@@ -934,6 +940,93 @@ against it — not from discovery.
 ### Phase 7 — Realtime push (SSE)
 `GET /events` + a client subscriber feeding the existing `dataVersion` refresh.
 Done when: a commit on the till updates the customer's open card without a reload.
+
+#### Phase 7 — as built (2026-09-16), and the decisions taken
+
+**Files (all new under `packages/server/src/`):** `events/hub.ts`, `events/sse.ts`,
+`routes/events.ts`, `testing/sse.ts`, each with a test beside it. **Edited:** `auth/guards.ts`
+(+`events` on `AuthDeps`), `routes/index.ts` (the surface doc + registration),
+`routes/customers.ts` (the publish call sites), `routes/auth.ts`, `routes/identity.ts`,
+`routes/staff.ts` (a stream ends with the session it belongs to), `routes/authz.test.ts`,
+`routes/guardrails.test.ts`. **434 server tests** (was 390). The client subscriber is UI-pass
+work, as the phase brief says — register rows **X6** and **X7**.
+
+- **The stream carries a signal, never data, and that is the phase's one load-bearing idea.**
+  `event: changed` with `{scope, id, reason}`; the screen then re-reads through the routes it was
+  already entitled to. The alternative — pushing the new `CustomerState` down the wire — would
+  have put a second copy of the authorization boundary inside a long-lived socket, where the
+  session that opened it may since have been revoked. This way a stream can never carry a row its
+  subscriber could not have fetched, which is a property rather than a discipline.
+- **A subscriber never names its subject.** `topicsFor` reads `request.auth` and nothing else: a
+  customer session subscribes to its own card, an *active* staff session to its own actor. This is
+  the same rule `GET /audit` spends a route file enforcing, and it is easy to break here because a
+  stream looks like plumbing rather than like a read — so `guardrails.test.ts` fails if
+  `routes/events.ts` ever mentions `request.query`/`body`/`params`, and a route test asks for
+  another card's subject from outside and gets its own.
+- **SSE, not WebSockets.** One-way traffic, `EventSource` reconnects by itself, and it is plain
+  HTTP over the same cookie session — no second authentication path and no second protocol for
+  Phase 8's nginx to proxy. The framing is twenty lines (`events/sse.ts`) rather than a
+  dependency, for the reason `auth/cookies.ts` is hand-written.
+- **Anonymous is refused, and so is a locked terminal.** `GET /auth/session` is public because
+  "not signed in" is a real answer to its question; here there is genuinely nothing to subscribe
+  to. The locked case is the more interesting one: an open socket is the one part of a session the
+  idle lock would otherwise not reach, and a till showing the PIN pad has no feed to keep fresh.
+  It answers `401 locked` rather than `unauthorized`, matching `requireStaff`.
+- **Nothing else in this server holds a socket open, so four things had to be added that no other
+  route needed.** (1) A `preClose` hook closing every stream — without it `app.close()` waits
+  forever and a `SIGTERM` escalates to `SIGKILL` mid-request. (2) A keep-alive comment every 25
+  seconds, two beats inside nginx's default 60s `proxy_read_timeout`. (3) `x-accel-buffering: no`,
+  because nginx otherwise buffers the stream and the channel looks broken rather than buffered —
+  **Phase 8's proxy config has to keep this working**. (4) A 64 KiB backpressure ceiling: a
+  subscriber that has stopped reading makes `write` buffer in this process rather than fail, which
+  unbounded is a memory leak with an HTTP request as its trigger. Hanging up is safe *because* the
+  events carry no data.
+- **A stream never outlives its session, and that took six call sites rather than one.** Sign-out,
+  "sign out all devices" (staff scope only — a customer's card recognition is outside staff
+  revocation, as it is in `SessionStore.resolve`), `PUT`/`DELETE /me`, the account being disabled
+  or deleted, and the card being deleted (which publishes `deleted` first, then closes the topic).
+  The staff pair is the one worth noticing: `routes/staff.ts` carried a comment saying no session
+  cleanup was needed because `resolve` joins `staff_accounts` and a dead account's sessions
+  delete themselves *on their next request* — and a held-open stream never makes one. That comment
+  now names its own exception.
+- **Three concurrent streams per session, and a 429 past it.** An SSE request holds a socket for
+  as long as the client wants it, so an authenticated caller opening them in a loop pins the
+  process a file descriptor at a time. The subscribe happens **before** the response is hijacked,
+  so the refusal is an ordinary JSON reply; nothing can interleave, because that block runs to the
+  `writeHead` without awaiting.
+- **In-process and single-instance, exactly like `AttemptLimiter`.** The Compose bundle runs one
+  `api` container. A second instance needs this in Postgres (`LISTEN`/`NOTIFY`) rather than in a
+  `Map`, and the constraint is stated in the module header so it is inherited rather than
+  rediscovered. Publishing is fire-and-forget and deliberately outside the store call: a dropped
+  signal costs a stale screen until the next read, and a commit that failed because nobody was
+  listening would be indefensible.
+- **A replayed commit publishes nothing**, for the same reason it writes no audit rows and sends
+  no mail — nothing changed the second time, and one accrual would look like two.
+- **The channel is narrower than the prototype's `dataVersion`, on purpose**, and that is the one
+  thing the maintainer should look at. Pairing bumped a *global* counter, so any shared-data write
+  refreshed every paired screen; here a `PATCH /config` (the reward threshold every card renders)
+  and staff-account changes publish nothing, because the brief scopes this per customer and per
+  till. Cheap to widen (a `program` scope every session subscribes to), much harder to narrow once
+  screens assume it. Recorded as register row **X7**, status *Confirm*.
+- **The route tests run against a real socket, not `app.inject()`.** The claims are about a
+  connection that stays open — that an event arrives while the request that triggered it is still
+  in flight, that the socket is still there afterwards, and that it is gone when it should be —
+  and a simulated request has none of those properties. `testing/sse.ts` is an `EventSource`-shaped
+  client that parses the wire format; its `silentFor` is how "hears only its own subject" is
+  asserted, because that claim can only be established by waiting through a silence.
+  `authz.test.ts` still covers `/events` like every other route, via `payloadAsStream: true` —
+  which resolves at header time — so the matrix stays exhaustive rather than gaining an exception.
+- **The security-critical rules were verified by breaking them**, as Phases 2–6 did. Letting the
+  client name its own subject (`?topic=`) fails the guardrail; publishing on a replayed commit,
+  dropping the `logout-all` close, and removing the per-session cap each fail the tests that claim
+  them (1, 1 and 2 failures). **Re-run that check if you touch any of them.**
+- **Smoke-tested from `dist/` against a live socket with `curl -N`**, not just the harness:
+  `hello` on connect, a commit pushing `changed` to the customer's open card, a replay pushing
+  nothing, an admin's delete pushing `deleted` and then ending the stream, and `SIGTERM`
+  completing in 1.8s with a stream open. The log was then searched for the name, address, phone,
+  card token, password, PIN, both session tokens and the CSRF token — none present. One thing to
+  know when reading those logs: `/events` logs `incoming request` and **no** completion line,
+  because the response is hijacked and never completes. That is expected, not a lost request.
 
 ### Phase 8 — Docker Compose bundle + ops
 `compose.yml` + `compose.dev.yml`, four services + mailpit, `.env.example`, healthchecks,
