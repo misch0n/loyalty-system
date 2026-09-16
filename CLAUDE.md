@@ -37,9 +37,14 @@ concrete subagent definitions live in `.claude/agents/`.
 > pairing flow and the wallet button are all **describing something being removed**. The SPA
 > knowingly stops building at Phase 6; the gate is the server suite until the UI pass.
 >
-> **`docs/BACKEND-PLAN.md`** is the live, phase-by-phase build plan (Fastify + Postgres + Docker
-> Compose) with a resume protocol and progress checklist — a fresh session picks up the first
-> unchecked box. Re-read both files, and merge `main`, at the start of every phase.
+> **The backend is COMPLETE** — every [`docs/BACKEND-PLAN.md`](docs/BACKEND-PLAN.md) phase is done
+> (Fastify + Postgres + Docker Compose, CI green, 442 server tests). **The live initiative is now
+> the UI pass: [`docs/UI-PLAN.md`](docs/UI-PLAN.md)** — ten phases that make `@cafe/web` compile
+> again against the API, specified by [`docs/UI-RECONCILIATION.md`](docs/UI-RECONCILIATION.md)
+> (27 rows of backend-vs-UI conflict). A fresh session picks up the first unchecked box in
+> UI-PLAN §2. **`@cafe/web` is red on purpose** — 39 TypeScript errors, 9 of 53 test files not
+> loading, all traceable to Phase 6 deletions. Do not chase it outside the UI plan. Re-read those
+> files, and merge `main`, at the start of every phase.
 
 **Completed initiatives + handoff (read if continuing across cleared-context sessions):**
 `docs/REWARDS-PLAN.md` (rewards-as-objects — Appendices C+D + multi-reward) and

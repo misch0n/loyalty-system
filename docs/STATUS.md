@@ -28,7 +28,11 @@
 > failures were fixed. The release gate for the rest of the backend run is the **`@cafe/shared` +
 > `@cafe/server` suites + their `tsc`**; a red `@cafe/web` is expected, not a regression to chase.
 >
-> **▶ Active initiative — the production backend.** [`BACKEND-PLAN.md`](BACKEND-PLAN.md) is the
+> **▶ Active initiative — the UI pass.** The backend is **complete**;
+> [`UI-PLAN.md`](UI-PLAN.md) is the live plan and [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md)
+> its specification. `@cafe/web` is red on purpose until UI-2 lands.
+>
+> **▶ Completed initiative — the production backend.** [`BACKEND-PLAN.md`](BACKEND-PLAN.md) is the
 > live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose; **Phases 0–6 and 10 done**;
 > execution order is now 7 → 8 → 9, UI pass, 11) and
 > [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) is the maintainer's feature triage, which **overrides
