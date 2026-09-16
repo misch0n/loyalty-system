@@ -1,24 +1,30 @@
 {
-  // Standalone — deliberately NOT referenced from the root solution tsconfig, so
-  // the SPA's `tsc -b` is completely unaffected by the server (BACKEND-PLAN §5,
-  // Phase 0: "the SPA must be completely unaffected").
+  // The type-check config: everything under `src`, tests included, no emit.
+  // `tsconfig.build.json` is what produces `dist/`.
+  //
+  // Standalone — deliberately NOT referenced from the SPA's solution tsconfig.
+  // The two packages share `@cafe/shared` and nothing else.
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2023"],
-    "module": "ESNext",
-    "skipLibCheck": true,
 
-    // `Bundler` (not NodeNext) because the shared `domain/`+`ports/` sources this
-    // server imports use extensionless relative specifiers, which NodeNext
-    // rejects. That choice is why `dev`/`start` run through `tsx`, whose esbuild
-    // resolution matches. Phase 10 turns `@cafe/shared` into a real package and
-    // the emit-based build lands with it.
-    "moduleResolution": "Bundler",
+    // `NodeNext`, where Phases 0–5 had to use `Bundler`. The blocker was that the
+    // shared `domain/`+`ports/` sources reached this project through a path alias
+    // and used extensionless relative specifiers, which NodeNext rejects — so the
+    // server could not emit anything Node would run, and `dev`/`start` went
+    // through `tsx`. Phase 10 made `@cafe/shared` a real workspace package
+    // resolved through its `exports` map, and gave every relative specifier here
+    // its `.js` extension. The server now emits and runs on plain `node`.
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
+
+    "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "moduleDetection": "force",
-    "noEmit": true,
     "verbatimModuleSyntax": true,
+    "noEmit": true,
 
     "strict": true,
     "noUnusedLocals": true,
@@ -26,19 +32,7 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
 
-    "types": ["node"],
-
-    // `domain/` and `ports/` are IMPORTED, never copied — one source of truth for
-    // the contract (BACKEND-PLAN §2, "Move timing"). Phase 10 repoints this at
-    // `packages/shared/src` once the physical move happens; nothing else changes.
-    "baseUrl": ".",
-    "paths": {
-      "@cafe/shared/*": ["../../src/*"],
-      // The shared DataStore conformance suite, run against PostgresStore here
-      // and against IndexedDbStore from the SPA's test run. Imported, never
-      // copied — a duplicated suite stops proving the two stores agree.
-      "@cafe/conformance": ["../../tests/conformance/dataStoreConformance"]
-    }
+    "types": ["node"]
   },
   "include": ["src", "vitest.config.ts"]
 }

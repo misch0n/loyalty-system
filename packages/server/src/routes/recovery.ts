@@ -41,11 +41,11 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { normalizeShortCode } from '@cafe/shared/domain/tokens';
 import { normalizeEmail } from '@cafe/shared/domain/validation';
-import type { AuthDeps } from '../auth/guards';
-import { cookieMaxAgeSec, setSessionCookies } from '../auth/guards';
-import type { AttemptLimiter, RateLimitDecision } from '../auth/rateLimit';
-import { RECOVERY_EXPIRY_MINUTES } from '../recovery/codes';
-import { refuse } from './shared';
+import type { AuthDeps } from '../auth/guards.js';
+import { cookieMaxAgeSec, setSessionCookies } from '../auth/guards.js';
+import type { AttemptLimiter, RateLimitDecision } from '../auth/rateLimit.js';
+import { RECOVERY_EXPIRY_MINUTES } from '../recovery/codes.js';
+import { refuse } from './shared.js';
 
 const REQUEST_SCHEMA = {
   body: {

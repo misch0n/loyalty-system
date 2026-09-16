@@ -82,6 +82,8 @@ be sliced — not by which backend phase produced them.
 | X1 | **Sessions are cookies, and the idle lock is the server's.** `last_seen_at` is touched on every authenticated request; 5 minutes locks a remembered terminal and ends a non-remembered one; a disabled or deleted account loses its sessions at once; the epoch is a counter, not a timestamp (STATUS divergence **q**). | `AuthContext` runs its own inactivity timer and holds the session client-side. | **Settled** — the client timer becomes a UI affordance only; `AuthContext` reconciles against `GET /auth/session` at boot |
 | X2 | **Every call can now fail.** There is no store that cannot — offline, 401 `locked`, 403 `csrf_failed`, 429 `rate_limited` with `retry-after`, 409 `email_in_use`. | No screen has a network-error path. | **Open** — the one thing here the backend has *not* decided. SCOPE-DECISIONS §2.4 fixes what staff see; the customer side and the shared mechanism (adapter-level surface vs. per-screen) are undecided. |
 | X3 | **CSRF is a double-submit token** in a deliberately script-readable cookie, required on every mutating request, plus a same-origin check. | Nothing reads or sends it. | **Settled** — adapter work, no screen impact |
+| X4 | **The SPA lives in `packages/web` and imports the contract as a package.** Phase 10 made the repo a three-package workspace: `domain/` and `ports/` are `@cafe/shared`, resolved through its `exports` map, and every SPA import of them now reads `@cafe/shared/domain/…` / `@cafe/shared/ports/…`. The SPA's own files kept their relative paths, one directory deeper. | Nothing behavioural changed; the UI pass simply works on files at their new paths. `npm run dev` is now `npm run dev -w @cafe/web`, and it builds `@cafe/shared` first. | **No conflict** — recorded so the UI pass looks in the right place and does not re-add a path alias |
+| X5 | **`packages/web/.env.example` describes three subsystems that no longer exist** — EmailJS, the Metered TURN relay, and the `VITE_TRANSPORT`/`VITE_DATASTORE`/`VITE_WALLET` adapter flags, all deleted in Phase 6. Phase 10 moved it unedited. `packages/web/vite.config.ts` still sets the GitHub Pages `base`, and the `e2e/` suite still builds against it. | Same file, same content, one directory deeper. | **Open** — rewriting it means deciding what the SPA's environment *is* (`VITE_API_BASE`, and whether anything else survives), and how the SPA is served once Phase 8's nginx replaces Pages. Not a backend decision. |
 
 ---
 
@@ -97,3 +99,9 @@ be sliced — not by which backend phase produced them.
   decisions rather than new facts: **P6** (how the six untested services get tested again) is
   **Open**, and **P7** (whether `AuditService` becomes a no-op or leaves the services) needs the
   maintainer. Nothing here has been confirmed yet.
+- **2026-09-16, Phase 10** — the monorepo flip. It produced no new *conflicts*: the SPA is red for
+  the same nine Phase 6 reasons and no others, which the phase's as-built notes prove by
+  arithmetic. Two rows anyway — **X4**, so the UI pass looks for the screens at
+  `packages/web/src/ui/` and imports the contract as `@cafe/shared/…` rather than restoring a path
+  alias, and **X5**, a stale `.env.example` the move carried rather than rewrote, because what the
+  SPA's environment should contain is a UI-pass question. Still nothing confirmed.

@@ -12,15 +12,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import type { AuditLogEntry, Customer } from '@cafe/shared/domain/models';
-import { createAuthDeps, SESSION_COOKIE, type AuthDeps } from '../auth/guards';
-import type { Db } from '../db';
-import { migrate } from '../migrate';
-import { PostgresStore } from '../PostgresStore';
-import { RECOVERY_MAX_ATTEMPTS } from '../recovery/codes';
-import { buildServer } from '../server';
-import { resetSchema, testPool } from '../testing/database';
-import { send, signIn, type Jar } from '../testing/http';
-import { CollectingMailer } from '../testing/mail';
+import { createAuthDeps, SESSION_COOKIE, type AuthDeps } from '../auth/guards.js';
+import type { Db } from '../db.js';
+import { migrate } from '../migrate.js';
+import { PostgresStore } from '../PostgresStore.js';
+import { RECOVERY_MAX_ATTEMPTS } from '../recovery/codes.js';
+import { buildServer } from '../server.js';
+import { resetSchema, testPool } from '../testing/database.js';
+import { send, signIn, type Jar } from '../testing/http.js';
+import { CollectingMailer } from '../testing/mail.js';
 
 const STAFF = { username: 'barista', password: 'barista-password-1', pin: '2222' };
 const EMAIL = 'lost@example.test';

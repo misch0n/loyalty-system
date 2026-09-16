@@ -1,0 +1,30 @@
+{
+  "name": "@cafe/shared",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Café Loyalty shared contract — pure domain logic and the ports the adapters implement.",
+  "exports": {
+    "./domain/*": {
+      "types": "./dist/domain/*.d.ts",
+      "default": "./dist/domain/*.js"
+    },
+    "./ports/*": {
+      "types": "./dist/ports/*.d.ts",
+      "default": "./dist/ports/*.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}

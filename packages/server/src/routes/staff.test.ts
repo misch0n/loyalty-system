@@ -11,13 +11,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import type { AuditLogEntry, StaffAccount } from '@cafe/shared/domain/models';
-import { createAuthDeps, type AuthDeps } from '../auth/guards';
-import type { Db } from '../db';
-import { migrate } from '../migrate';
-import { PostgresStore } from '../PostgresStore';
-import { buildServer } from '../server';
-import { resetSchema, testPool } from '../testing/database';
-import { send, signIn, type Jar } from '../testing/http';
+import { createAuthDeps, type AuthDeps } from '../auth/guards.js';
+import type { Db } from '../db.js';
+import { migrate } from '../migrate.js';
+import { PostgresStore } from '../PostgresStore.js';
+import { buildServer } from '../server.js';
+import { resetSchema, testPool } from '../testing/database.js';
+import { send, signIn, type Jar } from '../testing/http.js';
 
 const ADMIN = { username: 'owner', password: 'owner-password-1', pin: '1111' };
 const STAFF = { username: 'barista', password: 'barista-password-1', pin: '2222' };

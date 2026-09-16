@@ -13,9 +13,9 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Db } from './db';
-import { createPool } from './db';
-import { loadEnv } from './env';
+import type { Db } from './db.js';
+import { createPool } from './db.js';
+import { loadEnv } from './env.js';
 
 export const MIGRATIONS_DIR = fileURLToPath(new URL('../migrations', import.meta.url));
 

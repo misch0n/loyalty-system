@@ -50,15 +50,15 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import type { AuthDeps } from '../auth/guards';
-import { registerActivityRoutes } from './activity';
-import { registerAuthRoutes } from './auth';
-import { registerConfigRoutes } from './config';
-import { registerCustomerRoutes } from './customers';
-import { registerIdentityRoutes } from './identity';
-import { registerRecoveryRoutes } from './recovery';
-import { registerSnapshotRoutes } from './snapshot';
-import { registerStaffRoutes } from './staff';
+import type { AuthDeps } from '../auth/guards.js';
+import { registerActivityRoutes } from './activity.js';
+import { registerAuthRoutes } from './auth.js';
+import { registerConfigRoutes } from './config.js';
+import { registerCustomerRoutes } from './customers.js';
+import { registerIdentityRoutes } from './identity.js';
+import { registerRecoveryRoutes } from './recovery.js';
+import { registerSnapshotRoutes } from './snapshot.js';
+import { registerStaffRoutes } from './staff.js';
 
 export function registerApiRoutes(app: FastifyInstance, deps: AuthDeps): void {
   registerAuthRoutes(app, deps);

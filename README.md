@@ -69,7 +69,7 @@ pre-commit-hold models.
 | **Staff recovery / reissue** | Staff find customer by name/email/phone; reissue with a rotated token (default) or keep it. |
 | **Correction / reversal** | Reverse a recent accrual via an offsetting `reversal` entry — logged, never silent (`LoyaltyService.reverse`). There is no post-commit undo: the staff counter's 3-second pre-commit hold (above) catches operator errors *before* anything is written instead. |
 | **Self-delete / opt-out** | `CustomerService.selfDelete(token)` — GDPR erasure initiated from the customer's card "⋯" menu. Staff-confirmed `deleteCustomer(actor, id)` also still exists. |
-| **Suspicious-activity alerts** | Pure domain module `src/domain/alerts.ts` evaluates exactly two attributed detectors — **self-dealing** (same staff accrues then redeems on the same card repeatedly within a window) and **repeat-target** (same customer credited repeatedly within a window) — against thresholds on `ProgramConfig` (admin-configurable). `LoyaltyService.getAlerts()` surfaces results. Monitoring only — no automatic blocking; no role exemption. |
+| **Suspicious-activity alerts** | Pure domain module `packages/shared/src/domain/alerts.ts` evaluates exactly two attributed detectors — **self-dealing** (same staff accrues then redeems on the same card repeatedly within a window) and **repeat-target** (same customer credited repeatedly within a window) — against thresholds on `ProgramConfig` (admin-configurable). `LoyaltyService.getAlerts()` surfaces results. Monitoring only — no automatic blocking; no role exemption. |
 | **Admin — staff** | List / create / disable / re-enable / reset password / set PIN / "Sign out all devices" (epoch revocation). |
 | **Admin — program** | Edit threshold, reward text, points-per-purchase, per-transaction cap, inactivity days, and the four alert-detector thresholds. Save requires step-up PIN re-auth. |
 | **Admin — stats** | "This week" counts: active customers, points issued, rewards redeemed (counted from `reward.redeemed` events, surfaced as `loyalty.redeem` audit rows — not the ledger). `StatDetail` popover shows total + chart only (no per-action feed). (Coffees-today approximated by accrual audit event count — see divergences.) |
@@ -82,8 +82,8 @@ pre-commit-hold models.
 | **Welcome** | Shown to unrecognized visitors only. Carries **Find us** (location/hours) below the fold. |
 | **Reset device** | `Services.reset()` drops the `cafe-loyalty` IndexedDB database and clears storage keys so a workflow can be rerun from a clean device state. Prototype-only. |
 | **Device pairing (prototype)** | Every device defaults to hosting. Scanning another device's pairing QR (accessed via the **developer panel** — hidden top-left dev trigger) makes this device a customer of that till. The till accepts many customer devices simultaneously. Unpairing sends `{ t: 'unpair' }` to all peers; each resumes hosting. `/pair` is scan-only (`?host=` auto-joins). |
-| **Developer (Prototype) panel** | `src/ui/screens/proto/ProtoPanel/ProtoPanel.tsx` (build-flag gated, non-production). Opened by a **hidden top-left `DevTrigger`** (`src/ui/app/DevTrigger.tsx`) present on every view. Stripped to three centred controls, in order: **QR · Scan to pair · Reset**. (Demo-card jumping, view-jumps and the sign-in shortcut were removed; every prototype card starts at zero and registration rotates which preset token is handed out.) |
-| **Logo gestures** | `LogoGestures` (`src/ui/app/LogoGestures.tsx`) — **tap → home** (role-aware via `EntryResolver`); long-press ≥600ms → staff/admin sign-in. The developer panel has its own hidden `DevTrigger`, not a logo tap. Visually-hidden keyboard path to sign-in. No global "Staff sign-in" subtitle. |
+| **Developer (Prototype) panel** | `packages/web/src/ui/screens/proto/ProtoPanel/ProtoPanel.tsx` (build-flag gated, non-production). Opened by a **hidden top-left `DevTrigger`** (`packages/web/src/ui/app/DevTrigger.tsx`) present on every view. Stripped to three centred controls, in order: **QR · Scan to pair · Reset**. (Demo-card jumping, view-jumps and the sign-in shortcut were removed; every prototype card starts at zero and registration rotates which preset token is handed out.) |
+| **Logo gestures** | `LogoGestures` (`packages/web/src/ui/app/LogoGestures.tsx`) — **tap → home** (role-aware via `EntryResolver`); long-press ≥600ms → staff/admin sign-in. The developer panel has its own hidden `DevTrigger`, not a logo tap. Visually-hidden keyboard path to sign-in. No global "Staff sign-in" subtitle. |
 | **Card QR = card URL (B2)** | The card QR encodes the full card-page URL. `tokenFromCardScan()` extracts the token; bare tokens still accepted. No PII in the URL. |
 | **Family / couples sharing (B7)** | Opening the card URL or QR on a second device shows that card without overwriting either device's saved card. Balance pools naturally (one ledger, one token). No feature code needed. |
 
@@ -162,7 +162,7 @@ flowchart TB
   shared verbatim with the future Node backend.
 - `DataStore` is **async everywhere** (returns Promises), even though IndexedDB
   could be sync, so call sites match the future HTTP adapter byte-for-byte.
-- The **composition root** ([`src/services/Services.ts`](src/services/Services.ts))
+- The **composition root** ([`packages/web/src/services/Services.ts`](packages/web/src/services/Services.ts))
   is the *only* place that names a concrete adapter.
 - The UI **never** touches an adapter or storage directly.
 
@@ -324,108 +324,132 @@ erDiagram
 
 ## Project layout
 
+Three-package npm-workspaces monorepo (`packages/*`) since BACKEND-PLAN Phase 10 — a file move
+plus the config to make it real, not a rewrite. `@cafe/shared` holds the pure contract,
+`@cafe/server` the production backend, `@cafe/web` this prototype SPA.
+
+> ⚠ **The `web/` half of this tree still lists files Phase 6 deleted** — `IndexedDbStore.ts`,
+> `schema.ts`, `adapters/transport/`, `adapters/wallet/`, `adapters/sync/`, `EmailJsMailer.ts`,
+> `wallet/passes.ts`, `ports/Transport.ts` and `ports/WalletProvider.ts` are all **gone**. Phase 10
+> relocated the tree; retiring these entries is **Phase 11**'s named job, done together with the
+> seam table above so the two stop disagreeing. Until then, trust `docs/STATUS.md` over this tree.
+
 ```
-src/
-├── config/
-│   ├── env.ts             # feature flags (VITE_TRANSPORT, VITE_EMAILJS_*, VITE_TURN_*,
-│   │                      #   VITE_GOOGLE_PLACE_ID, VITE_WALLET), baseUrl, iceServers, walletKind
-│   ├── links.ts           # appUrl() — builds absolute HashRouter URLs for QR + emails
-│   └── cafe.ts            # café public details: name, address, Google Maps URL, contact email
-├── domain/                # pure logic, fully unit-tested
-│   ├── models.ts          # entity types; StaffAccount.pin?, ProgramConfig.sessionEpoch?
-│   ├── loyalty.ts         # balance derivation (settles 0..threshold-1)
-│   ├── rewards.ts         # rewards-as-objects: mintFold, unspentRewards, cardProgress,
-│   │                      #   validateRedemption, isOverCap (no undo decision — retired)
-│   ├── tokens.ts          # 128-bit opaque token generation
-│   ├── validation.ts      # input + duplicate checks
-│   └── alerts.ts          # self-dealing + repeat-target detectors, thresholds on ProgramConfig
-├── ports/                 # the seams (interfaces)
-│   ├── DataStore.ts       # commitCounterTransaction / listRewards / getCustomerState,
-│   │                      #   listAudit(AuditFilter: actions[]/actorIds[]/from/to),
-│   │                      #   createRecoveryCode / consumeRecoveryCode, getStaffByPin, setStaffPin
-│   ├── Transport.ts
-│   ├── Mailer.ts          # email abstraction
-│   ├── IdentityStore.ts   # browser identity (token storage, no PII)
-│   └── WalletProvider.ts  # wallet seam: ensurePass(token, os) → url; pushUpdate(token) → void
-├── adapters/
-│   ├── storage/
-│   │   ├── IndexedDbStore.ts   # prototype storage (schema v5: rewards/rewardEvents/idempotencyKeys
-│   │   │                       #   stores; commitCounterTransaction/listRewards; listAudit range
-│   │   │                       #   query via byTimestamp); close() drops DB
-│   │   ├── ApiStore.ts         # production HTTP stub
-│   │   └── schema.ts           # IndexedDB schema + seed data (admin PIN 4321, staff PIN 1234)
-│   ├── transport/
-│   │   ├── PeerTransport.ts    # prototype: PeerJS + TURN (real cross-device)
-│   │   └── ServerTransport.ts  # production placeholder (throws)
-│   ├── email/
-│   │   ├── EmailJsMailer.ts    # client-side EmailJS via fetch
-│   │   └── NoopMailer.ts       # fallback when EmailJS unconfigured
-│   ├── identity/
-│   │   └── LocalStorageIdentityStore.ts   # stores token only (no PII)
-│   ├── wallet/
-│   │   ├── StaticWalletProvider.ts  # proto: pre-generated walletwallet.dev pass URLs; pushUpdate no-op
-│   │   └── ServerWalletProvider.ts  # production placeholder (throws)
-│   └── sync/                   # PROTOTYPE-ONLY — device pairing via PeerJS (one till, many clients)
-│       ├── PeerLink.ts         # channel interface + SyncMessage envelopes (incl. {t:'unpair'})
-│       ├── PeerJsLink.ts       # PeerJS+TURN: ConnLink, joinHost() (client),
-│       │                       #   PeerJsHost (one peer, many clients)
-│       ├── ObservableStore.ts  # DataStore wrapper that emits on mutation
-│       ├── SwitchableStore.ts  # DataStore whose target swaps local↔remote at runtime
-│       ├── PeerClientStore.ts  # DataStore that proxies calls to host over RPC
-│       ├── StoreServer.ts      # host side: one instance per client; serves RPC + pushes changes
-│       └── storeMethods.ts     # canonical DataStore method list + mutating subset
-├── services/              # orchestrate domain + ports
-│   ├── CustomerService.ts      # selfRegister, provisionFromToken, selfDelete(token), reissue…
-│   ├── LoyaltyService.ts       # commit (accrue+mint+redeem), getState, reverse, getAlerts()
-│   ├── StaffService.ts         # loginWithPin, setPin, revokeAllSessions, currentSessionEpoch
-│   ├── ConfigService.ts        # incl. alert-detector thresholds
-│   ├── AuditService.ts         # list, exportActivity (reason-gated, writes audit.export)
-│   ├── RecoveryService.ts      # self-service recovery (single-use expiring codes)
-│   └── Services.ts             # ← composition root; wires adapters → services.wallet (WalletProvider)
-│                               #   services.sync (SyncKit); exposes reset() (prototype-only)
-├── qr/                    # encode (cardPayload = card-page URL, tokenFromCardScan, registrationPayload) + scan
-├── wallet/
-│   └── passes.ts          # PRESET_CARD_TOKENS, PASS_SERIALS, passSerialForToken, walletPassUrl,
-│                          #   detectWalletKind — walletwallet.dev integration (prototype)
-└── ui/
-    ├── theme/             # design system slices (no monolith)
-    │   ├── tokens.css     #   design tokens: forest/sage/blush/cream/terra palette,
-    │   │                  #   Fraunces/DM Sans/DM Mono fonts, spacing, touch targets
-    │   ├── base.css       #   reset, .screen shell, utilities, bg-* gradients,
-    │   │                  #   focus-visible ring, reduced-motion, .card-hint
-    │   ├── keyframes.css  #   animation keyframes
-    │   └── index.css      #   single import entry point (used in main.tsx)
-    ├── components/        # shared presentational components — folder-per-component
-    │   │                  #   each: <Name>.tsx + <Name>.css + <Name>.test.tsx
-    │   ├── Logo/          # cup+sunburst mark + lockup
-    │   ├── Heading/       # Eyebrow / Title / Sub
-    │   ├── Button/        # Button + WalletButton
-    │   ├── Field/         # text input; Consent toggle
-    │   ├── CupStamps/     # stamp progress row
-    │   ├── LoyaltyCard/   # centerpiece card (centerpiece; "Gold" pill is decorative v1)
-    │   ├── Qr/            # real QR on cream tile
-    │   ├── Overlay/       # enlarged-QR overlay
-    │   ├── Toast/         # toast notifications
-    │   ├── PinPad/        # numeric PIN pad
-    │   ├── Slider/        # PointsSlider
-    │   ├── Sheet/         # bottom sheet + MenuRow + RecoveryLine
-    │   └── ContextBanner/ # pairing / session context strip
-    ├── app/               # LogoGestures, AuthContext (PIN session + inactivity lock),
-    │                      #   EntryResolver (entry routing), routes.ts, session.ts
-    ├── screens/           # folder-per-screen: <Screen>.tsx + <Screen>.css + <Screen>.test.tsx
-    │   ├── customer/      # Welcome/ (+ Find us), Register/, LostCard/, RecoverConsume/,
-    │   │                  #   Card/ (hub), EnlargedQr/ (QR + wallet button), CardMenu/
-    │   ├── staff/         # Login/, Unlock/ (PIN re-auth), Panel/ ("Your last hour"), Scan/
-    │   │                  #   (3s pre-commit hold: stage → countdown → Cancel/Commit now)
-    │   │                  #   _parts/: TopBar/ ScanView/ CustChip/ StateLabel/
-    │   ├── admin/         # Admin/ (tabbed); _parts/: Stat/ StatDetail/ FeedRow/ Alert/ StepUp/
-    │   │                  #   AccountSheet/ ProgramEdit/ Export/ (reason-gated JSON activity export)
-    │   └── proto/         # ProtoPanel/ (hidden top-left DevTrigger, build-flag gated)
-    └── common/            # ServicesContext, PairingContext/usePairing, QrDisplay, QrScanner,
-                           #   PrivacyNotice, PairDevices
-tests/                     # Vitest: domain, service, adapter, qr, wallet, config, ui/app/session
-e2e/                       # Puppeteer smoke suite (headless Chrome, drives built app)
-.env.example               # documents required build-time secrets
+packages/
+├── shared/                     # @cafe/shared — the pure contract, resolved as a real package
+│   │                           #   via its own package.json `exports` map (not a path alias)
+│   ├── src/
+│   │   ├── domain/                # pure logic, fully unit-tested
+│   │   │   ├── models.ts          # entity types; StaffAccount.pin?, ProgramConfig.sessionEpoch?
+│   │   │   ├── loyalty.ts         # balance derivation (settles 0..threshold-1)
+│   │   │   ├── rewards.ts         # rewards-as-objects: mintFold, unspentRewards, cardProgress,
+│   │   │   │                      #   validateRedemption, isOverCap (no undo decision — retired)
+│   │   │   ├── tokens.ts          # 128-bit opaque token generation
+│   │   │   ├── validation.ts      # input + duplicate checks
+│   │   │   └── alerts.ts          # self-dealing + repeat-target detectors, thresholds on ProgramConfig
+│   │   └── ports/                 # the seams (interfaces)
+│   │       ├── DataStore.ts       # commitCounterTransaction / listRewards / getCustomerState,
+│   │       │                      #   listAudit(AuditFilter: actions[]/actorIds[]/from/to),
+│   │       │                      #   createRecoveryCode / consumeRecoveryCode, getStaffByPin, setStaffPin
+│   │       ├── Transport.ts
+│   │       ├── Mailer.ts          # email abstraction
+│   │       ├── IdentityStore.ts   # browser identity (token storage, no PII)
+│   │       └── WalletProvider.ts  # wallet seam: ensurePass(token, os) → url; pushUpdate(token) → void
+│   └── tests/                  # Vitest: the six domain suites (moved out of the SPA in Phase 10;
+│                                #   green independently of it)
+├── server/                     # @cafe/server — Fastify + PostgreSQL production backend
+│   └── src/
+│       ├── testing/
+│       │   └── dataStoreConformance.ts   # store-agnostic DataStore suite (moved from
+│       │                                 #   tests/conformance/ in Phase 10); run by PostgresStore.test.ts
+│       └── …                   # routes/, auth/, mail/, recovery/, migrations — see docs/BACKEND-PLAN.md
+└── web/                         # @cafe/web — this prototype SPA
+    ├── src/
+    │   ├── config/
+    │   │   ├── env.ts             # feature flags (VITE_TRANSPORT, VITE_EMAILJS_*, VITE_TURN_*,
+    │   │   │                      #   VITE_GOOGLE_PLACE_ID, VITE_WALLET), baseUrl, iceServers, walletKind
+    │   │   ├── links.ts           # appUrl() — builds absolute HashRouter URLs for QR + emails
+    │   │   └── cafe.ts            # café public details: name, address, Google Maps URL, contact email
+    │   ├── adapters/
+    │   │   ├── storage/
+    │   │   │   ├── IndexedDbStore.ts   # prototype storage (schema v5: rewards/rewardEvents/idempotencyKeys
+    │   │   │   │                       #   stores; commitCounterTransaction/listRewards; listAudit range
+    │   │   │   │                       #   query via byTimestamp); close() drops DB
+    │   │   │   ├── ApiStore.ts         # production HTTP stub
+    │   │   │   └── schema.ts           # IndexedDB schema + seed data (admin PIN 4321, staff PIN 1234)
+    │   │   ├── transport/
+    │   │   │   ├── PeerTransport.ts    # prototype: PeerJS + TURN (real cross-device)
+    │   │   │   └── ServerTransport.ts  # production placeholder (throws)
+    │   │   ├── email/
+    │   │   │   ├── EmailJsMailer.ts    # client-side EmailJS via fetch
+    │   │   │   └── NoopMailer.ts       # fallback when EmailJS unconfigured
+    │   │   ├── identity/
+    │   │   │   └── LocalStorageIdentityStore.ts   # stores token only (no PII)
+    │   │   ├── wallet/
+    │   │   │   ├── StaticWalletProvider.ts  # proto: pre-generated walletwallet.dev pass URLs; pushUpdate no-op
+    │   │   │   └── ServerWalletProvider.ts  # production placeholder (throws)
+    │   │   └── sync/                   # PROTOTYPE-ONLY — device pairing via PeerJS (one till, many clients)
+    │   │       ├── PeerLink.ts         # channel interface + SyncMessage envelopes (incl. {t:'unpair'})
+    │   │       ├── PeerJsLink.ts       # PeerJS+TURN: ConnLink, joinHost() (client),
+    │   │       │                       #   PeerJsHost (one peer, many clients)
+    │   │       ├── ObservableStore.ts  # DataStore wrapper that emits on mutation
+    │   │       ├── SwitchableStore.ts  # DataStore whose target swaps local↔remote at runtime
+    │   │       ├── PeerClientStore.ts  # DataStore that proxies calls to host over RPC
+    │   │       ├── StoreServer.ts      # host side: one instance per client; serves RPC + pushes changes
+    │   │       └── storeMethods.ts     # canonical DataStore method list + mutating subset
+    │   ├── services/              # orchestrate domain + ports
+    │   │   ├── CustomerService.ts      # selfRegister, provisionFromToken, selfDelete(token), reissue…
+    │   │   ├── LoyaltyService.ts       # commit (accrue+mint+redeem), getState, reverse, getAlerts()
+    │   │   ├── StaffService.ts         # loginWithPin, setPin, revokeAllSessions, currentSessionEpoch
+    │   │   ├── ConfigService.ts        # incl. alert-detector thresholds
+    │   │   ├── AuditService.ts         # list, exportActivity (reason-gated, writes audit.export)
+    │   │   ├── RecoveryService.ts      # self-service recovery (single-use expiring codes)
+    │   │   └── Services.ts             # ← composition root; wires adapters → services.wallet (WalletProvider)
+    │   │                               #   services.sync (SyncKit); exposes reset() (prototype-only)
+    │   ├── qr/                    # encode (cardPayload = card-page URL, tokenFromCardScan, registrationPayload) + scan
+    │   ├── wallet/
+    │   │   └── passes.ts          # PRESET_CARD_TOKENS, PASS_SERIALS, passSerialForToken, walletPassUrl,
+    │   │                          #   detectWalletKind — walletwallet.dev integration (prototype)
+    │   └── ui/
+    │       ├── theme/             # design system slices (no monolith)
+    │       │   ├── tokens.css     #   design tokens: forest/sage/blush/cream/terra palette,
+    │       │   │                  #   Fraunces/DM Sans/DM Mono fonts, spacing, touch targets
+    │       │   ├── base.css       #   reset, .screen shell, utilities, bg-* gradients,
+    │       │   │                  #   focus-visible ring, reduced-motion, .card-hint
+    │       │   ├── keyframes.css  #   animation keyframes
+    │       │   └── index.css      #   single import entry point (used in main.tsx)
+    │       ├── components/        # shared presentational components — folder-per-component
+    │       │   │                  #   each: <Name>.tsx + <Name>.css + <Name>.test.tsx
+    │       │   ├── Logo/          # cup+sunburst mark + lockup
+    │       │   ├── Heading/       # Eyebrow / Title / Sub
+    │       │   ├── Button/        # Button + WalletButton
+    │       │   ├── Field/         # text input; Consent toggle
+    │       │   ├── CupStamps/     # stamp progress row
+    │       │   ├── LoyaltyCard/   # centerpiece card (centerpiece; "Gold" pill is decorative v1)
+    │       │   ├── Qr/            # real QR on cream tile
+    │       │   ├── Overlay/       # enlarged-QR overlay
+    │       │   ├── Toast/         # toast notifications
+    │       │   ├── PinPad/        # numeric PIN pad
+    │       │   ├── Slider/        # PointsSlider
+    │       │   ├── Sheet/         # bottom sheet + MenuRow + RecoveryLine
+    │       │   └── ContextBanner/ # pairing / session context strip
+    │       ├── app/               # LogoGestures, AuthContext (PIN session + inactivity lock),
+    │       │                      #   EntryResolver (entry routing), routes.ts, session.ts
+    │       ├── screens/           # folder-per-screen: <Screen>.tsx + <Screen>.css + <Screen>.test.tsx
+    │       │   ├── customer/      # Welcome/ (+ Find us), Register/, LostCard/, RecoverConsume/,
+    │       │   │                  #   Card/ (hub), EnlargedQr/ (QR + wallet button), CardMenu/
+    │       │   ├── staff/         # Login/, Unlock/ (PIN re-auth), Panel/ ("Your last hour"), Scan/
+    │       │   │                  #   (3s pre-commit hold: stage → countdown → Cancel/Commit now)
+    │       │   │                  #   _parts/: TopBar/ ScanView/ CustChip/ StateLabel/
+    │       │   ├── admin/         # Admin/ (tabbed); _parts/: Stat/ StatDetail/ FeedRow/ Alert/ StepUp/
+    │       │   │                  #   AccountSheet/ ProgramEdit/ Export/ (reason-gated JSON activity export)
+    │       │   └── proto/         # ProtoPanel/ (hidden top-left DevTrigger, build-flag gated)
+    │       └── common/            # ServicesContext, PairingContext/usePairing, QrDisplay, QrScanner,
+    │                              #   PrivacyNotice, PairDevices
+    ├── tests/                     # Vitest: service, adapter, qr, wallet, config, ui/app/session
+    ├── e2e/                       # Puppeteer smoke suite (headless Chrome, drives built app)
+    ├── index.html, public/, vite.config.ts, vitest.e2e.config.ts, tsconfig*.json
+    └── .env.example               # documents required build-time secrets (stale post-Phase 6 — see STATUS.md)
 .github/workflows/deploy.yml   # build + test + deploy (injects secrets at build time)
 ```
 
@@ -476,32 +500,37 @@ is dropped entirely.
 
 ## Running it
 
-```bash
-npm install
-npm run dev        # http://localhost:5173
-npm test           # 461 unit/component tests (Vitest — includes src/ui/**/*.test.tsx)
-npm run build      # static output in dist/
-npm run preview    # serve dist/ locally (required for e2e)
-npm run e2e          # browser UI regression suite (Puppeteer headless Chrome: builds, serves, runs)
-npm run typecheck  # strict TS, no emit
-```
-
-The production backend under construction lives in `packages/server` (`@cafe/server`) and has
-its own suite:
+Three-package monorepo since BACKEND-PLAN Phase 10: the root `package.json` is a workspace root
+only (no SPA dependencies or `vite`/`vitest` scripts of its own) and delegates.
 
 ```bash
-npm test -w @cafe/server   # 208 tests — NEEDS a real Postgres at TEST_DATABASE_URL
+npm install                    # installs every workspace
+npm run dev -w @cafe/web       # http://localhost:5173
+npm run build --workspaces     # @cafe/shared then @cafe/server then @cafe/web
+npm run typecheck --workspaces # strict TS, no emit, across all three packages
+npm run preview -w @cafe/web   # serve packages/web/dist/ locally (required for e2e)
+npm run e2e -w @cafe/web       # browser UI regression suite (Puppeteer headless Chrome: builds, serves, runs)
 ```
 
-Most of those exercise the schema, `PostgresStore` and the auth routes against a real database, so
-the run **aborts when none is reachable** rather than skipping itself green — a skip is not a pass.
-See [`docs/BACKEND-PLAN.md`](docs/BACKEND-PLAN.md) §0 for a one-off local server. The shared
-`DataStore` conformance suite (`tests/conformance/`) is run by *both* commands — against
-`IndexedDbStore` by `npm test` and against `PostgresStore` here — which is what keeps the two
-adapters honest about implementing the same port.
+Tests run per package — there is no single aggregate `npm test` anymore:
 
-Copy `.env.example` to `.env.local` and fill in your credentials before running
-locally (TURN + EmailJS). `.env.local` is gitignored.
+```bash
+npm test -w @cafe/shared   # 73 tests — green independently of the SPA (the domain contract)
+npm test -w @cafe/web      # 9 of 47 test files fail to load, 38 pass (189 tests) — knowingly red,
+                            #   see docs/STATUS.md; the SPA's own gate is the coming UI pass
+npm test -w @cafe/server   # 390 tests — NEEDS a real Postgres at TEST_DATABASE_URL
+```
+
+The `@cafe/server` suite exercises the schema, `PostgresStore` and the auth routes against a real
+database, so the run **aborts when none is reachable** rather than skipping itself green — a skip
+is not a pass. See [`docs/BACKEND-PLAN.md`](docs/BACKEND-PLAN.md) §0 for a one-off local server.
+The `DataStore` conformance suite (`packages/server/src/testing/dataStoreConformance.ts`) is run
+by `PostgresStore.test.ts` — it used to run against `IndexedDbStore` too, keeping both adapters
+honest about implementing the same port, but that adapter was retired in Phase 6.
+
+Copy `packages/web/.env.example` to `packages/web/.env.local` and fill in your credentials before
+running locally (TURN + EmailJS) — note that this file is a known-stale carryover from before
+Phase 6 retired the flags it documents (see `docs/STATUS.md`). `.env.local` is gitignored.
 
 **Two-device demo:** PeerJS transport is the default. Open `http://localhost:5173`
 on two devices on the same network (or use the deployed Pages URL). For

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseEnv } from '../env';
-import { createMailer, mailStartupNotice, LogMailer, SmtpMailer } from './index';
+import { parseEnv } from '../env.js';
+import { createMailer, mailStartupNotice, LogMailer, SmtpMailer } from './index.js';
 
 const BASE = { DATABASE_URL: 'postgres://cafe:cafe@localhost:5432/cafe' };
 

@@ -2,9 +2,9 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { Db } from './db';
-import { migrate } from './migrate';
-import { listTables, resetSchema, testPool } from './testing/database';
+import type { Db } from './db.js';
+import { migrate } from './migrate.js';
+import { listTables, resetSchema, testPool } from './testing/database.js';
 
 const EXPECTED_TABLES = [
   'audit_log',

@@ -39,16 +39,16 @@ import type { CommitResult } from '@cafe/shared/ports/DataStore';
 import type { OutboundMail } from '@cafe/shared/ports/Mailer';
 import { generateToken, isValidToken, normalizeShortCode } from '@cafe/shared/domain/tokens';
 import { isValidEmail } from '@cafe/shared/domain/validation';
-import type { AuthDeps } from '../auth/guards';
-import { cookieMaxAgeSec, requireStaff, setSessionCookies } from '../auth/guards';
-import { cardLink } from '../mail/links';
+import type { AuthDeps } from '../auth/guards.js';
+import { cookieMaxAgeSec, requireStaff, setSessionCookies } from '../auth/guards.js';
+import { cardLink } from '../mail/links.js';
 import {
   isActiveStaff,
   notFound,
   refuse,
   requireActor,
   sessionCustomerId,
-} from './shared';
+} from './shared.js';
 
 // ── schemas ───────────────────────────────────────────────────────────────────
 

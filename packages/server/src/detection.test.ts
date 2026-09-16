@@ -10,11 +10,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Db } from './db';
-import { deriveServerAlerts, DETECTION_WINDOW_DAYS } from './detection';
-import { migrate } from './migrate';
-import { PostgresStore } from './PostgresStore';
-import { resetSchema, testPool } from './testing/database';
+import type { Db } from './db.js';
+import { deriveServerAlerts, DETECTION_WINDOW_DAYS } from './detection.js';
+import { migrate } from './migrate.js';
+import { PostgresStore } from './PostgresStore.js';
+import { resetSchema, testPool } from './testing/database.js';
 
 let db: Db;
 let store: PostgresStore;

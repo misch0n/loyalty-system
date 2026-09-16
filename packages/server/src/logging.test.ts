@@ -7,7 +7,7 @@ import {
   SENSITIVE_KEYS,
   serializeError,
   serializeRequest,
-} from './logging';
+} from './logging.js';
 
 describe('log redaction', () => {
   it('scrubs an email address out of free text', () => {

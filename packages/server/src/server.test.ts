@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildServer } from './server';
+import { buildServer } from './server.js';
 
 describe('server', () => {
   it('reports liveness on /healthz without touching the database', async () => {

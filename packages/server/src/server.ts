@@ -12,10 +12,10 @@
  */
 
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
-import { installSessionHooks, type AuthDeps } from './auth/guards';
-import { checkDb, type Queryable } from './db';
-import { loggerOptions, safeUrl } from './logging';
-import { registerApiRoutes } from './routes';
+import { installSessionHooks, type AuthDeps } from './auth/guards.js';
+import { checkDb, type Queryable } from './db.js';
+import { loggerOptions, safeUrl } from './logging.js';
+import { registerApiRoutes } from './routes/index.js';
 
 export interface ServerOptions {
   logLevel: string;

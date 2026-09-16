@@ -22,9 +22,9 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { Snapshot } from '@cafe/shared/domain/models';
-import type { AuthDeps } from '../auth/guards';
-import { requireAdmin } from '../auth/guards';
-import { publicStaff, requireActor } from './shared';
+import type { AuthDeps } from '../auth/guards.js';
+import { requireAdmin } from '../auth/guards.js';
+import { publicStaff, requireActor } from './shared.js';
 
 const IMPORT_SCHEMA = {
   body: {

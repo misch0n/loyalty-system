@@ -2,12 +2,12 @@
  * Entrypoint. The only place that reads `process.env` and opens a real socket.
  */
 
-import { createAuthDeps } from './auth/guards';
-import { createPool } from './db';
-import { loadEnv } from './env';
-import { createMailer, mailStartupNotice } from './mail';
-import { PostgresStore } from './PostgresStore';
-import { buildServer, dbReachability, installShutdownHandlers } from './server';
+import { createAuthDeps } from './auth/guards.js';
+import { createPool } from './db.js';
+import { loadEnv } from './env.js';
+import { createMailer, mailStartupNotice } from './mail/index.js';
+import { PostgresStore } from './PostgresStore.js';
+import { buildServer, dbReachability, installShutdownHandlers } from './server.js';
 
 const env = loadEnv();
 const db = createPool(env.databaseUrl);

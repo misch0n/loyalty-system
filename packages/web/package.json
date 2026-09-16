@@ -1,0 +1,39 @@
+{
+  "name": "@cafe/web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Café Loyalty SPA — React + Vite.",
+  "scripts": {
+    "predev": "npm --prefix ../shared run build",
+    "dev": "vite",
+    "prebuild": "npm --prefix ../shared run build",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "pretest": "npm --prefix ../shared run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b --noEmit",
+    "e2e": "vite build && vitest run --config vitest.e2e.config.ts"
+  },
+  "dependencies": {
+    "@cafe/shared": "*",
+    "html5-qrcode": "^2.3.8",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "fake-indexeddb": "^6.0.0",
+    "jsdom": "^25.0.0",
+    "puppeteer": "^25.2.0",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2",
+    "vitest": "^2.0.5"
+  }
+}

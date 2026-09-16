@@ -8,17 +8,17 @@
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { Db } from '../db';
-import { migrate } from '../migrate';
-import { PostgresStore } from '../PostgresStore';
-import { resetSchema, testPool } from '../testing/database';
+import type { Db } from '../db.js';
+import { migrate } from '../migrate.js';
+import { PostgresStore } from '../PostgresStore.js';
+import { resetSchema, testPool } from '../testing/database.js';
 import {
   CUSTOMER_TTL_MS,
   EPHEMERAL_TTL_MS,
   IDLE_LOCK_MS,
   REMEMBERED_TTL_MS,
   SessionStore,
-} from './sessions';
+} from './sessions.js';
 
 let db: Db;
 let store: PostgresStore;

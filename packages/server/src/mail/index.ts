@@ -8,15 +8,15 @@
  */
 
 import type { Mailer } from '@cafe/shared/ports/Mailer';
-import type { Env } from '../env';
-import { LogMailer, type MailLog } from './LogMailer';
-import { SmtpMailer } from './SmtpMailer';
+import type { Env } from '../env.js';
+import { LogMailer, type MailLog } from './LogMailer.js';
+import { SmtpMailer } from './SmtpMailer.js';
 
-export { LogMailer } from './LogMailer';
-export type { MailLog } from './LogMailer';
-export { SmtpMailer } from './SmtpMailer';
-export { CAFE_NAME, MailTemplateError, renderMail } from './templates';
-export type { RenderedMail } from './templates';
+export { LogMailer } from './LogMailer.js';
+export type { MailLog } from './LogMailer.js';
+export { SmtpMailer } from './SmtpMailer.js';
+export { CAFE_NAME, MailTemplateError, renderMail } from './templates.js';
+export type { RenderedMail } from './templates.js';
 
 /**
  * Picks the adapter from the environment. `log` is the sink `LogMailer` writes

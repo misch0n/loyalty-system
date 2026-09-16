@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EnvError, parseEnv } from './env';
+import { EnvError, parseEnv } from './env.js';
 
 const MINIMAL = { DATABASE_URL: 'postgres://user:secret@db:5432/cafe' };
 

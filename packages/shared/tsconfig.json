@@ -1,0 +1,51 @@
+{
+  // The shared contract — `domain/` (pure logic) and `ports/` (the interfaces the
+  // adapters implement). Compiled ONCE, here, by ONE compiler.
+  //
+  // That single compiler is the point. Before the monorepo flip these sources
+  // lived in the SPA's tree and were type-checked twice: by the SPA's loose
+  // config and, through a path alias, by the server's stricter one. The mismatch
+  // was not theoretical — Phase 4 had to rewrite `domain/alerts.ts`'s detector
+  // loops to be index-safe before the server could import them. Now there is one
+  // config, and it is the strict one.
+  "compilerOptions": {
+    "target": "ES2022",
+
+    // `DOM` is deliberate, and it is NOT an invitation to touch the browser.
+    // `domain/tokens.ts` uses `crypto.getRandomValues` and `btoa` — web-platform
+    // globals that Node also implements — and this is the lib that declares them
+    // without dragging in Node's API surface. `types: []` below is the other half:
+    // no ambient `@types/*` at all, so nothing here can reach for a Node built-in.
+    // The "domain/ is pure" rule (CLAUDE.md) still holds by review, as it always did.
+    "lib": ["ES2023", "DOM"],
+    "types": [],
+
+    // `NodeNext` — this package is consumed by the server as a real npm workspace
+    // package, resolved through the `exports` map in its `package.json` to the
+    // emitted `dist/`. That is what lets the server drop `tsx` and run the output
+    // on plain `node`. Relative specifiers therefore carry `.js`, which both
+    // TypeScript and Vite map back to the `.ts` source.
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "verbatimModuleSyntax": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": ["src"]
+}

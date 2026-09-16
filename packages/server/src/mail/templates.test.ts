@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { OutboundMail } from '@cafe/shared/ports/Mailer';
-import { CAFE_NAME, MailTemplateError, renderMail } from './templates';
+import { CAFE_NAME, MailTemplateError, renderMail } from './templates.js';
 
 const CARD_LINK = 'https://cafe.example/#/card/abc';
 

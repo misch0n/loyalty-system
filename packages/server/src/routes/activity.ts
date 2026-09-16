@@ -25,16 +25,16 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { AuditAction } from '@cafe/shared/domain/models';
-import type { AuthDeps } from '../auth/guards';
-import { requireAdmin, requireStaff } from '../auth/guards';
-import { deriveServerAlerts } from '../detection';
+import type { AuthDeps } from '../auth/guards.js';
+import { requireAdmin, requireStaff } from '../auth/guards.js';
+import { deriveServerAlerts } from '../detection.js';
 import {
   AUDIT_LIMIT_CEILING,
   TRANSACTION_PAGE_CEILING,
   TRANSACTION_RANGE_MAX_DAYS,
   refuse,
   requireActor,
-} from './shared';
+} from './shared.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

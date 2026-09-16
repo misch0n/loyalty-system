@@ -41,9 +41,9 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { StaffRole } from '@cafe/shared/domain/models';
-import type { AuthDeps } from '../auth/guards';
-import { requireAdmin } from '../auth/guards';
-import { notFound, publicStaff, refuse, requireActor } from './shared';
+import type { AuthDeps } from '../auth/guards.js';
+import { requireAdmin } from '../auth/guards.js';
+import { notFound, publicStaff, refuse, requireActor } from './shared.js';
 
 const CREATE_SCHEMA = {
   body: {

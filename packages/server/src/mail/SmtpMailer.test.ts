@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { SmtpMailer, type MailTransport } from './SmtpMailer';
-import { SmtpSink } from '../testing/smtp';
+import { SmtpMailer, type MailTransport } from './SmtpMailer.js';
+import { SmtpSink } from '../testing/smtp.js';
 
 const FROM = '"Ckyka" <no-reply@cafe.example>';
 const TO = 'someone@example.test';

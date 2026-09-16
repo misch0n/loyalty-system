@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BackgroundWork } from './background';
+import { BackgroundWork } from './background.js';
 
 /** A promise plus the handles to settle it from the test. */
 function deferred(): { promise: Promise<void>; resolve: () => void; reject: (e: Error) => void } {

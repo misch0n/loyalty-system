@@ -12,11 +12,11 @@
  */
 
 import { generateId } from '@cafe/shared/domain/tokens';
-import type { Db } from './db';
-import { createPool } from './db';
-import type { BootstrapAdmin } from './env';
-import { loadEnv } from './env';
-import { hashSecret } from './hashing';
+import type { Db } from './db.js';
+import { createPool } from './db.js';
+import type { BootstrapAdmin } from './env.js';
+import { loadEnv } from './env.js';
+import { hashSecret } from './hashing.js';
 
 export type BootstrapOutcome =
   /** An admin already existed; nothing was written. */

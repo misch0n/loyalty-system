@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clearCookie, parseCookies, serializeCookie } from './cookies';
+import { clearCookie, parseCookies, serializeCookie } from './cookies.js';
 
 describe('parseCookies', () => {
   it('reads every pair in a header', () => {

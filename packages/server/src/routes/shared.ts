@@ -18,7 +18,7 @@
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { StaffAccount } from '@cafe/shared/domain/models';
-import type { StaffActor } from '../auth/sessions';
+import type { StaffActor } from '../auth/sessions.js';
 
 /**
  * Most audit rows a single `GET /audit` may return. The client picks the limit

@@ -11,8 +11,8 @@
  * that it quietly skips.
  */
 
-import type { Db } from '../db';
-import { createPool } from '../db';
+import type { Db } from '../db.js';
+import { createPool } from '../db.js';
 
 export const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgres://cafe:cafe@localhost:5432/cafe_loyalty_test';

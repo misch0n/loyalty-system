@@ -1,0 +1,14 @@
+{
+  // The domain unit tests, type-checked but never emitted — `dist/` is the
+  // published contract and tests are not part of it.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "incremental": false,
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["src", "tests", "vitest.config.ts"]
+}

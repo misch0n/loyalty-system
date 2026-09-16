@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { bootstrap } from './bootstrap';
-import type { Db } from './db';
-import { verifySecret } from './hashing';
-import { migrate } from './migrate';
-import { resetSchema, testPool } from './testing/database';
+import { bootstrap } from './bootstrap.js';
+import type { Db } from './db.js';
+import { verifySecret } from './hashing.js';
+import { migrate } from './migrate.js';
+import { resetSchema, testPool } from './testing/database.js';
 
 
 const ADMIN = {

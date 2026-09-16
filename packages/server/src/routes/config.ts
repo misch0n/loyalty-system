@@ -14,10 +14,10 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import type { AuthDeps } from '../auth/guards';
-import { requireAdmin, requireStaff } from '../auth/guards';
-import { clampConfigPatch } from '../config/clamp';
-import { refuse, requireActor } from './shared';
+import type { AuthDeps } from '../auth/guards.js';
+import { requireAdmin, requireStaff } from '../auth/guards.js';
+import { clampConfigPatch } from '../config/clamp.js';
+import { refuse, requireActor } from './shared.js';
 
 const PATCH_SCHEMA = {
   body: {

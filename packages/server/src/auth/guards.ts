@@ -19,11 +19,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { TrustedStore } from '@cafe/shared/ports/DataStore';
 import type { Mailer } from '@cafe/shared/ports/Mailer';
-import { BackgroundWork } from '../background';
-import type { Db } from '../db';
-import { LogMailer } from '../mail/LogMailer';
-import { clearCookie, parseCookies, serializeCookie, type CookieOptions } from './cookies';
-import { AttemptLimiter } from './rateLimit';
+import { BackgroundWork } from '../background.js';
+import type { Db } from '../db.js';
+import { LogMailer } from '../mail/LogMailer.js';
+import { clearCookie, parseCookies, serializeCookie, type CookieOptions } from './cookies.js';
+import { AttemptLimiter } from './rateLimit.js';
 import {
   CUSTOMER_TTL_MS,
   EPHEMERAL_TTL_MS,
@@ -31,7 +31,7 @@ import {
   SessionStore,
   type IssuedSession,
   type ResolvedSession,
-} from './sessions';
+} from './sessions.js';
 
 /** HttpOnly — the page never reads it, it only travels. */
 export const SESSION_COOKIE = 'cafe_session';

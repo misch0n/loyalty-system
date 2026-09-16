@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { AttemptLimiter } from './rateLimit';
+import { AttemptLimiter } from './rateLimit.js';
 
 describe('AttemptLimiter', () => {
   let clock: number;

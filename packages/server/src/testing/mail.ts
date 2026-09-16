@@ -12,7 +12,7 @@
  */
 
 import type { Mailer, OutboundMail } from '@cafe/shared/ports/Mailer';
-import { renderMail } from '../mail/templates';
+import { renderMail } from '../mail/templates.js';
 
 export interface SentMail extends OutboundMail {
   subject: string;

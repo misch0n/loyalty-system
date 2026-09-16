@@ -42,8 +42,8 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import type { Db } from '../db';
-import { withTransaction } from '../db';
+import type { Db } from '../db.js';
+import { withTransaction } from '../db.js';
 
 /**
  * Crockford base32, the same alphabet as the card short code — no I, L, O or U,

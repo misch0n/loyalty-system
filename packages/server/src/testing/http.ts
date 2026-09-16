@@ -9,7 +9,7 @@
  */
 
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
-import { CSRF_COOKIE, CSRF_HEADER } from '../auth/guards';
+import { CSRF_COOKIE, CSRF_HEADER } from '../auth/guards.js';
 
 /** Cookie name → value, as a browser would hold them for one device. */
 export type Jar = Record<string, string>;

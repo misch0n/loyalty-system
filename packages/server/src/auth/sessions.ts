@@ -22,8 +22,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { StaffRole } from '@cafe/shared/domain/models';
 import { generateId } from '@cafe/shared/domain/tokens';
-import type { Db } from '../db';
-import { withTransaction } from '../db';
+import type { Db } from '../db.js';
+import { withTransaction } from '../db.js';
 
 /**
  * Inactivity before a staff session locks. Mirrors `INACTIVITY_MS` in

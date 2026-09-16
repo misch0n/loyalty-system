@@ -18,16 +18,19 @@
 >    Phase 6 — **done, 2026-09-16**.
 >
 > **So everything below describes a prototype that has now been dismantled, not a shipping one.**
-> The adapters are gone; the screens that used them are still here and are UI-pass deletions. The
-> SPA no longer builds, on purpose: **9 of its 53 test files fail to load** because they import
-> something Phase 6 deleted (the six `tests/services/` suites, which ran on `IndexedDbStore`
-> through `tests/helpers/freshStore.ts`, plus `Card`, `EnlargedQr` and `Panel`). The release gate
-> for the rest of the backend run is the **server suite + server `tsc`**; a red root build is
-> expected, not a regression to chase.
+> The adapters are gone; the screens that used them are still here and are UI-pass deletions.
+> `@cafe/web` (the SPA, physically moved to `packages/web/` in Phase 10) no longer builds, on
+> purpose: **9 of its 47 test files fail to load** because they import something Phase 6 deleted
+> (the six `tests/services/` suites, which ran on `IndexedDbStore` through
+> `tests/helpers/freshStore.ts`, plus `Card`, `EnlargedQr` and `Panel`). The file count dropped
+> from 53 to 47 in Phase 10, when the six pure-domain suites moved out into `@cafe/shared`
+> (`packages/shared/tests/`) and started passing green on their own — not because any of the 9
+> failures were fixed. The release gate for the rest of the backend run is the **`@cafe/shared` +
+> `@cafe/server` suites + their `tsc`**; a red `@cafe/web` is expected, not a regression to chase.
 >
 > **▶ Active initiative — the production backend.** [`BACKEND-PLAN.md`](BACKEND-PLAN.md) is the
-> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose; **Phases 0–6 done**,
-> next is Phase 10 — the monorepo flip; execution order is then 7 → 8 → 9, UI pass, 11) and
+> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose; **Phases 0–6 and 10 done**;
+> execution order is now 7 → 8 → 9, UI pass, 11) and
 > [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) is the maintainer's feature triage, which **overrides
 > scope statements elsewhere including `CLAUDE.md`** — mandatory name + email, wallet and transport
 > seams deleted, no admin stats or export surface. Everything described below is the prototype's
@@ -54,7 +57,58 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-09-16 (**Backend — Phase 6: the prototype retired, the shared port
+**Last updated:** 2026-09-16 (**Backend — Phase 10: the monorepo flip** (branch
+`claude/backend-implementation-2kqb08`)). A file move plus the config to make it real — nothing
+moved in or out of the product. The repo is now a **three-package npm-workspaces monorepo**.
+**`@cafe/shared`** (`packages/shared/src/domain/` + `packages/shared/src/ports/`, tests at
+`packages/shared/tests/`) is the pure contract. **`@cafe/server`** (`packages/server/`) is
+unchanged in location. **`@cafe/web`** (`packages/web/`) is the React SPA — `App.tsx`, `main.tsx`,
+`adapters/`, `config/`, `qr/`, `services/`, `ui/`, plus `index.html`, `public/`, the Vite/Vitest/
+tsconfig files and `.env.example`, all moved under `packages/web/src/`, `packages/web/tests/`,
+`packages/web/e2e/` and `packages/web/`. `tests/conformance/dataStoreConformance.ts` moved to
+**`packages/server/src/testing/dataStoreConformance.ts`** — Phase 6 had already deleted its only
+other consumer (`IndexedDbStore`), so the suite now lives beside the one store (`PostgresStore.test.ts`)
+it specifies; the `@cafe/conformance` alias is gone. The root `package.json` is a workspace root
+only — no SPA dependencies, no `vite`/`vitest` scripts of its own — it delegates
+(`npm run build|test|typecheck --workspaces`, `npm run dev -w @cafe/web`).
+**`@cafe/shared` is now a real package, not a path alias**: it resolves through the `exports` map
+in its own `package.json` the same way for `tsc`, `vitest` and a running `node`; consumers import
+`@cafe/shared/domain/<name>` / `@cafe/shared/ports/<name>`. Both the tsconfig `paths` alias and the
+duplicate Vite alias are deleted; consumers build it first via a `pretest`/`prebuild`/`predev`
+script. This retires the **two-compilers mismatch Phase 4 worked around**: `domain/` and `ports/`
+now have exactly one compiler — `packages/shared/tsconfig.json` (`strict`,
+`noUncheckedIndexedAccess`, `verbatimModuleSyntax`, `NodeNext`, `lib: ["ES2023", "DOM"]`,
+`types: []`, no ambient Node types) — where before the SPA checked them loosely and the server,
+through the alias, checked them strictly (why Phase 4 had to hand-fix `domain/alerts.ts` for index
+safety). Flipping the single strict config on required the same pure, behaviour-preserving
+index-safety fix in `domain/insights.ts`, plus two `!` assertions in the moved domain tests.
+**The server now emits and runs on plain `node` — `tsx` is no longer its runtime**, closing the
+item flagged open in BACKEND-PLAN's "Phases 0–1 as built" notes. `packages/server/tsconfig.json`
+moved `moduleResolution: Bundler` → `NodeNext` (+`esModuleInterop`); every relative specifier in
+`packages/server/src` and `packages/shared/src` gained its `.js` extension; a new
+`packages/server/tsconfig.build.json` emits `dist/` from production code only (excludes
+`**/*.test.ts` and `src/testing/`). Server scripts: `start` = `node dist/index.js`, `migrate` =
+`node dist/migrate.js`, `bootstrap` = `node dist/bootstrap.js`; only `dev` still uses `tsx watch`.
+Verified live, not just by typecheck: migrate, bootstrap, boot, `/healthz`, `/readyz`, sign-in and
+a customer registration all ran from `dist/` on plain `node`, log checked afterwards — no PII.
+**Verification.** `@cafe/shared` builds, typechecks, and passes **73 tests** (the six domain
+suites) — green independently of the SPA, which is why those tests moved out rather than staying
+in the knowingly-red web package: the server depends on `domain/`, so the contract's tests
+shouldn't sit inside a red package. `@cafe/server` is unchanged from the Phase 6 baseline: **390
+tests pass**, `tsc` green, `dist/` emits and runs. `@cafe/web` is still red, for **exactly** the
+Phase 6 reasons and no new ones — **9 of 47 test files fail to load, 38 pass (189 tests)**; the
+counts only changed because the six domain suites (73 tests) moved out: 53−6=47, 44−6=38,
+262−73=189. Every remaining `tsc` error is still a Phase 6 deletion (`adapters/sync/`,
+`wallet/passes`, `IndexedDbStore`, the removed `Services` fields, the reshaped port); the one
+unresolved `@cafe/shared` import is `@cafe/shared/ports/Transport`, deleted on purpose in Phase 6.
+One guardrail widened: `packages/server/src/routes/guardrails.test.ts` now exempts `src/testing/`
+wherever it already exempted `*.test.ts` (the conformance suite legitimately calls `listAudit`) —
+the same line `tsconfig.build.json` draws; guards that exempt nothing (`undo`, `getStaffByPin`)
+still scan every file. **Known gap, not fixed here:** `packages/web/.env.example` moved unedited
+and is stale — it still documents EmailJS, TURN and the `VITE_TRANSPORT`/`VITE_DATASTORE` flags
+Phase 6 deleted; left for the UI pass.
+
+**Previously:** 2026-09-16 (**Backend — Phase 6: the prototype retired, the shared port
 reshaped** (branch `claude/backend-implementation-2kqb08`)). The phase with two halves, and the
 second was the work. **Deleted:** `IndexedDbStore` + `schema.ts` + `demoSeed`, the whole PeerJS
 pairing layer (`src/adapters/sync/`), `src/adapters/transport/` + `ports/Transport.ts`,
@@ -378,35 +432,55 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 
 ## At a glance
 
-- React + TypeScript + Vite SPA, IndexedDB storage, deployed to GitHub Pages.
-- **npm-workspaces monorepo** (root `package.json` `workspaces: ["packages/*"]`). The SPA still
-  lives at `src/` and builds exactly as before — the physical move into `packages/web` is
-  BACKEND-PLAN Phase 10, after frontend work settles.
-- **`packages/server`** (`@cafe/server`) — the production backend under construction: Fastify 5,
-  PostgreSQL via `pg`, argon2id, hand-written numbered SQL migrations, no ORM. Imports `domain/`
-  and `ports/` through the `@cafe/shared/*` alias rather than copying them, so there is one
-  source of truth for the contract. Phases 0–4 done — **`PostgresStore` implements the full
-  `DataStore` port**, and every `ApiStore` path now has a route behind it on three authorization
-  tiers; see [`BACKEND-PLAN.md`](BACKEND-PLAN.md).
-- **One `DataStore` conformance suite, two stores.** `tests/conformance/dataStoreConformance.ts`
-  is store-agnostic and runs against `IndexedDbStore` (SPA test run) and `PostgresStore` (server
-  test run). Both green is what makes the Phase 6 composition-root swap provably safe; it is also
-  the only thing that would catch the two adapters drifting apart.
-- Ports & adapters fully in place; composition root is
-  [`src/services/Services.ts`](../src/services/Services.ts).
-- **461 Vitest unit/component tests** passing (`npm test`); strict typecheck + production build green.
-- **315 server tests** (`npm test -w @cafe/server`) — env validation, log redaction, health
-  endpoints, the migration/schema suite, the `PostgresStore` conformance + row-lock suites, the
-  auth routes, the full **authorization matrix**, every route group, and server-side detection,
-  all against a **real** Postgres at `TEST_DATABASE_URL`
-  (default `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`; the run **aborts** in
-  `globalSetup` if none is reachable — **a skip is not a pass**, and CI wiring is Phase 9).
-- **Puppeteer e2e suite** (`e2e/`, run with `npm run e2e`) drives the built app in headless Chrome: welcome, register→card, staff PIN, prototype panel, and the reference bug-list regressions (13 checks).
+- React + TypeScript + Vite SPA, IndexedDB storage — the IndexedDB adapter and the prototype
+  transport/wallet/pairing seams are being retired (see the box at the top of this file); the
+  GitHub Pages deploy went with them in Phase 6.
+- **Three-package npm-workspaces monorepo** (root `package.json` `workspaces: ["packages/*"]`,
+  no SPA dependencies or `vite`/`vitest` scripts of its own — it delegates via
+  `npm run build|test|typecheck --workspaces` and `npm run dev -w @cafe/web`). The physical move
+  (BACKEND-PLAN Phase 10) is **done**.
+- **`@cafe/shared`** (`packages/shared/`) — the pure contract: `packages/shared/src/domain/` +
+  `packages/shared/src/ports/`, tests at `packages/shared/tests/`. Resolved as a **real package**
+  through its own `package.json` `exports` map (`@cafe/shared/domain/<name>`,
+  `@cafe/shared/ports/<name>`) — not a path alias. Checked by a single strict compiler
+  (`packages/shared/tsconfig.json`: `strict`, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`,
+  `NodeNext`, no ambient `@types/*`), which retires the two-compilers mismatch Phase 4 worked
+  around (the SPA used to check `domain/`/`ports/` loosely, the server strictly, through the alias).
+- **`@cafe/server`** (`packages/server/`) — the production backend: Fastify 5, PostgreSQL via `pg`,
+  argon2id, hand-written numbered SQL migrations, no ORM. Phases 0–6 done — **`PostgresStore`
+  implements the full `DataStore` port**, every `ApiStore` path has a route behind it on three
+  authorization tiers, and the server now **emits and runs on plain `node`** (`dist/`, built by
+  `packages/server/tsconfig.build.json`) rather than `tsx` outside `dev`; see
+  [`BACKEND-PLAN.md`](BACKEND-PLAN.md).
+- **`@cafe/web`** (`packages/web/`) — the React SPA, same code as before Phase 10 at its new home:
+  `packages/web/src/` (`App.tsx`, `main.tsx`, `adapters/`, `config/`, `qr/`, `services/`, `ui/`),
+  `packages/web/tests/`, `packages/web/e2e/`, plus `index.html`, `public/`, the Vite/Vitest/
+  tsconfig files and `.env.example`. Composition root is
+  [`packages/web/src/services/Services.ts`](../packages/web/src/services/Services.ts).
+- **The `DataStore` conformance suite now lives beside the one store it specifies.**
+  `packages/server/src/testing/dataStoreConformance.ts` (moved from `tests/conformance/` in
+  Phase 10) is exercised by `PostgresStore.test.ts` — its only consumer since Phase 6 deleted
+  `IndexedDbStore`, the suite's former second adapter; the `@cafe/conformance` alias is gone.
+- **`@cafe/web` is red on purpose** (Phase 6; the counts below moved in Phase 10 without any new
+  failure): **9 of 47 test files fail to load, 38 pass (189 tests)**; every `tsc` error is a Phase 6
+  deletion. **`@cafe/shared` is green independently — 73 tests** (the six domain suites, moved out
+  of the SPA's run in Phase 10). **`@cafe/server`: 390 tests** pass, `tsc` green, `dist/` emits and
+  runs on plain `node`, all against a **real** Postgres at `TEST_DATABASE_URL` (default
+  `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`; the run **aborts** in `globalSetup` if
+  none is reachable — **a skip is not a pass**, and CI wiring is Phase 9). The release gate is
+  `@cafe/shared` + `@cafe/server`; a red `@cafe/web` is expected until the UI pass.
+- **Puppeteer e2e suite** (`packages/web/e2e/`, run with `npm run e2e`) drives the built app in
+  headless Chrome: welcome, register→card, staff PIN, prototype panel, and the reference bug-list
+  regressions (13 checks).
 - CI: `.github/workflows/deploy.yml` tests → builds (injecting `VITE_EMAILJS_*`,
   `VITE_TURN_*`, and `VITE_GOOGLE_PLACE_ID` secrets) → deploys on push to `main`.
 - Five swappable seams: `DataStore`, `Transport`, `Mailer`, `IdentityStore`, `WalletProvider`.
-- Prototype device-pairing layer in `src/adapters/sync/` (dropped in production).
-- UI rebuilt to Ckyka reference design: `src/ui/theme/` (token slices), `src/ui/components/<Name>/` (folder-per-component), `src/ui/screens/<area>/<Screen>/` (folder-per-screen), `src/ui/app/` (AuthContext, EntryResolver, routes, LogoGestures), `src/ui/common/` (logic contexts).
+- Prototype device-pairing layer in `adapters/sync/` — deleted in Phase 6; production coordinates state on the server.
+- UI rebuilt to Ckyka reference design: `packages/web/src/ui/theme/` (token slices),
+  `packages/web/src/ui/components/<Name>/` (folder-per-component),
+  `packages/web/src/ui/screens/<area>/<Screen>/` (folder-per-screen),
+  `packages/web/src/ui/app/` (AuthContext, EntryResolver, routes, LogoGestures),
+  `packages/web/src/ui/common/` (logic contexts).
 
 ## Acceptance criteria (SPEC §15)
 
@@ -434,10 +508,10 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 | Storage behind `DataStore`; Transport behind `Transport`; Email behind `Mailer`; Identity behind `IdentityStore`; Wallet behind `WalletProvider` — swap = no UI/service change | ✅ | `ports/`, `adapters/`, `services/Services.ts` |
 | Two-device demo over PeerJS + TURN (real cross-device, not simulated) | ✅ impl; cellular verification = manual live-demo step | `adapters/transport/PeerTransport.ts`, `config/env.ts` |
 | Device pairing — one till hosts many customers; live DataStore sync across all devices | ✅ prototype-only (see divergences e, f) | `adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` — all devices host by default; scanning a till's QR makes the scanning device a customer (**no device is auto-routed to staff** — every joiner lands on `/welcome`); a paired client also exposes the till's id (`joinedHostId`) so it can show the **host's QR** and the network can grow from any device; pairing is a reversible overlay — join **snapshots** the device's storage and starts fresh, unpair (voluntary **or** host-forced, with a "till disconnected" toast) **restores** it; unpair signals all peers and each resumes hosting |
-| Domain unit-tested; file tree matches SPEC §12 | ✅ (new UI layout diverges from SPEC §12 — see divergences g, k) | `tests/`, domain + services match |
-| Adapters/transports/services unit-tested (regression cover) | ✅ | `tests/adapters/*`, `tests/services/*`, `tests/qr/*`, `tests/domain/alerts.test.ts`, `tests/adapters/wallet/*` |
-| Co-located component/screen tests (Vitest, jsdom) | ✅ | `src/ui/components/**/*.test.tsx`, `src/ui/screens/**/*.test.tsx` — included via `vite.config.ts` `test.include` |
-| Browser-level end-to-end smoke | ✅ impl (manual) | `e2e/*.e2e.ts` (Puppeteer, headless Chrome) via `npm run e2e` — 13 checks across welcome/card/staff/prototype/regression |
+| Domain unit-tested; file tree matches SPEC §12 | ✅ (new UI layout diverges from SPEC §12 — see divergences g, k) | `packages/shared/tests/`, `packages/web/tests/`, domain + services match |
+| Adapters/transports/services unit-tested (regression cover) | ✅ | `packages/web/tests/adapters/*`, `packages/web/tests/services/*`, `packages/web/tests/qr/*`, `packages/shared/tests/alerts.test.ts` |
+| Co-located component/screen tests (Vitest, jsdom) | ✅ | `packages/web/src/ui/components/**/*.test.tsx`, `packages/web/src/ui/screens/**/*.test.tsx` — included via `vite.config.ts` `test.include` |
+| Browser-level end-to-end smoke | ✅ impl (manual) | `packages/web/e2e/*.e2e.ts` (Puppeteer, headless Chrome) via `npm run e2e` — 13 checks across welcome/card/staff/prototype/regression |
 | **B1** Device persistence — remember/forget exactly one card; no auto-save on view; registration toggle | ✅ | `ui/screens/customer/Card/Card.tsx`, `ui/screens/customer/Register/Register.tsx` |
 | **B2** Card QR encodes card-page URL; `tokenFromCardScan()` extracts token; bare tokens still accepted | ✅ | `qr/encode.ts` (`cardPayload`, `tokenFromCardScan`), `ui/screens/staff/Scan/Scan.tsx` |
 | **B3** Recovery-tier disclosure at signup | ✅ | `ui/screens/customer/Register/Register.tsx` |
@@ -459,8 +533,8 @@ All acceptance criteria below are met and test-covered:
 
 | Criterion (REWARDS-PLAN §5) | State | Test / where |
 |---|---|---|
-| Crossing threshold mints exactly one reward per `pointsPerReward`, same commit | ✅ | `domain/rewards.ts` `mintFold`; `commit` mint-on-cross — `tests/domain/rewards.test.ts`, `tests/services/Loyalty.test.ts`, `tests/adapters/IndexedDbStore.test.ts` |
-| Retried commit (same key) neither double-accrues nor double-mints | ✅ | `idempotencyKeys` store dedup — commit twice same key → identical result, one write set (`IndexedDbStore.test.ts`, `Loyalty.test.ts`, sync round-trip in `tests/adapters/sync`) |
+| Crossing threshold mints exactly one reward per `pointsPerReward`, same commit | ✅ | `domain/rewards.ts` `mintFold` — `packages/shared/tests/rewards.test.ts`; the commit's mint-on-cross now lives in `packages/server/src/PostgresStore.test.ts` + the conformance suite (the prototype `IndexedDbStore` and `LoyaltyService` suites that covered it are deleted/red — Phase 6) |
+| Retried commit (same key) neither double-accrues nor double-mints | ✅ | `idempotency_keys` dedup — commit twice same key → identical result (now `replayed: true`), one write set. `packages/server/src/PostgresStore.test.ts` + conformance; the prototype's store and sync round-trip tests are deleted (Phase 6) |
 | `balance` settles `0..threshold−1`; "N free" = unspent reward count | ✅ | `domain/rewards.ts` `cardProgress`/`unspentRewards`; `getCustomerState` — derivation tests |
 | Redeem atomic + idempotent; 2nd → `already_spent`; non-owner → `not_owner` | ✅ | `domain/rewards.ts` `validateRedemption` (ownership beats status); `commitCounterTransaction` subset-redeem — domain + store tests |
 | Reversing a minting accrual voids the minted reward | 🗑️ **retired** (Appendix E, Phase 1) | The post-commit undo this depended on (`planUndo`/`undoCommit`) is deleted — see below |
@@ -468,7 +542,7 @@ All acceptance criteria below are met and test-covered:
 | One commit can add points AND redeem ≥1; never gated by QR type | ✅ | `CounterTransaction { pointsDelta, redeemRewardIds[] }`; staff Scan slider `min=0` + reward checklist, one `commit` — `ui/screens/staff/Scan` tests |
 | Source tag (`'a'`/`'w'`) parsed + recorded; drives nothing but validation/analytics | ✅ | `parseScan` (`qr/encode.ts`); `commit` writes `source` on the audit row only — parse + Loyalty audit tests |
 | No per-transaction freshness anywhere | ✅ | by design — no timestamp validation on any path |
-| Every `redeemRewardId` re-validated at commit; subset redeemed, rest reported | ✅ | stale id in set → `rejected[]`, valid ones still redeem (commit never aborts) — `IndexedDbStore.test.ts` |
+| Every `redeemRewardId` re-validated at commit; subset redeemed, rest reported | ✅ | stale id in set → `rejected[]`, valid ones still redeem (commit never aborts) — the conformance suite, now at `packages/server/src/testing/dataStoreConformance.ts` |
 | Wallet scan with rewards surfaces the redeem affordance from the list | ✅ | a baked wallet pass embeds the **card** URL (`…/#/c/<token>?s=w`); a wallet scan resolves as a plain card scan and staff Scan shows the unspent-reward checklist — Phase 7 (Scan tests). A wallet pass never carries a composite reward QR |
 | All three input paths return `{ customer, balance, rewards }` | ✅ | card scan (`/c`), reward scan (`/r`), manual short-code all resolve to the canonical `CustomerState` via `getState` — Scan + service tests |
 | Undo within 5s: points reversed, fresh mint voided, spent re-minted | 🗑️ **retired, replaced** (Appendix E, Phase 0/1) | The 5-second **post-commit** undo is replaced by a 3-second **pre-commit** hold — nothing is written until the customer's transaction is confirmed, so there is nothing to reverse/void/re-mint after the fact. See the **Staff integrity & observability acceptance (E9)** table below |
@@ -543,7 +617,7 @@ above). `docs/SPEC.md` is authoritative and unedited, so these are recorded here
 | Transaction is held 3s before any write; Cancel writes nothing | ✅ | staff Scan: cancel during the countdown → store unchanged; timeout/"Commit now" → exactly one commit — `ui/screens/staff/Scan` tests |
 | Terminal returns to idle/scanner after each commit (fresh scan per customer) | ✅ | staff Scan: post-commit state = scanner, no persistent card link |
 | No post-commit reversal path exists | ✅ | `undo`/`undoCommit`/`planUndo` removed repo-wide; `LoyaltyService.reverse` retained |
-| Exactly two detectors, both attributed, admins included, surfaced-not-blocking | ✅ | `tests/domain/alerts.test.ts`: only `self-dealing` + `repeat-target` fire; an admin actor is flagged like anyone; nothing blocks |
+| Exactly two detectors, both attributed, admins included, surfaced-not-blocking | ✅ | `packages/shared/tests/alerts.test.ts`: only `self-dealing` + `repeat-target` fire; an admin actor is flagged like anyone; nothing blocks |
 | Self-dealing fires on a real redemption (not the dead ledger type) | ✅ | detector runs over paired `loyalty.accrue`/`loyalty.redeem` audit events (`AttributedEvent`), not the retired `type==='redemption'` ledger match |
 | Detector thresholds editable via admin Configure | ✅ | `ProgramConfig.selfDealWindowSec`/`selfDealCount`/`repeatWindowMin`/`repeatCount`; Configure panel "Activity alerts" group — `ConfigService`/Admin tests |
 | Staff terminal shows only recent-and-local (≤10 / 1h, own actions), never full history, no Load-all | ✅ | staff Panel "Your last hour" — `actorId`-filtered, capped, no pager |
@@ -684,18 +758,23 @@ actions).
 
 ## Test coverage
 
-`npm test` runs **461 Vitest unit/component tests** (includes co-located
-`src/ui/**/*.test.tsx` via the extended `test.include` in `vite.config.ts`), and
-`npm test -w @cafe/server` runs **315 server tests** against a real Postgres:
+Three separate suites since Phase 10 split the repo into packages — there is no longer a single
+`npm test`. `npm test -w @cafe/shared` runs **73 tests** (green, independent of the SPA).
+`npm test -w @cafe/web` runs **9 of 47 test files failing to load, 38 passing (189 tests)** —
+includes co-located `packages/web/src/ui/**/*.test.tsx` via the extended `test.include` in
+`vite.config.ts`; red for exactly the Phase 6 reasons (below). `npm test -w @cafe/server` runs
+**390 server tests** against a real Postgres.
 
-- **domain/** — `loyalty`, `rewards` (rewards-as-objects pure logic: `mintFold`
-  mint-on-cross + multi-mint, `unspentRewards`, `cardProgress`,
+- **`@cafe/shared` — `packages/shared/tests/`** — `loyalty`, `rewards` (rewards-as-objects pure
+  logic: `mintFold` mint-on-cross + multi-mint, `unspentRewards`, `cardProgress`,
   `validateRedemption`, `isOverCap` — `planUndo` removed, Appendix E Phase 1),
   `tokens` (incl. reward identifiers), `validation` (pure logic), `alerts` —
   pruned to **`self-dealing`** (attributed accrue/redeem pairing) and
   **`repeat-target`** against configurable thresholds (velocity, off-hours,
-  outlier-share, oversized multi-add removed, Appendix E Phase 2).
-- **services/** — `Customer` (incl. `selfRegister`, `provisionFromToken`,
+  outlier-share, oversized multi-add removed, Appendix E Phase 2). These six suites moved out of
+  the SPA's test run in Phase 10 — they are the contract's own tests and stay green whatever state
+  `@cafe/web` is in.
+- **`@cafe/web` — `packages/web/tests/services/`** — `Customer` (incl. `selfRegister`, `provisionFromToken`,
   `nextCardToken`, `selfDelete`), `Loyalty` (incl. reward-notification path,
   `getAlerts()` over attributed events + configurable thresholds, and the
   rewards-as-objects unified commit: `commit` mint-on-cross, `over_cap`/
@@ -706,36 +785,31 @@ actions).
   detector-threshold fields), `Audit` (incl. `exportActivity` — empty-reason
   refusal, `audit.export` row, reason trim/cap), plus the `Services`
   composition-root wiring.
-- **conformance/** — `tests/conformance/dataStoreConformance.ts`, the
+- **conformance —** `packages/server/src/testing/dataStoreConformance.ts` (moved from
+  `tests/conformance/` in Phase 10), the
   **store-agnostic `DataStore` suite** (41 tests): customers and the tombstone,
   the ledger and derived balance, the atomic commit (mint-on-cross, multi-mint,
   idempotent replay, subset redeem, `not_owner`, `over_cap`,
   `customer_not_found`, redeem-only), rewards, staff/PIN/config, recovery codes,
-  the ranged multi-value `AuditFilter`, stats and the snapshot round-trip. Run
-  against `IndexedDbStore` from `tests/adapters/IndexedDbStore.conformance.test.ts`
-  and against `PostgresStore` from `packages/server/src/PostgresStore.test.ts`.
-  It asserts *behaviour*, never storage shape — the two stores legitimately
-  differ on credential representation (plaintext vs argon2id) and on
-  `redeemReward`, which is excluded and documented.
-- **adapters/** — `IndexedDbStore` (what is IndexedDB-specific only: the seed and
-  its idempotency, the short-code backfill, the v5 clean-reset upgrade and the
-  wedged-database self-heal, `reset()` in place, and the retired `redeemReward`
-  path the production schema refuses — the port contract itself now lives in the
-  conformance suite above), `ApiStore` (every method rejects as a
-  stub), `PeerTransport` (peerjs mocked), `EmailJsMailer`, `NoopMailer`,
+  the ranged multi-value `AuditFilter`, stats and the snapshot round-trip. Now run
+  **only** against `PostgresStore` from `packages/server/src/PostgresStore.test.ts` — its
+  `IndexedDbStore` counterpart was deleted in Phase 6, so the suite is reframed in its own header
+  as `PostgresStore`'s specification rather than a cross-store contract; the missing second harness
+  is explained rather than merely missing.
+- **`@cafe/web` adapters/** — `ApiStore` (every method rejects as a stub), `NoopMailer`,
   `LocalStorageIdentityStore`.
-- **adapters/sync/** — sync round-trip via in-memory `FakeLink`; `ConnLink` /
-  `joinHost` / `PeerJsHost` (PeerJS mocked). `IndexedDbStore.reset()` (wipe +
-  re-seed in place, store still usable) in `tests/adapters/IndexedDbStore.test.ts`.
-- **ui/common/** — `storageSnapshot` (`tests/ui/common/storageSnapshot.test.ts`):
-  the pairing push/pop — snapshot-and-clear on join, clear-except-snapshot (light
-  reset), restore-on-unpair, full clear, and the unclean-exit boot self-heal.
-- **adapters/wallet/** — `StaticWalletProvider` (ensurePass returns URL, pushUpdate
-  no-op, OS detection).
-- **ui/app/** — `session` (`tests/ui/app/session.test.ts`): the pure session
+- **Deleted in Phase 6, listed here because they used to be this section's bulk:** the
+  `IndexedDbStore` suite (the seed, the short-code backfill, the v5 clean-reset upgrade, the
+  wedged-database self-heal, `reset()` in place, the retired `redeemReward` path), the
+  `adapters/sync/` suites (`FakeLink` round-trip, `ConnLink` / `joinHost` / `PeerJsHost`),
+  `adapters/wallet/` (`StaticWalletProvider`), `PeerTransport`, `EmailJsMailer`, and
+  `ui/common/storageSnapshot` (the pairing push/pop). The adapters they covered are gone, so
+  the tests went with them — **this is not missing coverage, it is a removed feature.** What
+  the store suites proved about the *port* survives in the conformance suite above.
+- **`@cafe/web` ui/app/** — `session` (`packages/web/tests/ui/app/session.test.ts`): the pure session
   decision logic from `AuthContext` — `parseSession` validation, `reconcile`
   (epoch revocation, idle→locked for trusted vs anon for ephemeral), `isIdle`
-  boundary. `LogoGestures` (`src/ui/app/LogoGestures.test.tsx`).
+  boundary. `LogoGestures` (`packages/web/src/ui/app/LogoGestures.test.tsx`).
 - **ui/components/** — co-located tests for each shared component: Logo, Heading,
   Button, Field, CupStamps, Sheet, Qr, Overlay, Toast, PinPad, LoyaltyCard,
   Slider, ContextBanner.
@@ -752,7 +826,7 @@ actions).
   tokens, serial lookup, URL construction, OS detection),
   **config/** (`env` flag mapping incl. `googlePlaceId`, `walletKind`, `links.ts` URL building).
 
-**Server layer** (`npm test -w @cafe/server`, 315 tests, **needs a real Postgres** at
+**Server layer** (`npm test -w @cafe/server`, 390 tests, **needs a real Postgres** at
 `TEST_DATABASE_URL` — the run aborts in `globalSetup` without one, because a suite that skips
 itself green proves nothing): `env` (boot-time validation, incl. `COOKIE_SECURE` refusing to be
 false in production), `logging` (PII redaction, including the 404 path that slipped past the
@@ -789,7 +863,7 @@ each race held open by a third connection so the overlap is a fact, not a schedu
 (argon2id, hashed recovery codes), the refused `redeemReward`, and the integrity the browser could
 not enforce.
 
-**End-to-end layer:** `e2e/` (Puppeteer, headless Chrome, `npm run e2e`) drives the
+**End-to-end layer:** `packages/web/e2e/` (Puppeteer, headless Chrome, `npm run e2e`) drives the
 built app — runs against `npm run preview`. Not part of `npm test`; run manually
 or in CI as a separate step. Catches regressions at the rendered-DOM level that
 unit tests cannot.
@@ -803,39 +877,40 @@ unit tests cannot.
 - Never put PII in the QR, logs, or audit `details`. Never log a PIN.
 - Only `services/Services.ts` names concrete adapters.
 - New adapter? Implement the full port and wire it solely in the composition root.
-- `src/config/links.ts` (`appUrl`) is the single place that builds absolute URLs
+- `packages/web/src/config/links.ts` (`appUrl`) is the single place that builds absolute URLs
   for QR payloads and emailed links. Do not hard-code `window.location` elsewhere.
-- `src/config/env.ts` owns all env-var reads (`VITE_TRANSPORT`, `VITE_EMAILJS_*`,
+- `packages/web/src/config/env.ts` owns all env-var reads (`VITE_TRANSPORT`, `VITE_EMAILJS_*`,
   `VITE_TURN_*`, `VITE_GOOGLE_PLACE_ID`, `VITE_WALLET`, `baseUrl`,
   `isEmailConfigured`, `googlePlaceId`, `walletKind`). Read from there, not
   `import.meta.env` directly.
-- `src/config/cafe.ts` holds static café public details (name, address, Maps URL,
+- `packages/web/src/config/cafe.ts` holds static café public details (name, address, Maps URL,
   contact email). Use it in UI rather than hard-coding strings.
-- **UI design system:** `src/ui/theme/` replaces the old monolith `src/ui/theme.css`.
+- **UI design system:** `packages/web/src/ui/theme/` replaces the old monolith `theme.css`.
   Slices: `tokens.css` (design tokens — forest/sage/blush/cream/terra palette,
   Fraunces/DM Sans/DM Mono fonts), `base.css` (reset, `.screen` shell, utilities,
   `bg-*` gradients, focus-visible ring, reduced-motion, `card-hint`),
-  `keyframes.css`. All imported once via `src/ui/theme/index.css` in `main.tsx`.
+  `keyframes.css`. All imported once via `packages/web/src/ui/theme/index.css` in `main.tsx`.
   No monolith; no `styles.css`. Tokens always win — import order is handled in
   `index.css`.
-- **UI components:** `src/ui/components/<Name>/` — each shared presentational
+- **UI components:** `packages/web/src/ui/components/<Name>/` — each shared presentational
   component is its own folder (`Name.tsx` + `Name.css` + `Name.test.tsx`). No kit
   barrel export; import directly from the component folder. No business logic in
   components.
-- **UI structure:** app-level infra in `src/ui/app/` (AuthContext, EntryResolver,
+- **UI structure:** app-level infra in `packages/web/src/ui/app/` (AuthContext, EntryResolver,
   routes, `LogoGestures` — the global shell chrome is gone; screens own their
-  headers). Screens in `src/ui/screens/<area>/<Screen>/` (folder-per-screen:
+  headers). Screens in `packages/web/src/ui/screens/<area>/<Screen>/` (folder-per-screen:
   `Screen.tsx` + `Screen.css` + `Screen.test.tsx`); screen-scoped parts live in
   their screen's `_parts/` sub-folder; only truly shared pieces live in
-  `src/ui/components/`. Shared prototype/pairing scaffolding in `src/ui/common/`.
-- **`AuthContext`** (`src/ui/app/AuthContext.tsx`) manages the staff/admin session:
+  `packages/web/src/ui/components/`. Shared prototype/pairing scaffolding in
+  `packages/web/src/ui/common/`.
+- **`AuthContext`** (`packages/web/src/ui/app/AuthContext.tsx`) manages the staff/admin session:
   trusted vs. ephemeral device, inactivity lock, epoch revocation. Replaces the old
   `SessionContext`. Staff/admin guards use `useAuth` inside each screen — no
   `RequireAuth` wrapper component.
 - **Navigation:** no home dashboard for customers. Recognized customer → `/card/:token`
   directly. Unrecognized → `/welcome`. Signed-in staff → `/staff`, admin → `/admin`
   (role-aware home). Entry routing is `EntryResolver` at `/`. Logo gestures handled
-  by `LogoGestures` (`src/ui/app/LogoGestures.tsx`): **tap → home**, long-press
+  by `LogoGestures` (`packages/web/src/ui/app/LogoGestures.tsx`): **tap → home**, long-press
   ≥600ms → staff sign-in. The Prototype/developer panel is opened by a separate
   hidden top-left `DevTrigger` (gated on `isPrototype`, not `import.meta.env.PROD`),
   not a logo tap. There is no global "Staff sign-in" subtitle in the shell.
@@ -1036,8 +1111,8 @@ e. **Device pairing is a prototype-only construct.** `adapters/sync/` uses PeerJ
 
 f. **Prototype UX scaffolding (DevTrigger, ProtoPanel, Reset, pairing, QR-in-panel).**
    The spec does not define demo-management UI. The prototype surfaces it in
-   `src/ui/screens/proto/ProtoPanel/ProtoPanel.tsx`, opened by a hidden top-left
-   `DevTrigger` (`src/ui/app/DevTrigger.tsx`) present on every view (build-flag
+   `packages/web/src/ui/screens/proto/ProtoPanel/ProtoPanel.tsx`, opened by a hidden top-left
+   `DevTrigger` (`packages/web/src/ui/app/DevTrigger.tsx`) present on every view (build-flag
    gated, non-production). The panel is stripped to three centred controls — pairing
    QR, Scan to pair, Reset. Long-pressing the logo (≥600ms) goes directly to
    staff/admin sign-in; a plain logo tap goes home. `/pair` is scan-only: arriving
@@ -1048,7 +1123,9 @@ f. **Prototype UX scaffolding (DevTrigger, ProtoPanel, Reset, pairing, QR-in-pan
 
 g. **UI file layout diverges from SPEC §12.** SPEC §12 specifies
    `src/ui/{customer,staff,admin,auth}/` + `src/ui/common/`. The rebuilt frontend
-   (Ckyka reference-UI) uses `src/ui/{theme/,components/<Name>/,screens/<area>/<Screen>/,app/,common/}`.
+   (Ckyka reference-UI) uses
+   `packages/web/src/ui/{theme/,components/<Name>/,screens/<area>/<Screen>/,app/,common/}`
+   (physically moved under `packages/web/` in Phase 10; the internal shape is unchanged).
    The domain, ports, adapters, and services layers are unchanged. The divergence is
    UI-structure-only and does not affect the production swap path. Recorded here;
    `docs/SPEC.md` is not edited.

@@ -28,16 +28,16 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { StaffAccount } from '@cafe/shared/domain/models';
-import { hashSecret, verifySecret } from '../hashing';
+import { hashSecret, verifySecret } from '../hashing.js';
 import {
   clearSessionCookies,
   cookieMaxAgeSec,
   requireAdmin,
   setSessionCookies,
   type AuthDeps,
-} from '../auth/guards';
-import type { RateLimitDecision } from '../auth/rateLimit';
-import type { SessionState, StaffActor } from '../auth/sessions';
+} from '../auth/guards.js';
+import type { RateLimitDecision } from '../auth/rateLimit.js';
+import type { SessionState, StaffActor } from '../auth/sessions.js';
 
 const LOGIN_SCHEMA = {
   body: {

@@ -10,14 +10,14 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance, InjectOptions } from 'fastify';
-import type { AuthDeps } from '../auth/guards';
-import { createAuthDeps, CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from '../auth/guards';
-import { IDLE_LOCK_MS } from '../auth/sessions';
-import type { Db } from '../db';
-import { migrate } from '../migrate';
-import { PostgresStore } from '../PostgresStore';
-import { buildServer } from '../server';
-import { resetSchema, testPool } from '../testing/database';
+import type { AuthDeps } from '../auth/guards.js';
+import { createAuthDeps, CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from '../auth/guards.js';
+import { IDLE_LOCK_MS } from '../auth/sessions.js';
+import type { Db } from '../db.js';
+import { migrate } from '../migrate.js';
+import { PostgresStore } from '../PostgresStore.js';
+import { buildServer } from '../server.js';
+import { resetSchema, testPool } from '../testing/database.js';
 
 const PASSWORD = 'correct horse battery staple';
 const PIN = '4821';

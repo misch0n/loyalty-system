@@ -67,10 +67,10 @@ import {
 import { balance } from '@cafe/shared/domain/loyalty';
 import { cardProgress, isOverCap, mintFold, validateRedemption } from '@cafe/shared/domain/rewards';
 import { normalizeEmail, normalizePhone } from '@cafe/shared/domain/validation';
-import type { Db, Queryable } from './db';
-import { withTransaction } from './db';
-import { hashSecret } from './hashing';
-import { consumeRecoveryCode, issueRecoveryCode, recordFailedAttempt } from './recovery/codes';
+import type { Db, Queryable } from './db.js';
+import { withTransaction } from './db.js';
+import { hashSecret } from './hashing.js';
+import { consumeRecoveryCode, issueRecoveryCode, recordFailedAttempt } from './recovery/codes.js';
 
 // ── row shapes ────────────────────────────────────────────────────────────────
 

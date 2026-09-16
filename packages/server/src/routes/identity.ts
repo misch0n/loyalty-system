@@ -16,9 +16,9 @@
 
 import type { FastifyInstance } from 'fastify';
 import { isValidToken } from '@cafe/shared/domain/tokens';
-import type { AuthDeps } from '../auth/guards';
-import { clearSessionCookies, cookieMaxAgeSec, setSessionCookies } from '../auth/guards';
-import { refuse, sessionCustomerId } from './shared';
+import type { AuthDeps } from '../auth/guards.js';
+import { clearSessionCookies, cookieMaxAgeSec, setSessionCookies } from '../auth/guards.js';
+import { refuse, sessionCustomerId } from './shared.js';
 
 const SET_SCHEMA = {
   body: {

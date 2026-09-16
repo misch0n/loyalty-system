@@ -14,8 +14,8 @@
  * A new database-backed test cannot silently opt out of it.
  */
 
-import { createPool } from '../db';
-import { TEST_DATABASE_URL } from './database';
+import { createPool } from '../db.js';
+import { TEST_DATABASE_URL } from './database.js';
 
 /** Redact the password before the URL goes anywhere a human can read it. */
 function safeUrl(url: string): string {

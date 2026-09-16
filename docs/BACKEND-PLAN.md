@@ -46,11 +46,15 @@ context cleared between tasks.
 4. Do **only that phase**. Stay within its file list. Honour the architecture rules in
    [`../CLAUDE.md`](../CLAUDE.md), as amended by SCOPE-DECISIONS §5 and §6.
 5. Before committing, the gate is **`npm test -w @cafe/server`** (**390** as of Phase 6) plus
-   **`npx tsc --noEmit -p packages/server/tsconfig.json`** — the server suite does *not*
-   typecheck itself, and that second command is the server's `build` script.
+   **`npm run typecheck -w @cafe/server`** — the server suite does *not* typecheck itself.
+   Phase 10 also gave `packages/shared` its own gate, and it is cheap, so run it too:
+   **`npm test -w @cafe/shared`** (**73**) and **`npm run typecheck -w @cafe/shared`**.
    **Root `npm test` / `npm run build` are no longer a gate** and are expected to be red from
    Phase 6 (prototype retirement) until the UI pass; see the revoked-promise box. Until Phase 6
    they should still pass, so keep running them.
+   *(Pre-Phase-10 sessions ran `npx tsc --noEmit -p packages/server/tsconfig.json` for the
+   typecheck. That still works, but it needs `packages/shared/dist` to exist first — the
+   `pretypecheck` script is what builds it, so prefer the npm script.)*
 6. **Record every backend-vs-UI conflict you create** in
    [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md). This is not optional bookkeeping — it is the
    entire input to the UI pass, and the maintainer confirms from it.
@@ -62,10 +66,12 @@ single existing frontend file, because a frontend agent was landing work on `mai
 monorepo move would conflict with every diff it produced. Both halves are gone: the UI is now
 adjusted *after* the backend rather than beside it, and the prototype it was protecting is being
 deleted. What survives from it is one habit worth keeping — **merge `main` at the start of every
-phase** — and one fact: Phase 4 had to make `src/domain/alerts.ts` index-safe to import it under
-the server's stricter tsconfig. `domain/` is now shared with a compiler that sets
-`noUncheckedIndexedAccess`; expect the same friction from any other shared file, and fix it in
-place.
+phase**.
+
+Its second legacy — two compilers disagreeing about `domain/` — is **closed**. Phase 4 had to make
+`src/domain/alerts.ts` index-safe to import it under the server's stricter tsconfig, and Phase 10
+found the identical problem waiting in `domain/insights.ts`. `packages/shared` now has **one**
+tsconfig and it is the strict one, so there is no second, looser compiler left to drift from.
 
 **Running the server tests.** The suite **requires** a real Postgres and fails without one:
 `packages/server/src/testing/globalSetup.ts` checks reachability once per run and aborts with
@@ -108,17 +114,22 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 
 ## 1 · Progress checklist
 
-> **NEXT TASK: Phase 10** — the monorepo flip. `src/domain` + `src/ports` → `packages/shared/src`,
-> what remains of `src/` → `packages/web/src`, and the `@cafe/shared/*` alias stops being an alias.
-> A pure move, no logic change — and a much smaller one than it was, because Phase 6 deleted most
-> of what `src/` contained. It is also the moment the server can stop running on `tsx` and `build`
-> can emit (Phases 0–1 as built). **Read the revoked-promise box at the top of this file first.**
+> **NEXT TASK: Phase 7** — realtime push over SSE. `GET /events` pushing a `changed` signal per
+> customer and per till, replacing the live cross-device refresh the deleted PeerJS pairing layer
+> used to provide. **Read the revoked-promise box at the top of this file first.** The client
+> subscriber is UI-pass work — build the channel and its tests server-side, and record the
+> screen-level half in [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md).
 >
-> Phase 6 landed 2026-09-16: the prototype adapters are deleted and the shared port is reshaped
-> around the server. **390 server tests** (was 389), server `tsc` green. **The SPA is now red, on
-> purpose** — 9 of its 53 test files fail to load and `tsc -b` fails, which is the outcome the
-> 2026-09-16 decision chose. Do not chase it. **The gate from here is `npm test -w @cafe/server`
-> plus `npx tsc --noEmit -p packages/server/tsconfig.json`, and nothing else**, until the UI pass.
+> Phase 10 landed 2026-09-16: the repo is a **three-package npm workspaces monorepo** —
+> `@cafe/shared` (the contract), `@cafe/server`, `@cafe/web`. `@cafe/shared` is a real package
+> resolved through its `exports` map, not an alias, and the server **emits and runs on plain
+> `node`** — `tsx` is only the `dev` watcher now, which closes the Phases 0–1 open item. **390
+> server tests**, unchanged; **73 shared tests**, newly green in their own package.
+>
+> **The SPA is still red, on purpose** — 9 of its now-47 test files fail to load and `tsc -b`
+> fails, which is the outcome the 2026-09-16 decision chose. Do not chase it. **The gate is
+> `npm test -w @cafe/server` + `npm run typecheck -w @cafe/server`** (and, cheaply,
+> the same two for `@cafe/shared`), **and nothing else**, until the UI pass.
 >
 > **The server suite needs a real Postgres and FAILS without one** — it does not skip. Most of
 > its tests are database-backed, and before Phase 2 they skipped themselves when no database was
@@ -126,14 +137,7 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 > having tested nothing. It now aborts in `globalSetup` with the commands to start one. See §0
 > *Running the server tests*.
 >
-> Read §5 Phase 10 and the decisions Phases 1–6 recorded at the foot of §5 before starting.
-> Phase 10 inherits two things:
-> - **`domain/` is now compiled by a stricter compiler than the SPA's.** Phase 4 had to make
->   `src/domain/alerts.ts` index-safe for `noUncheckedIndexedAccess`. Giving `packages/shared` one
->   tsconfig is what ends that mismatch for good — it is the phase's quiet win, not a side effect.
-> - **The SPA half of the move lands broken and stays broken.** `packages/web/src` will not
->   compile when the move finishes, for the reasons §5 Phase 6 lists. Move it anyway; the UI pass
->   works on it where it lands, not where it used to be.
+> Read §5 Phase 7 and the decisions Phases 1–10 recorded at the foot of §5 before starting.
 >
 > **A live gap Phase 4 found and did not fix, for whoever reaches Phase 8:** `bootstrap.ts` is
 > built and tested but **nothing calls it**. `index.ts` does not (a long-running API should not
@@ -160,7 +164,7 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 - [x] **Phase 4** — HTTP API surface + the authorization boundary
 - [x] **Phase 5** — Server-side `Mailer` + recovery flow
 - [x] **Phase 6** — **Retire the prototype + reshape the shared port**  ⟵ the SPA went red here
-- [ ] **Phase 10** — Monorepo flip (`packages/shared` + `packages/web`) — pulled forward
+- [x] **Phase 10** — Monorepo flip (`packages/shared` + `packages/web`) — pulled forward
 - [ ] **Phase 7** — Realtime push (SSE) — replaces what device pairing provided
 - [ ] **Phase 8** — Docker Compose bundle + ops (backups, health, logging)
 - [ ] **Phase 9** — CI + integration tests against a real Postgres
@@ -185,7 +189,7 @@ nothing and saves that rework. It is also much cheaper than it was: Phase 6 dele
 | # | Decision | Rationale |
 |---|---|---|
 | Code layout | **npm workspaces monorepo** — `packages/shared` (domain + ports), `packages/web` (the SPA), `packages/server`. One source of truth for the contract; no drift. | Chosen over a path-alias `server/` and over a duplicated copy. A drifting copy of `ports/DataStore.ts` is exactly the failure the ports architecture exists to prevent. |
-| Move timing | **REVISED 2026-09-16 — the move runs straight after Phase 6**, not last. Until then the server imports `domain`/`ports` through the workspace alias `@cafe/shared`, resolved to the existing `src/domain` + `src/ports`; the move puts those two in `packages/shared` and what remains of `src/` in `packages/web/src`. Still a pure move, no logic change. | It was last to avoid conflicting with every diff the parallel frontend agent produced. That agent is gone, and Phases 8 and 9 both encode the file layout — writing a Dockerfile and a CI workflow against `src/` and then moving it is pure rework. Destination unchanged; only the ordering moved, and Phase 6 shrinks the thing being moved first. |
+| Move timing | **REVISED 2026-09-16 — the move runs straight after Phase 6**, not last. **Done** (Phase 10, 2026-09-16): `packages/shared` holds `domain` + `ports`, `packages/web` holds what remained of `src/`, and `@cafe/shared` is a real workspace package resolved through its `exports` map rather than a tsconfig alias. | It was last to avoid conflicting with every diff the parallel frontend agent produced. That agent is gone, and Phases 8 and 9 both encode the file layout — writing a Dockerfile and a CI workflow against `src/` and then moving it is pure rework. Destination unchanged; only the ordering moved, and Phase 6 shrinks the thing being moved first. |
 | HTTP + DB | **Fastify + `pg` + hand-written numbered SQL migrations.** No ORM. | Matches the repo's "small and boring" rule. The commit transaction is the one piece of logic that must be *obvious* — explicit `BEGIN` / `SELECT … FOR UPDATE` / `COMMIT` beats an ORM's transaction abstraction. Fastify's JSON-schema route validation covers the boundary without a validation dependency. |
 | Sessions | **HttpOnly, `Secure`, `SameSite=Lax` cookie sessions for both staff and customers**, server-side session rows. CSRF via double-submit token on all mutating routes. | Server-set HttpOnly cookies are the **only** customer recognition that survives iOS ITP — the durability gap [`COLLAB-NOTES.md`](COLLAB-NOTES.md) records as unsolvable client-side, and a large part of why the backend is worth building. Cookie sessions also make `sessionEpoch` revocation real (delete the rows) rather than "wait for the JWT to expire". |
 | Passwords/PINs | **argon2id**, hashed **server-side from the plaintext**. The client never hashes. | See §4-A: `setStaffPassword(id, passwordHash)` as written would make the hash itself the password. |
@@ -950,6 +954,91 @@ moment the server can stop running on `tsx` — with `@cafe/shared` a real packa
 being an alias, and `build` can emit (Phases 0–1 as built).
 Done when: the server suite + server `tsc` are green post-move. The root build is red for the
 reason Phase 6 made it red; it is not this phase's to fix.
+
+#### Phase 10 — as built (2026-09-16), and the decisions taken
+
+**Moved** (`git mv`, no content change beyond import specifiers): `src/domain` +
+`src/ports` → `packages/shared/src`; `tests/domain` → `packages/shared/tests`; everything
+else in `src/` → `packages/web/src`; everything else in `tests/` → `packages/web/tests`;
+`e2e/` → `packages/web/e2e`; `index.html`, `public/`, `vite.config.ts`,
+`vitest.e2e.config.ts`, the three SPA tsconfigs and `.env.example` → `packages/web/`;
+`tests/conformance/dataStoreConformance.ts` → `packages/server/src/testing/`.
+**New:** `packages/shared/{package.json,tsconfig.json,tsconfig.test.json,vitest.config.ts}`,
+`packages/web/package.json`, `packages/server/tsconfig.build.json`.
+**Edited:** the root `package.json` (workspace root only), `packages/server/{package.json,
+tsconfig.json,vitest.config.ts}`, `domain/insights.ts` + two domain tests (index-safety),
+every import specifier in `packages/server/src` and `packages/shared/src` (`.js` extensions),
+every `domain`/`ports` import in `packages/web` (now `@cafe/shared/…`), and
+`routes/guardrails.test.ts`. **390 server tests** (unchanged) and **73 shared tests**.
+
+- **`@cafe/shared` resolves one way, everywhere, and that is the phase's real deliverable.**
+  Before, the contract reached the server through a tsconfig `paths` alias *and* a duplicate
+  Vite alias, both hand-pointed at `../../src/*` and both needing to agree — the config
+  comments said so in as many words ("Both must point at the same place — Phase 10 repoints
+  both"). It is now a workspace package with an `exports` map, so `tsc`, `vitest` and a
+  running `node` all resolve `@cafe/shared/domain/models` by the same rule. Both aliases are
+  deleted, and so is `@cafe/conformance`: the suite had exactly one consumer left after
+  Phase 6 deleted the second store, so it moved beside `PostgresStore.test.ts` and is now a
+  relative import.
+- **The price of that is a build step, and it is paid by a `pretest` rather than by a
+  condition.** `exports` points at `dist`, so every consumer runs
+  `npm --prefix ../shared run build` in `pretest`/`prebuild`/`predev`. The tempting
+  alternative — a `development` export condition resolving to `.ts` source — would make the
+  test run and the shipped artifact resolve *differently*, which is precisely the drift
+  killing the two aliases was meant to end. `tsc` is incremental here, so the cost is
+  a few hundred milliseconds.
+- **`tsx` is no longer the server's runtime**, which closes the Phases 0–1 open item and the
+  instruction it left for Phase 8 ("Phase 8's image must run `tsx` until then" — it no longer
+  has to). `moduleResolution` moved `Bundler` → `NodeNext`, every relative specifier in the
+  server and in shared gained `.js`, and `esModuleInterop` went on (`Bundler` had been
+  supplying `allowSyntheticDefaultImports` implicitly for `import pg from 'pg'` and friends).
+  `start`, `migrate` and `bootstrap` run `node dist/…`; only `dev` still watches through `tsx`.
+  Both paths were booted and checked.
+- **`dist/` carries production code only** (`tsconfig.build.json` excludes `**/*.test.ts` and
+  `src/testing/`), so the deployed image contains no SMTP sink, no HTTP harness and no
+  conformance suite. `tsconfig.json` still type-checks all of it — the exclusion is about what
+  ships, not about what is checked.
+- **One guardrail was widened, along exactly that line.** The conformance suite calls
+  `listAudit`, legitimately, and moving it under `src/` tripped the "only detection reads
+  cross-account rows" guard. `guardrails.test.ts` now exempts `src/testing/` wherever it
+  already exempted `*.test.ts`, with `tsconfig.build.json` as the definition of the line: a
+  guard that exempts "tests" exempts precisely what a deployed server does not contain. The
+  guards that exempt *nothing* — no `undo`, no `getStaffByPin` — still scan every file, which
+  is why this is opt-in per guard rather than applied to the whole scan.
+- **The predicted friction turned up, in the file Phase 4 hadn't needed.** `domain/insights.ts`
+  had never been compiled under `noUncheckedIndexedAccess`, because the server imports
+  `alerts.ts` and not `insights.ts` — so giving shared one strict tsconfig produced six errors
+  in it (plus two in the moved tests). Fixed the same way Phase 4 fixed `alerts.ts`: bind or
+  optional-chain the indexed access, no behaviour change, tests unchanged and still green.
+  **That is the phase's quiet win** — there is no longer a looser compiler for a shared file
+  to drift into.
+- **`packages/shared` compiles with `types: []`, and that is a purity guard, not a detail.**
+  No ambient `@types/*` at all, so nothing in `domain/` can reach a Node built-in and have it
+  typecheck. `lib` is `["ES2023", "DOM"]` only because `domain/tokens.ts` uses
+  `crypto.getRandomValues` and `btoa` — web-platform globals Node also implements, which is
+  what makes the file shared in the first place. `CLAUDE.md`'s "`domain/` is pure" is still a
+  review rule; this is the nearest the compiler can get to enforcing it.
+- **The domain tests went to `packages/shared`, not to `packages/web`.** They test the
+  contract the *server* depends on, and `packages/web` is knowingly red — parking them there
+  would have left the only tests `domain/` has inside a package nobody can run clean. They are
+  73 tests that now pass on their own.
+- **The SPA is red for the same nine reasons and no new ones, and the arithmetic proves it.**
+  47 test files (53 − the 6 domain suites that moved), 38 passing (44 − 6), 189 tests
+  (262 − 73), and the same 9 failures: `tests/helpers/freshStore.ts` → `IndexedDbStore`,
+  `PairingContext` → `adapters/sync/`, `EnlargedQr` → `wallet/passes`. Every remaining `tsc`
+  error is a Phase 6 deletion, and the single unresolved `@cafe/shared` import is
+  `ports/Transport`, deleted on purpose. If a future session sees a *tenth* failure, the move
+  is not the explanation.
+- **Smoke-tested against a live socket from `dist/`, not just `app.inject`**, as Phases 0–5
+  did: `node dist/migrate.js` against an empty database, `node dist/bootstrap.js` creating the
+  first admin, `node dist/index.js` serving `/healthz` and `/readyz`, a sign-in issuing both
+  cookies, and a customer registration — then the log searched for the name, address, password
+  and PIN: none present. This is what proves the emit is real rather than merely type-correct.
+- **Carried, not fixed: `packages/web/.env.example` is stale.** It moved unedited and still
+  documents EmailJS, TURN and the `VITE_TRANSPORT`/`VITE_DATASTORE` flags, all deleted in
+  Phase 6. Rewriting it means deciding what the SPA's environment *is* (`VITE_API_BASE` and
+  what else), which is a UI-pass question — register row X4. `packages/web/vite.config.ts`
+  still carries the GitHub Pages `base` for the same reason.
 
 ### Phase 11 — Docs
 STATUS divergences (§4 A–E, the PIN-semantics change, offline posture, the scaling note),

@@ -12,11 +12,11 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { createAuthDeps } from '../auth/guards';
-import type { Db } from '../db';
-import { PostgresStore } from '../PostgresStore';
-import { buildServer } from '../server';
-import { testPool } from '../testing/database';
+import { createAuthDeps } from '../auth/guards.js';
+import type { Db } from '../db.js';
+import { PostgresStore } from '../PostgresStore.js';
+import { buildServer } from '../server.js';
+import { testPool } from '../testing/database.js';
 
 const SERVER_SRC = fileURLToPath(new URL('..', import.meta.url));
 const THIS_FILE = fileURLToPath(import.meta.url);
@@ -45,6 +45,19 @@ function code(path: string): string {
 
 function sourcesMatching(pattern: RegExp): string[] {
   return serverSources().filter((path) => pattern.test(code(path)));
+}
+
+/**
+ * True for a file that is test code rather than code that ships.
+ * `tsconfig.build.json` draws this exact line — `dist/` is `src` minus the test
+ * files minus `src/testing/` — so a guard that exempts "tests" exempts
+ * precisely what a deployed server does not contain. Guards that exempt nothing
+ * (no `undo`, no `getStaffByPin`) still scan every file, which is the stronger
+ * statement and the reason this is opt-in per guard rather than applied here.
+ */
+const TESTING_DIR = join(SERVER_SRC, 'testing');
+function isTestCode(path: string): boolean {
+  return path.endsWith('.test.ts') || path.startsWith(TESTING_DIR);
 }
 
 describe('§4-B — the PIN is never searched for globally', () => {
@@ -111,7 +124,7 @@ describe('§1 — the export surface has no server behind it', () => {
     // Tests are exempt: `migrate.test.ts` proves the database rejects that row,
     // which it cannot do without naming it.
     const offenders = sourcesMatching(/exportActivity|audit\.export/).filter(
-      (path) => !path.endsWith('.test.ts'),
+      (path) => !isTestCode(path),
     );
     expect(offenders).toEqual([]);
   });
@@ -124,7 +137,7 @@ describe('§1 — the export surface has no server behind it', () => {
     // third caller is how a browsable feed gets rebuilt by accident.
     const allowed = ['PostgresStore.ts', 'detection.ts', join('routes', 'activity.ts')];
     const callers = sourcesMatching(/\blistAudit\b|\blistAllTransactions\b/)
-      .filter((path) => !path.endsWith('.test.ts'))
+      .filter((path) => !isTestCode(path))
       .filter((path) => !allowed.some((suffix) => path.endsWith(suffix)));
     expect(callers).toEqual([]);
   });

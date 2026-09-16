@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LogMailer } from './LogMailer';
+import { LogMailer } from './LogMailer.js';
 
 describe('LogMailer', () => {
   it('records the kind and never the recipient', async () => {

@@ -26,7 +26,7 @@
 
 import { createTransport } from 'nodemailer';
 import type { Mailer, OutboundMail } from '@cafe/shared/ports/Mailer';
-import { renderMail } from './templates';
+import { renderMail } from './templates.js';
 
 /** The slice of a nodemailer transporter this adapter uses. */
 export interface MailTransport {

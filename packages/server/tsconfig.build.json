@@ -1,0 +1,18 @@
+{
+  // The emitting config. `dist/` is what the Phase 8 image runs, so it carries
+  // production code only: the test files and everything under `src/testing/`
+  // (the HTTP harness, the SMTP sink, the conformance suite, the database gate)
+  // are excluded. Nothing outside `src/testing/` may import them, which is what
+  // makes the exclusion safe — `routes/guardrails.test.ts` asserts it.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "sourceMap": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/testing"]
+}

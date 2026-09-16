@@ -9,10 +9,10 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Customer } from '@cafe/shared/domain/models';
-import type { Db } from '../db';
-import { migrate } from '../migrate';
-import { PostgresStore } from '../PostgresStore';
-import { resetSchema, testPool } from '../testing/database';
+import type { Db } from '../db.js';
+import { migrate } from '../migrate.js';
+import { PostgresStore } from '../PostgresStore.js';
+import { resetSchema, testPool } from '../testing/database.js';
 import {
   RECOVERY_CODE_LENGTH,
   RECOVERY_MAX_ATTEMPTS,
@@ -22,7 +22,7 @@ import {
   isValidRecoveryCode,
   issueRecoveryCode,
   recordFailedAttempt,
-} from './codes';
+} from './codes.js';
 
 let db: Db;
 let store: PostgresStore;
