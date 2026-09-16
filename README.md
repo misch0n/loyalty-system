@@ -1,20 +1,31 @@
-# ☕ Café Loyalty — v1 prototype
+# ☕ Café Loyalty
 
 A digital loyalty system for a **single café**. Staff scan a customer's QR and
 commit loyalty points; customers collect points and earn rewards. **The system
 never handles money** — it only tracks loyalty state.
 
-This repo is the **v1 functional prototype**: a React + TypeScript SPA with
-browser storage, deployed to GitHub Pages. Its architecture is **true to the
-production design**, so going live means swapping pluggable adapters — not a
-rewrite. Authoritative requirements live in [`docs/SPEC.md`](docs/SPEC.md);
+**Three-package monorepo:** `@cafe/shared` (the pure contract — `domain/` + `ports/`),
+`@cafe/server` (Node + Fastify + PostgreSQL), `@cafe/web` (the React SPA). It runs as a
+Docker Compose bundle. Authoritative requirements live in [`docs/SPEC.md`](docs/SPEC.md);
 working rules for agents in [`CLAUDE.md`](CLAUDE.md); current build status in
 [`docs/STATUS.md`](docs/STATUS.md).
 
-> ⚠️ **Prototype only.** Browser storage is **not** secure storage. Do not enter
-> real customer data.
-
-**Live demo:** https://misch0n.github.io/loyalty-system/ · Sign in with username/password: `admin / admin` or `staff / staff` (PINs `4321` / `1234` are the quick re-auth on a remembered device).
+> ### ⚠️ Mid-migration — read this before the tables below
+>
+> The **backend is complete** (all of [`docs/BACKEND-PLAN.md`](docs/BACKEND-PLAN.md): the API,
+> cookie sessions, argon2id credentials, SSE liveness, CI, the Compose bundle). The
+> **browser-storage prototype was deleted** in Phase 6 — no IndexedDB, no PeerJS device pairing,
+> no wallet passes, no GitHub Pages demo.
+>
+> **`@cafe/web` does not currently compile.** That is deliberate
+> ([`docs/SCOPE-DECISIONS.md`](docs/SCOPE-DECISIONS.md) §6): the backend was built first and the
+> UI is now being rewritten against it, tracked in [`docs/UI-PLAN.md`](docs/UI-PLAN.md) against the
+> 27 conflicts in [`docs/UI-RECONCILIATION.md`](docs/UI-RECONCILIATION.md). **There is no demoable
+> build until that lands**, and the live-demo link is gone with the Pages workflow.
+>
+> **The feature table and screen descriptions below still describe the pre-migration SPA** — the
+> files exist in the tree and do not build. They are rewritten in UI-PLAN's UI-9. The
+> architecture section and diagram *have* been corrected and describe what is really there.
 
 ---
 
@@ -101,67 +112,68 @@ flowchart TB
         APP["app/ · LogoGestures · AuthContext · EntryResolver · routes"]
         KIT["components/<Name>/ · Logo · Heading · Button · Field · CupStamps · LoyaltyCard · Qr · Overlay · Toast · PinPad · Slider · Sheet · ContextBanner"]
         SCR["screens/<area>/<Screen>/ · customer · staff · admin · proto"]
-        CMN["common/ · ServicesContext · PairingContext · QrDisplay · QrScanner · PairDevices"]:::proto
+        CMN["common/ · ServicesContext · QrDisplay · QrScanner"]
         THM["theme/ · tokens.css · base.css · keyframes.css"]
     end
 
     subgraph services["services/ · orchestration"]
-        SVC["CustomerService · LoyaltyService · RecoveryService<br/>StaffService · ConfigService · AuditService"]
-        SYNC["SyncKit (services.sync)"]:::proto
+        SVC["CustomerService · LoyaltyService · RecoveryService<br/>StaffService · ConfigService · AuditService"]:::todo
     end
 
     subgraph domain["domain/ · pure logic (no I/O)"]
         DOM["models · loyalty · tokens · validation · alerts"]
     end
 
-    subgraph ports["ports/ · the seams (interfaces)"]
+    subgraph ports["ports/ · the seams (three, not five)"]
         DS{{DataStore}}
-        TR{{Transport}}
         ML{{Mailer}}
         ID{{IdentityStore}}
-        WP{{WalletProvider}}
     end
 
     subgraph adapters["adapters/ · concrete implementations"]
-        IDB[IndexedDbStore]:::proto
-        API[ApiStore stub]:::prod
-        PEER[PeerTransport · PeerJS+TURN]:::proto
-        SRV[ServerTransport stub]:::prod
-        EJS[EmailJsMailer]:::proto
-        NOOP[NoopMailer]:::proto
-        LSI[LocalStorageIdentityStore]:::proto
-        SWP[StaticWalletProvider]:::proto
-        SWPS[ServerWalletProvider stub]:::prod
-        subgraph sync["adapters/sync/ · prototype pairing"]
-            OBS[ObservableStore]:::proto
-            SWI[SwitchableStore]:::proto
-            PCS[PeerClientStore]:::proto
-            SSV[StoreServer]:::proto
-            PJL[PeerJsLink · PeerJS+TURN]:::proto
-        end
+        API[ApiStore · the only DataStore]:::prod
+        NOOP[NoopMailer · routes are the only sender]:::prod
+        LSI[LocalStorageIdentityStore · superseded by the session cookie]:::proto
+    end
+
+    subgraph server["@cafe/server · Fastify + PostgreSQL"]
+        PGS[PostgresStore]
+        RT[routes · authz tiers]
+        AUTH[cookie sessions · argon2id]
+        SSE[GET /events · SSE]
+        MAIL[mail/ · SMTP]
     end
 
     ui --> services --> domain
     services --> ports
-    CMN --> SYNC
-    SYNC --> OBS & SWI & SSV
-    SWI -.wraps.-> DS
-    PCS -.proxies via.-> PJL
+    DS -.implemented by.-> API
+    ML -.implemented by.-> NOOP
+    ID -.implemented by.-> LSI
+    API == "HTTPS · cookie session · CSRF" ==> RT
+    API -. "SSE" .-> SSE
+    RT --> PGS & AUTH & MAIL
+    PGS --> DB[(PostgreSQL)]
+    domain -. "shared verbatim" .-> PGS
     DS -.implemented by.-> IDB & API
     TR -.implemented by.-> PEER & SRV
     ML -.implemented by.-> EJS & NOOP
-    ID -.implemented by.-> LSI
-    WP -.implemented by.-> SWP & SWPS
 
-    classDef proto fill:#e3f3ea,stroke:#2f7d57;
-    classDef prod fill:#eef,stroke:#5b6cc0,stroke-dasharray:4;
+    classDef prod fill:#eef,stroke:#5b6cc0;
+    classDef proto fill:#f3efe3,stroke:#8a7a4f,stroke-dasharray:3;
+    classDef todo fill:#fde9e2,stroke:#af5a33,stroke-dasharray:4;
 ```
 
-**Rules that keep the swap cheap:**
+**Legend:** solid = built and tested · dashed amber = superseded, awaiting the UI pass · dashed
+terracotta = does not compile until the UI pass reshapes it.
+
+
+**Rules that made the swap cheap** (they did — the store swap needed no call-site change at the
+port boundary; the UI rewrite now under way is a deliberate choice, not a failure of them):
 - `domain/` is pure — no I/O, no React, no browser APIs → fully unit-testable and
-  shared verbatim with the future Node backend.
-- `DataStore` is **async everywhere** (returns Promises), even though IndexedDB
-  could be sync, so call sites match the future HTTP adapter byte-for-byte.
+  **now genuinely shared** with the Node backend as `@cafe/shared`, imported by both packages
+  through its `exports` map rather than copied.
+- `DataStore` is **async everywhere** (returns Promises). It was async from day one so that
+  browser-storage call sites would match an HTTP adapter byte-for-byte — and they did.
 - The **composition root** ([`packages/web/src/services/Services.ts`](packages/web/src/services/Services.ts))
   is the *only* place that names a concrete adapter.
 - The UI **never** touches an adapter or storage directly.
@@ -217,7 +229,9 @@ sequenceDiagram
 ### Unified commit — accrue + mint + redeem (append-only ledger + reward objects)
 
 A single atomic, idempotent `commitCounterTransaction` adds points, mints a reward per
-threshold crossing, and redeems any pre-checked rewards — all in one IndexedDB tx. The
+threshold crossing, and redeems any pre-checked rewards — all in **one PostgreSQL transaction
+  with `SELECT … FOR UPDATE` on the customer row**, so two tills committing at once serialise
+  rather than interleave (the one guarantee browser storage could not give). The
 staff counter **stages** the transaction and blocks on a 3-second pre-commit hold before
 calling `commit` at all — nothing is written until the hold elapses or "Commit now" is
 tapped.
@@ -328,11 +342,9 @@ Three-package npm-workspaces monorepo (`packages/*`) since BACKEND-PLAN Phase 10
 plus the config to make it real, not a rewrite. `@cafe/shared` holds the pure contract,
 `@cafe/server` the production backend, `@cafe/web` this prototype SPA.
 
-> ⚠ **The `web/` half of this tree still lists files Phase 6 deleted** — `IndexedDbStore.ts`,
-> `schema.ts`, `adapters/transport/`, `adapters/wallet/`, `adapters/sync/`, `EmailJsMailer.ts`,
-> `wallet/passes.ts`, `ports/Transport.ts` and `ports/WalletProvider.ts` are all **gone**. Phase 10
-> relocated the tree; retiring these entries is **Phase 11**'s named job, done together with the
-> seam table above so the two stop disagreeing. Until then, trust `docs/STATUS.md` over this tree.
+> ⚠ **The `web/src/ui/` entries below still describe screens the UI pass will delete** — the
+> Prototype panel, `PairingContext`, `PairDevices`, the wallet button. The adapters, ports and seam
+> table above are **correct as of Phase 11**; the `ui/` subtree is UI-PLAN UI-9's job.
 
 ```
 packages/
@@ -350,11 +362,10 @@ packages/
 │   │   └── ports/                 # the seams (interfaces)
 │   │       ├── DataStore.ts       # commitCounterTransaction / listRewards / getCustomerState,
 │   │       │                      #   listAudit(AuditFilter: actions[]/actorIds[]/from/to),
-│   │       │                      #   createRecoveryCode / consumeRecoveryCode, getStaffByPin, setStaffPin
-│   │       ├── Transport.ts
-│   │       ├── Mailer.ts          # email abstraction
-│   │       ├── IdentityStore.ts   # browser identity (token storage, no PII)
-│   │       └── WalletProvider.ts  # wallet seam: ensurePass(token, os) → url; pushUpdate(token) → void
+│   │       │                      #   setStaffPin. Split by trust: TrustedStore holds appendAudit +
+│   │       │                      #   the recovery-code pair, which only the server may call
+│   │       ├── Mailer.ts          # email abstraction (NoopMailer only client-side; routes send)
+│   │       └── IdentityStore.ts   # browser identity — superseded by the server session cookie
 │   └── tests/                  # Vitest: the six domain suites (moved out of the SPA in Phase 10;
 │                                #   green independently of it)
 ├── server/                     # @cafe/server — Fastify + PostgreSQL production backend
@@ -366,37 +377,18 @@ packages/
 └── web/                         # @cafe/web — this prototype SPA
     ├── src/
     │   ├── config/
-    │   │   ├── env.ts             # feature flags (VITE_TRANSPORT, VITE_EMAILJS_*, VITE_TURN_*,
-    │   │   │                      #   VITE_GOOGLE_PLACE_ID, VITE_WALLET), baseUrl, iceServers, walletKind
+    │   │   ├── env.ts             # what survives of the flags: baseUrl, VITE_GOOGLE_PLACE_ID.
+    │   │   │                      #   The adapter flags and EmailJS/TURN config went in Phase 6
     │   │   ├── links.ts           # appUrl() — builds absolute HashRouter URLs for QR + emails
     │   │   └── cafe.ts            # café public details: name, address, Google Maps URL, contact email
     │   ├── adapters/
     │   │   ├── storage/
-    │   │   │   ├── IndexedDbStore.ts   # prototype storage (schema v5: rewards/rewardEvents/idempotencyKeys
-    │   │   │   │                       #   stores; commitCounterTransaction/listRewards; listAudit range
-    │   │   │   │                       #   query via byTimestamp); close() drops DB
-    │   │   │   ├── ApiStore.ts         # production HTTP stub
-    │   │   │   └── schema.ts           # IndexedDB schema + seed data (admin PIN 4321, staff PIN 1234)
-    │   │   ├── transport/
-    │   │   │   ├── PeerTransport.ts    # prototype: PeerJS + TURN (real cross-device)
-    │   │   │   └── ServerTransport.ts  # production placeholder (throws)
+    │   │   │   └── ApiStore.ts     # the only DataStore — HTTP to @cafe/server.
+    │   │   │                       #   `request` is still unwritten: UI-PLAN UI-1
     │   │   ├── email/
-    │   │   │   ├── EmailJsMailer.ts    # client-side EmailJS via fetch
-    │   │   │   └── NoopMailer.ts       # fallback when EmailJS unconfigured
-    │   │   ├── identity/
-    │   │   │   └── LocalStorageIdentityStore.ts   # stores token only (no PII)
-    │   │   ├── wallet/
-    │   │   │   ├── StaticWalletProvider.ts  # proto: pre-generated walletwallet.dev pass URLs; pushUpdate no-op
-    │   │   │   └── ServerWalletProvider.ts  # production placeholder (throws)
-    │   │   └── sync/                   # PROTOTYPE-ONLY — device pairing via PeerJS (one till, many clients)
-    │   │       ├── PeerLink.ts         # channel interface + SyncMessage envelopes (incl. {t:'unpair'})
-    │   │       ├── PeerJsLink.ts       # PeerJS+TURN: ConnLink, joinHost() (client),
-    │   │       │                       #   PeerJsHost (one peer, many clients)
-    │   │       ├── ObservableStore.ts  # DataStore wrapper that emits on mutation
-    │   │       ├── SwitchableStore.ts  # DataStore whose target swaps local↔remote at runtime
-    │   │       ├── PeerClientStore.ts  # DataStore that proxies calls to host over RPC
-    │   │       ├── StoreServer.ts      # host side: one instance per client; serves RPC + pushes changes
-    │   │       └── storeMethods.ts     # canonical DataStore method list + mutating subset
+    │   │   │   └── NoopMailer.ts   # the routes are the only sender
+    │   │   └── identity/
+    │   │       └── LocalStorageIdentityStore.ts   # superseded by the session cookie (UI-PLAN UI-3)
     │   ├── services/              # orchestrate domain + ports
     │   │   ├── CustomerService.ts      # selfRegister, provisionFromToken, selfDelete(token), reissue…
     │   │   ├── LoyaltyService.ts       # commit (accrue+mint+redeem), getState, reverse, getAlerts()
@@ -460,95 +452,23 @@ ops/                           # backup.sh, restore.sh, smoke.sh, drill.sh, ngin
 
 | Seam | Prototype adapter | Production adapter | Swap cost |
 |---|---|---|---|
-| **`DataStore`** (persistence) | `IndexedDbStore` | `ApiStore` → Node + Postgres | One line in `Services.ts` |
-| **`Transport`** (registration handoff) | `PeerTransport` (PeerJS + TURN) | `ServerTransport` (server-mediated) | One line in `Services.ts` |
+| **`DataStore`** (persistence) | ~~`IndexedDbStore`~~ *deleted* | **Built:** `ApiStore` → Fastify + PostgreSQL | Done — `ApiStore` is now the only `DataStore` |
+| ~~**`Transport`**~~ (registration handoff) | ~~`PeerTransport`~~ | **Port deleted** (triage §1) — registration is a customer opening a URL | n/a |
+| ~~**`WalletProvider`**~~ | ~~`StaticWalletProvider`~~ | **Port deleted** (triage §1) — wallet dropped end to end | n/a |
 | **`Mailer`** (email) | `EmailJsMailer` (client-side EmailJS) or `NoopMailer` | **Built:** `SmtpMailer` in `packages/server/src/mail/` (nodemailer; mailpit in dev, SES/Brevo/Resend in production), with `LogMailer` as the unconfigured fallback | `NoopMailer` in `Services.ts` — the server-backed build sends the welcome, reward-available and recovery mails from the routes, so the client must send none |
 | **`IdentityStore`** (browser identity) | `LocalStorageIdentityStore` | Server-cookie adapter | One line in `Services.ts` |
-| **`WalletProvider`** (wallet passes) | `StaticWalletProvider` (pre-generated walletwallet.dev URLs; `pushUpdate` no-op) | `ServerWalletProvider` (PassKit + APNs / Google REST) | One line in `Services.ts` + `VITE_WALLET=server` |
-| **`adapters/sync/` (device pairing)** | `PeerJsHost` / `ConnLink` / `joinHost` + `SwitchableStore` stack (one till, many clients) | Server-mediated DataStore — remove the sync layer | Rewire composition root |
+| ~~**`adapters/sync/`**~~ (device pairing) | ~~`PeerJsHost` / `SwitchableStore` stack~~ | **Deleted** — the server coordinates state centrally; liveness is `GET /events` (SSE) | n/a |
 
-### Prototype transport
-`adapters/transport/PeerTransport.ts` uses PeerJS with a Metered TURN relay for
-real two-device connectivity. Selected when `VITE_TRANSPORT=peer` (the default).
-TURN credentials and EmailJS keys are **build-time-injected demo secrets** —
-publicly readable in the static bundle, rotated after demos. See `.env.example`
-for the full list. `adapters/transport/ServerTransport.ts` is the production
-placeholder (every method throws until the backend exists).
+### Cross-device state (was: two PeerJS channels)
 
-### Prototype device pairing
-`adapters/sync/` is a second PeerJS-backed channel, separate from registration.
-Every device defaults to hosting: `PeerJsHost` creates one PeerJS peer that
-accepts **many simultaneous client connections**. Each accepted connection becomes
-a `ConnLink` handed to an `onClient` subscriber; the host spawns one `StoreServer`
-per client, so change notifications fan out to every paired device. The till's
-pairing QR lives in the **developer panel** (hidden top-left dev trigger, not a
-dedicated page); `/pair` is now scan-only and auto-joins on a `?host=` URL parameter.
+Both PeerJS channels are **gone**. Registration no longer needs a handoff — a customer opens a URL
+on their own phone — and device pairing was only ever a stand-in for a server, which now exists.
 
-Once a customer device scans the QR, `joinHost(remoteId)` dials the till and
-returns an open `ConnLink`. The customer device's `DataStore` is transparently
-replaced (via `SwitchableStore`) with a `PeerClientStore` that proxies all reads
-and writes to the host over RPC. `SyncMessage` now includes a `{ t: 'unpair' }`
-variant — sent by either side when unpairing — so every peer can clean up
-gracefully. After unpairing, each device resumes hosting so its QR becomes
-available again.
-
-Screens (`Status`, `CustomerStatePanel`) refetch on the `dataVersion` counter
-exposed by `PairingProvider`. This is the **no-backend stand-in for the production
-server**: in production, the server coordinates state centrally and the sync layer
-is dropped entirely.
-
----
-
-## Running it
-
-Three-package monorepo since BACKEND-PLAN Phase 10: the root `package.json` is a workspace root
-only (no SPA dependencies or `vite`/`vitest` scripts of its own) and delegates.
-
-```bash
-npm install                    # installs every workspace
-npm run dev -w @cafe/web       # http://localhost:5173
-npm run build --workspaces     # @cafe/shared then @cafe/server then @cafe/web
-npm run typecheck --workspaces # strict TS, no emit, across all three packages
-npm run preview -w @cafe/web   # serve packages/web/dist/ locally (required for e2e)
-npm run e2e -w @cafe/web       # browser UI regression suite (Puppeteer headless Chrome: builds, serves, runs)
-```
-
-Tests run per package — there is no single aggregate `npm test` anymore:
-
-```bash
-npm test -w @cafe/shared   # 73 tests — green independently of the SPA (the domain contract)
-npm test -w @cafe/web      # 9 of 47 test files fail to load, 38 pass (189 tests) — knowingly red,
-                            #   see docs/STATUS.md; the SPA's own gate is the coming UI pass
-npm test -w @cafe/server   # 390 tests — NEEDS a real Postgres at TEST_DATABASE_URL
-```
-
-The `@cafe/server` suite exercises the schema, `PostgresStore` and the auth routes against a real
-database, so the run **aborts when none is reachable** rather than skipping itself green — a skip
-is not a pass. See [`docs/BACKEND-PLAN.md`](docs/BACKEND-PLAN.md) §0 for a one-off local server.
-The `DataStore` conformance suite (`packages/server/src/testing/dataStoreConformance.ts`) is run
-by `PostgresStore.test.ts` — it used to run against `IndexedDbStore` too, keeping both adapters
-honest about implementing the same port, but that adapter was retired in Phase 6.
-
-Copy `packages/web/.env.example` to `packages/web/.env.local` and fill in your credentials before
-running locally (TURN + EmailJS) — note that this file is a known-stale carryover from before
-Phase 6 retired the flags it documents (see `docs/STATUS.md`). `.env.local` is gitignored.
-
-**Two-device demo:** PeerJS transport is the default. Open `http://localhost:5173`
-on two devices on the same network (or use the deployed Pages URL). For
-registration: scan the registration QR from the customer device. For live pairing:
-tap the hidden top-left **dev trigger** on one device to open the developer panel —
-its pairing QR is shown; tap "Scan to pair" on the other device to scan it. The
-scanned device becomes the customer and is routed to `/`; the till is routed to
-`/staff` on first pair. The till shows the live paired-device count and an "Unpair
-all" button; a paired customer shows "Paired to the till" with Unpair. Multiple
-customer devices can pair to the same till simultaneously. State reflects live on
-all paired devices. Use "Reset" (also in the developer panel) to rerun a workflow
-from a clean state.
-
-Sign in as staff/admin: long-press the `LogoGestures` mark to reach sign-in, then
-enter username/password (`admin / admin` or `staff / staff`). On a device you tick
-"Remember this device", a later idle visit asks only for the PIN (`4321` admin /
-`1234` staff). Reward threshold is 9 purchases — the tenth coffee is free (configurable via Admin → Program).
+What replaced pairing's live refresh is **`GET /events`**: a one-way SSE stream carrying a
+`changed` signal (`{scope, id, reason}`) scoped per customer and per till, with the subjects
+derived from the session rather than named by the client. A screen hears that something it cares
+about moved, then re-reads through the routes it already had. Anonymous and idle-locked callers are
+refused; three streams per session.
 
 ### CI
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs four jobs on every push:
@@ -569,20 +489,30 @@ the `web` Compose service sits behind a profile.
 
 ---
 
-## Path to production
+## Path to production — done, except the UI
 
-Bounded and mechanical (see [SPEC §14](docs/SPEC.md)):
+Every migration step is **built**. What remains is the UI pass
+([`docs/UI-PLAN.md`](docs/UI-PLAN.md)).
 
 ```mermaid
 flowchart LR
-    A[Swap IndexedDbStore → ApiStore<br/>one line in Services.ts] --> B[Node + Express/Fastify + Postgres<br/>behind the same DataStore contract]
-    C[Swap PeerTransport → ServerTransport<br/>one line in Services.ts] --> D[Server-mediated registration over HTTP]
-    E[Swap EmailJsMailer → server-side provider<br/>one line in Services.ts] --> F[Reliable transactional email]
-    G[Swap LocalStorageIdentityStore → server-cookie adapter<br/>one line in Services.ts] --> H[Secure cross-device identity]
-    I[Swap StaticWalletProvider → ServerWalletProvider<br/>one line in Services.ts] --> J[PassKit + APNs / Google REST;<br/>pushUpdate becomes live push]
-    K[Real hashed-password + PIN auth] --> L[server-side sessions; PINs hashed server-side]
-    M[Drop adapters/sync/ pairing layer<br/>server coordinates state centrally] --> N[No PeerJS in data path]
+    A["IndexedDbStore to ApiStore"]:::done --> B["Fastify + PostgreSQL behind<br/>the same DataStore contract"]:::done
+    E["EmailJsMailer to SMTP"]:::done --> F["Transactional email sent<br/>only by the routes"]:::done
+    K["Mocked auth to argon2id"]:::done --> L["Server sessions, server-side<br/>idle lock, epoch revocation"]:::done
+    M["Drop the pairing layer"]:::done --> N["Server coordinates state;<br/>liveness is GET /events"]:::done
+    O["Transport + WalletProvider"]:::cut --> P["Ports deleted — registration is<br/>a URL, wallet dropped"]:::cut
+    G["localStorage to session cookie"]:::todo --> H["Identity that survives iOS ITP"]:::todo
+    Q["services/ reshaped to the routes"]:::todo --> R["@cafe/web compiles again"]:::todo
+
+    classDef done fill:#eef,stroke:#5b6cc0;
+    classDef cut fill:#eee,stroke:#888,stroke-dasharray:3;
+    classDef todo fill:#fde9e2,stroke:#af5a33,stroke-dasharray:4;
 ```
 
-Because every app call already goes through async ports, **no UI or service call
-site changes**. `domain/` and `ports/` move/share into the backend unchanged.
+**Legend:** solid = built · grey = deleted from scope · dashed = the UI pass.
+
+The async-port discipline did what it was for: the store swap needed **no call-site change at the
+port boundary**, and `domain/` moved into `@cafe/shared` where the server now imports it unchanged.
+The UI rewrite under way is a deliberate choice made on 2026-09-16
+([SCOPE-DECISIONS](docs/SCOPE-DECISIONS.md) §6) — build the backend right, then fit the UI to it —
+not a failure of the seams.

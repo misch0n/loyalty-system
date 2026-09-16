@@ -7,44 +7,31 @@ state* of the implementation (what exists, where, what's stubbed), `README.md`
 for architecture + diagrams, then `docs/SPEC.md` for the authoritative spec. The
 concrete subagent definitions live in `.claude/agents/`.
 
-> ### ⚠ ACTIVE INITIATIVE — read before implementing anything
-> **`docs/SCOPE-DECISIONS.md` is the current scope and overrides rules in this file.** The
-> maintainer triaged all 123 features (2026-09-02, questions closed 2026-09-15). Rules below that
-> it **supersedes for all new work** — listed in full in its §5, summarised here so nobody builds
-> from a stale rule:
-> - **"PII is optional… support a fully token-only account" is no longer true.** Name and email are
->   **required** at registration; email is unique per active card.
-> - **The `WalletProvider` port is deleted** — wallet is dropped end to end.
-> - **The `Transport` port is deleted** — registration is a customer opening a URL. (PeerJS survives
->   *only* as prototype device pairing, which is a separate channel.)
-> - **The card "⋯" menu has one entry, delete** — remember/remove-from-device is gone.
-> - **After a commit the staff terminal returns to the counter**, not to the scanner.
-> - **No admin stats, breakdowns, or activity export.** The data is still collected; it has no UI.
+> ### ⚠ ACTIVE INITIATIVE — the UI pass
+> **The backend is COMPLETE.** Every [`docs/BACKEND-PLAN.md`](docs/BACKEND-PLAN.md) phase is done —
+> Fastify + PostgreSQL + Docker Compose, CI green, 442 server tests, 0 type errors in
+> `@cafe/shared` and `@cafe/server`. The architecture sections below now describe what is
+> **actually built**; they were rewritten in Phase 11 and no longer need a warning.
 >
-> These describe where the code is *going*. The prototype still behaves as documented below until
-> each item is built, so treat the rules as current-state and the decisions doc as intent.
+> **The live initiative is [`docs/UI-PLAN.md`](docs/UI-PLAN.md)** — ten phases making `@cafe/web`
+> compile against the API, specified by [`docs/UI-RECONCILIATION.md`](docs/UI-RECONCILIATION.md)
+> (27 rows of backend-vs-UI conflict, four of them still needing the maintainer). A fresh session
+> picks up the first unchecked box in UI-PLAN §2.
 >
-> **⚠ 2026-09-16 — two further decisions (SCOPE-DECISIONS §6) that outrank most of this file.**
-> **(1)** The backend is built **without consideration for the UI**; the UI is adjusted afterwards
-> with the backend as ground truth, and conflicts are collected in `docs/UI-RECONCILIATION.md` for
-> the maintainer to confirm. BACKEND-PLAN's *no UI or service rewrite* promise is revoked, which
-> means **`packages/shared/src/ports/` and `packages/web/src/services/` are editable** where the
-> server needs them to be.
-> **(2)** The IndexedDB prototype is **retired**. `IndexedDbStore`, `adapters/sync/`
-> (PeerJS pairing), `adapters/transport/`, `adapters/wallet/`, `EmailJsMailer`, `demoSeed`
-> and the GitHub Pages demo are deleted in Phase 6 — so the "Prototype transport" section below,
-> the `DataStore`-is-IndexedDB framing, and the UI rules describing the Prototype panel, the
-> pairing flow and the wallet button are all **describing something being removed**. The SPA
-> knowingly stops building at Phase 6; the gate is the server suite until the UI pass.
+> **`@cafe/web` is red on purpose** — 39 TypeScript errors, 9 of 53 test files not loading, every
+> one traceable to a Phase 6 deletion. Do not chase it outside the UI plan. The gate is the server
+> suite until UI-2 lands.
 >
-> **The backend is COMPLETE** — every [`docs/BACKEND-PLAN.md`](docs/BACKEND-PLAN.md) phase is done
-> (Fastify + Postgres + Docker Compose, CI green, 442 server tests). **The live initiative is now
-> the UI pass: [`docs/UI-PLAN.md`](docs/UI-PLAN.md)** — ten phases that make `@cafe/web` compile
-> again against the API, specified by [`docs/UI-RECONCILIATION.md`](docs/UI-RECONCILIATION.md)
-> (27 rows of backend-vs-UI conflict). A fresh session picks up the first unchecked box in
-> UI-PLAN §2. **`@cafe/web` is red on purpose** — 39 TypeScript errors, 9 of 53 test files not
-> loading, all traceable to Phase 6 deletions. Do not chase it outside the UI plan. Re-read those
-> files, and merge `main`, at the start of every phase.
+> **⚠ The `## UI` section below is the one part still describing deleted things** — the Prototype
+> panel, the pairing flow, the wallet button, the two-entry card menu, and auto-advancing to the
+> scanner after a commit. Those screens still exist in the tree and do not compile; UI-PLAN's UI-0
+> deletes them and UI-9 rewrites that section. Until then, read it as *what the files currently
+> contain*, not as instructions.
+>
+> **Scope is [`docs/SCOPE-DECISIONS.md`](docs/SCOPE-DECISIONS.md)** — the 123-feature triage
+> (2026-09-02, questions closed 2026-09-15) plus the two 2026-09-16 decisions: the backend leads
+> and the UI follows with the backend as ground truth, and the IndexedDB prototype is retired.
+> Where it and this file disagree, it wins; §5 lists every rule it overrode.
 
 **Completed initiatives + handoff (read if continuing across cleared-context sessions):**
 `docs/REWARDS-PLAN.md` (rewards-as-objects — Appendices C+D + multi-reward) and
@@ -57,29 +44,31 @@ assistant's operating conventions, and the iOS/deploy/IndexedDB gotchas.
 ---
 
 ## What this is
-A single-café digital loyalty system. Staff scan a customer's QR and commit loyalty points; customers collect points and earn rewards. **The system never touches money.** v1 ships as a **functional static prototype** (React SPA, browser storage, GitHub Pages) whose architecture is **true to production**, so going live = swapping adapters, not rewriting.
+A single-café digital loyalty system. Staff scan a customer's QR and commit loyalty points; customers collect points and earn rewards. **The system never touches money.**
+
+**It is now server-backed.** A React SPA talks to a Node + Fastify + PostgreSQL API, shipped as a Docker Compose bundle. The static-prototype era is over: browser storage, device pairing and the GitHub Pages demo were all deleted in Phase 6. The SPA does not currently compile — see the UI pass.
 
 ## Goals
-1. Fully working prototype, demoable on a phone.
-2. Architecture portable to production with **no UI/service rewrites** (only adapters change).
-3. Clean, conventional, well-organized code split by functionality.
-4. Minimal, mostly-optional personal data.
+1. A working system on real devices: customer phones and a staff till, against a real server.
+2. Clean, conventional, well-organized code split by functionality.
+3. Minimal personal data — **name and email only**, both required (SCOPE-DECISIONS §2.1), nothing else collected.
+
+> Two original goals are **retired**, not merely amended. *"Fully working prototype, demoable on a phone"* — the prototype is deleted and there is no demoable build until the UI pass lands. *"Architecture portable to production with no UI/service rewrites"* — the maintainer revoked that promise on 2026-09-16; it succeeded at the port boundary and the UI is now being rewritten against the API deliberately.
 
 ## Non-negotiable architecture rules
-- **Ports & adapters.** The app codes against interfaces in `ports/`. Storage, transport, email, and identity are **swappable adapters**. UI talks to `services/` only — **never** to adapters or storage directly.
-- **`DataStore` is async (returns Promises) everywhere**, even though IndexedDB could be sync. This keeps prototype call sites identical to the future HTTP adapter. Never write synchronous storage access.
-- **`Mailer` port** (`ports/Mailer.ts`): prototype uses `EmailJsMailer` (client-side EmailJS); production swaps a server-side provider. `NoopMailer` is the unconfigured fallback.
-- **`IdentityStore` port** (`ports/IdentityStore.ts`): prototype uses `LocalStorageIdentityStore` (stores customer token only, no PII); production swaps a server-cookie adapter. Async throughout.
-- **`Transport` port** (`ports/Transport.ts`): prototype uses `PeerTransport` (PeerJS + TURN); production swaps `ServerTransport` (server-mediated). See "Prototype transport" below.
-- **`WalletProvider` port** (`ports/WalletProvider.ts`): prototype uses `StaticWalletProvider` (pre-generated walletwallet.dev URLs; `pushUpdate` is a no-op); production swaps `ServerWalletProvider` (PassKit + APNs / Google REST). Selected via `VITE_WALLET` env flag (default `static`).
+- **Ports & adapters.** The app codes against interfaces in `packages/shared/src/ports/`. UI talks to `services/` only — **never** to adapters or storage directly. **There are three ports, not five:** `DataStore`, `IdentityStore`, `Mailer`. `Transport` and `WalletProvider` were **deleted** (triage §1) along with every adapter behind them.
+- **`DataStore` is async (returns Promises) everywhere.** The async-from-day-one rule did its job — the IndexedDB→HTTP swap needed no call-site change at the port boundary. Never write synchronous storage access.
+- **`DataStore` is split by trust.** The client-facing port carries only what a browser may call; `TrustedStore` carries what only the server may do (audit writes, recovery codes). A client-writable audit log is not an audit log.
+- **`Mailer` port**: `NoopMailer` is the only client adapter — **the routes are the only sender**. Real mail is `packages/server/src/mail/` (SMTP via `nodemailer`; mailpit in dev). `EmailJsMailer` is deleted; it shipped its key in the bundle.
+- **`IdentityStore` port**: `LocalStorageIdentityStore` still exists but is **superseded** — the device is bound by a server-set HttpOnly cookie, the only thing that survives iOS tracking prevention. Swapping in the cookie adapter is UI-pass work (register X1, C6).
 - **Append-only ledger, not a counter+flag.** Balance and "reward available" are **derived** by summing `LoyaltyTransaction`s. Corrections are `reversal` entries — never destructive edits.
 - **Identity = random opaque token.** The QR/pass holds a 128-bit random token. **Never** derive it from name/phone. No PII in the QR.
-- **PII is optional.** The token is identity; name/email/phone only enable recovery + notifications. Support a fully token-only account.
+- **Name and email are REQUIRED** (SCOPE-DECISIONS §2.1), and email is unique per active card. Token-only accounts are gone. The token is still the *identity* — never derived from PII, never carrying it — but a card cannot exist without a contact address, because an unrecoverable card was worse than a private one.
 - **Staff initiates the credit.** Customers can only *display*; only staff commit points/redemptions. This is the anti-fraud anchor.
 - **Redemption is atomic** (check balance + write in one step) — no double-spend.
 - **Every staff/admin action writes an audit entry.**
 - **`domain/` is pure** — no I/O, no React, no browser APIs. It must be unit-testable in isolation.
-- **No mocked customer workflows.** Prototype flows mirror production exactly; only the backing adapters differ. No simulated dual-pane, no in-browser bridge standing in for real device interaction.
+- **No mocked customer workflows.** Every flow runs against the real server. No simulated dual-pane, no in-browser bridge, no fake store standing in for real device interaction — the one deliberate exception is a fake `DataStore` in the SPA's *tests*, held to the shared conformance suite.
 
 ## Restraints / out of scope (do NOT build)
 - No money handling of any kind (prepurchase, gift cards, stored value, payments).
@@ -87,14 +76,16 @@ A single-café digital loyalty system. Staff scan a customer's QR and commit loy
 - No marketing automation, no advanced analytics (basic counts only), no native apps, no multi-tenant.
 - Don't add dependencies or cleverness the spec didn't call for. Small and boring beats clever — it's what keeps this maintainable.
 
-## Prototype transport
-**PeerJS + TURN is the prototype's real cross-device transport** (`adapters/transport/PeerTransport.ts`). There is no single-browser mock; the simulated dual-pane is gone. Selected via `VITE_TRANSPORT=peer` (the default). TURN credentials are build-time-injected demo secrets — throwaway, rotated after demos.
+## Architecture (server-backed)
 
-`adapters/transport/ServerTransport.ts` is the **production placeholder** (throws on every call). Swapping it in is the production migration step for the registration seam.
+The SPA talks to the API over HTTP and nothing else. **`ApiStore` is the only `DataStore`**; there is no local database, no peer-to-peer channel and no device pairing — the server coordinates state centrally, which is what the pairing layer was standing in for.
 
-**Prototype-only constraint:** PeerJS + TURN are not production infrastructure. They are kept here because the prototype must run on real devices without a backend. Production is server-mediated.
+- **Sessions are cookies.** HttpOnly, `SameSite=Lax`, server-side rows, with the 5-minute idle lock enforced **server-side** (`last_seen_at`), not by a client timer. CSRF is a double-submit token on every mutating request.
+- **The actor comes from the session, never the request body.** "Staff initiates the credit" is enforced, not trusted.
+- **Liveness is `GET /events`** — a one-way SSE stream carrying a `changed` signal scoped per customer and per till, with subjects derived from the session. It replaces the pairing layer's `dataVersion`.
+- **Deleted in Phase 6, do not restore:** `IndexedDbStore`, `adapters/sync/` (PeerJS pairing), `adapters/transport/`, `adapters/wallet/`, `EmailJsMailer`, `demoSeed`, the preset card tokens, the `VITE_TRANSPORT`/`VITE_DATASTORE`/`VITE_WALLET` flags, `isPrototype`, and the GitHub Pages workflow.
 
-PeerJS also backs a second, separate channel: **session-scoped device pairing** (`adapters/sync/`, deleted). Every device defaults to hosting (`PeerJsHost` — one peer, many clients). Scanning another device's pairing QR (shown in the Prototype panel, opened by tapping the logo) makes the scanning device a customer of that till; the till accepts many customers simultaneously. While paired, each customer device's `DataStore` is transparently served by the till over RPC — acting as the prototype stand-in for a production server. Unpairing sends `{ t: 'unpair' }` to all connected peers and each device resumes hosting. In production this layer is dropped entirely; the server coordinates state centrally. The pairing channel is unrelated to the `Transport` port (registration handoff) — they are independent PeerJS connections.
+Run it with `docker compose up` (`compose.dev.yml` for development, with mailpit). The `web` service sits behind a Compose profile until the SPA compiles again.
 
 ## Stack
 - **Three-package npm-workspaces monorepo** (root `package.json` `workspaces: ["packages/*"]`; the
@@ -104,7 +95,7 @@ PeerJS also backs a second, separate channel: **session-scoped device pairing** 
   through its own `package.json` `exports` map (not a path alias), checked by a single strict
   compiler. **`@cafe/server`** (`packages/server/`) is the production backend. **`@cafe/web`**
   (`packages/web/`) is the prototype SPA. See `docs/STATUS.md` for phase-by-phase detail.
-- Prototype (`@cafe/web`): React + TypeScript + Vite, react-router (`HashRouter` or 404.html SPA fallback), IndexedDB (`idb`/Dexie), `qrcode` + `html5-qrcode`/`@zxing/browser`, `peerjs` (real dep, not devDep), EmailJS (via `fetch`, no npm dep), Metered TURN relay, Vitest + jsdom (unit/component), `puppeteer` devDep (e2e smoke suite in `packages/web/e2e/`).
+- SPA (`@cafe/web`): React + TypeScript + Vite, react-router (`HashRouter`), `qrcode` + `html5-qrcode` for the card QR and the till scanner, Vitest + jsdom, `puppeteer` devDep (e2e in `packages/web/e2e/`, still pointed at the deleted Pages build — register X5). **No** IndexedDB, `peerjs`, EmailJS or TURN: all four went in Phase 6.
 - Production (target): same React frontend; **Node + TypeScript + Express/Fastify + PostgreSQL** backend; flat-rate VPS + Cloudflare. Apple Wallet updates need the backend (PassKit + APNs); Google Wallet via REST. Email via a server-side provider — **built** (`packages/server/src/mail/`, SMTP via `nodemailer`; mailpit in dev, SES/Brevo/Resend in production, all over one `MAIL_SMTP_URL`), which retires `EmailJsMailer` in the server build. The server runs on plain `node` against emitted `dist/` (`packages/server/tsconfig.build.json`), not `tsx`, outside `dev`.
 - TypeScript throughout. The `packages/shared/src/domain/`, `packages/shared/src/ports/`, `packages/web/src/adapters/`, and `packages/web/src/services/` layers match `docs/SPEC.md §12`. The `packages/web/src/ui/` layout diverges (see STATUS.md divergences g, k) — record any further UI deviations there.
 
@@ -157,7 +148,7 @@ Five roles. The point is that each agent holds only what it needs; deep work is 
 
 ### Reviewer
 - Checks implementer output against `SPEC.md` and these rules **before** integration.
-- Verifies: ports respected (no UI→adapter calls), `DataStore` stays async, ledger append-only, no PII in QR/logs, dev-transport properly flagged, tests present and passing, file tree honored.
+- Verifies: ports respected (no UI→adapter calls), `DataStore` stays async, ledger append-only, no PII in QR/logs/URLs, the actor taken from the session rather than the body, audit written server-side, tests present and passing (**and not skipped** — the server suite fails without a database by design), file tree honored.
 - Also checks that **docs were updated** when the change warranted it (README/STATUS/CLAUDE).
 - Returns issues to fix or an approval.
 

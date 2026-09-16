@@ -204,7 +204,12 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 - [x] **Phase 9** — CI + integration tests against a real Postgres  ⟵ **the backend build ends here**
 - [ ] **— UI pass —** a separate initiative: client adapters, services reshaped to the API,
       screens reconciled against [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md)
-- [ ] **Phase 11** — Docs (STATUS divergences, README, CLAUDE.md, SPEC §15 rows)
+- [x] **Phase 11** — Docs — **backend half done 2026-09-16**; the UI half is UI-PLAN's UI-9.
+      Done: `CLAUDE.md`'s architecture rules (five ports → three, `Transport`/`WalletProvider`
+      gone, PII now required, the PeerJS section replaced by the server-backed one, the stale
+      warning box consolidated), `README.md`'s header, seam table, ports/adapters diagram, file
+      tree and migration diagram. Deferred to UI-9 because the screens still exist: `CLAUDE.md`'s
+      `## UI` section and `README.md`'s feature table, both explicitly bannered as pre-UI-pass.
 
 Phase 2 was the big one and everything from 4 onward builds on it (Phases 0+1 landed together).
 The wallet phase is gone — the triage dropped wallet entirely.
