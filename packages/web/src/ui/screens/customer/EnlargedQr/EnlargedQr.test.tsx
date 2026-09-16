@@ -17,23 +17,13 @@ vi.mock('../../../../qr/encode', () => ({
   toDataUrl: (payload: string) => Promise.resolve(`data:${payload}`),
 }));
 
-vi.mock('../../../../wallet/passes', () => ({
-  detectWalletKind: () => 'apple',
-}));
-
 import { EnlargedQr } from './EnlargedQr';
-import { ServicesProvider } from '../../../common/ServicesContext';
-import type { Services } from '../../../../services/Services';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
 let container: HTMLDivElement;
 let root: Root;
-
-const services = {
-  wallet: { ensurePass: vi.fn().mockResolvedValue({ appleUrl: 'a', googleUrl: 'g' }) },
-} as unknown as Services;
 
 beforeEach(() => {
   cardPayload.mockClear();
@@ -50,7 +40,7 @@ async function mount(node: React.ReactNode) {
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
-    root.render(<ServicesProvider value={services}>{node}</ServicesProvider>);
+    root.render(node);
   });
   await act(async () => {
     await Promise.resolve();
@@ -58,10 +48,8 @@ async function mount(node: React.ReactNode) {
 }
 
 describe('EnlargedQr', () => {
-  it('plain mode encodes the CARD QR (and shows the wallet path)', async () => {
-    await mount(
-      <EnlargedQr open onClose={() => {}} customerId="c1" token="tok-1" name="Maria" code="c" />,
-    );
+  it('plain mode encodes the CARD QR', async () => {
+    await mount(<EnlargedQr open onClose={() => {}} token="tok-1" name="Maria" code="c" />);
     expect(cardPayload).toHaveBeenCalledWith('tok-1');
     expect(rewardScanPayload).not.toHaveBeenCalled();
     expect(container.querySelector('.redeem-panel')).toBeNull();
@@ -72,7 +60,6 @@ describe('EnlargedQr', () => {
       <EnlargedQr
         open
         onClose={() => {}}
-        customerId="c1"
         token="tok-1"
         name="Maria"
         code="c"
@@ -91,7 +78,6 @@ describe('EnlargedQr', () => {
       <EnlargedQr
         open
         onClose={() => {}}
-        customerId="c1"
         token="tok-1"
         name="Maria"
         code="c"

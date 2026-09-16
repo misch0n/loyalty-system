@@ -109,7 +109,6 @@ function fakeServices(overrides: Partial<Record<string, unknown>> = {}): Service
       ...overrides,
     },
     customers: { provisionFromToken: vi.fn() },
-    wallet: { pushUpdate: vi.fn().mockResolvedValue(undefined) },
   } as unknown as Services;
 }
 
@@ -272,10 +271,6 @@ describe('Staff Scan', () => {
         source: 'a',
       });
       expect(typeof commit.mock.calls[0][1].idempotencyKey).toBe('string');
-
-      // Best-effort wallet push reflects the settled balance + unspent-reward COUNT.
-      const pushUpdate = services.wallet.pushUpdate as ReturnType<typeof vi.fn>;
-      expect(pushUpdate).toHaveBeenCalledWith('c1', { balance: 9, rewardCount: 0 });
 
       // Terminal auto-advances back to the scanner — no card left on screen.
       expect(container.querySelector('.scanview')).not.toBeNull();

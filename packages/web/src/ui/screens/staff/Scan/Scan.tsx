@@ -266,18 +266,6 @@ export function Scan(): JSX.Element {
   const holdSecondsLeft = Math.max(1, Math.ceil(remainingMs / 1000));
   const holdProgress = Math.min(1, Math.max(0, 1 - remainingMs / HOLD_MS));
 
-  // ── best-effort wallet push (never blocks the UI) ───────────────────────
-  const pushWallet = (next: CustomerState) => {
-    void services.wallet
-      .pushUpdate(next.customer.id, {
-        balance: next.balance,
-        rewardCount: (next.rewards ?? []).length,
-      })
-      .catch(() => {
-        // Free-tier prototype: no-op. Web card remains the source of truth.
-      });
-  };
-
   const scanNext = () => {
     recordActivity();
     firedRef.current = false;
@@ -355,7 +343,6 @@ export function Scan(): JSX.Element {
         );
         return;
       }
-      pushWallet(result.state);
       toast.show(commitConfirmation(customerName, pending.pointsDelta, result));
       // Appendix E: the terminal returns to idle after every commit, so each
       // customer starts from a fresh scan and no card lingers on screen.

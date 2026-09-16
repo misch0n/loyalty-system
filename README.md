@@ -342,9 +342,12 @@ Three-package npm-workspaces monorepo (`packages/*`) since BACKEND-PLAN Phase 10
 plus the config to make it real, not a rewrite. `@cafe/shared` holds the pure contract,
 `@cafe/server` the production backend, `@cafe/web` this prototype SPA.
 
-> ⚠ **The `web/src/ui/` entries below still describe screens the UI pass will delete** — the
-> Prototype panel, `PairingContext`, `PairDevices`, the wallet button. The adapters, ports and seam
-> table above are **correct as of Phase 11**; the `ui/` subtree is UI-PLAN UI-9's job.
+> ⚠ **The `web/src/ui/` entries below are stale in both directions.** UI-0 (2026-09-16) actually
+> deleted the Prototype panel + `DevTrigger`, `PairingContext`, `PairDevices`, `storageSnapshot`,
+> the wallet button, the admin Export sheet and the admin stat tiles — those lines describe files
+> that no longer exist. What remains of the `ui/` subtree is still slated for change (UI-3 onward).
+> The adapters, ports and seam table above are **correct as of Phase 11**; a full rewrite of this
+> subtree is UI-PLAN UI-9's job.
 
 ```
 packages/

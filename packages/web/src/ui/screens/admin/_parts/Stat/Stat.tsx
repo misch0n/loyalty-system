@@ -1,43 +1,13 @@
 /**
- * Stat / StatWide — admin "This week" tiles (Ckyka reference view 11).
+ * StatWide — the editable program row (`.stat.wide`): a label/value pair and a
+ * `.edit` "Change" button the screen wires to a step-up confirm.
  *
- * `Stat` is a derived figure tile (`.stat` with `.n` value, `.l` label, and an
- * optional `.delta` caption). `StatWide` is the editable program row
- * (`.stat.wide`) with a label/value pair and a `.edit` "Change" button that the
- * screen wires to a step-up confirm. Pure presentation; the container `.stats`
- * grid is rendered by the screen.
+ * The derived figure tile that used to live here went with the stats surface
+ * (UI-0, SCOPE-DECISIONS §1 FE-A-02/03). Pure presentation; the container
+ * `.stats` grid is rendered by the screen.
  */
 import type { ReactNode } from 'react';
 import './Stat.css';
-
-export interface StatProps {
-  /** The big figure. */
-  n: ReactNode;
-  /** Caption under the figure. */
-  label: ReactNode;
-  /** Optional mono delta line (e.g. "+18 new"). */
-  delta?: ReactNode;
-  /** When set, the tile becomes a button that opens its breakdown popover. */
-  onClick?: () => void;
-}
-
-export function Stat({ n, label, delta, onClick }: StatProps) {
-  const body = (
-    <>
-      <div className="n">{n}</div>
-      <div className="l">{label}</div>
-      {delta != null && <div className="delta">{delta}</div>}
-    </>
-  );
-  if (onClick) {
-    return (
-      <button type="button" className="stat tappable" onClick={onClick}>
-        {body}
-      </button>
-    );
-  }
-  return <div className="stat">{body}</div>;
-}
 
 export interface StatWideProps {
   /** Setting label, e.g. "Reward earned at". */

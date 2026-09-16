@@ -7,22 +7,18 @@
  *   - tap        → home ('/' → entry resolver → welcome/card/staff/admin)
  *   - long-press → staff/admin sign-in
  *
- * The prototype tools panel is opened by its own dedicated hidden trigger in the
- * top-left corner (`DevTrigger`), present on every view in prototype builds —
- * keeping it independent of the logo's "go home" behaviour.
+ * The developer panel and its hidden trigger are gone (UI-0): there are no
+ * adapters left to choose between, so there was nothing for the panel to do.
  *
  * Route guards for staff/admin live inside the screens (they consult `useAuth`).
- * HashRouter keeps GitHub Pages happy — client routes live after the `#`.
+ * HashRouter keeps the SPA on one static path — client routes live after the `#`.
  */
 
-import { useState } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { LogoGesturesProvider } from './ui/app/LogoGestures';
-import { DevTrigger } from './ui/app/DevTrigger';
 import { EntryResolver } from './ui/app/EntryResolver';
 import { useAuth } from './ui/app/AuthContext';
 import { ROUTES } from './ui/app/routes';
-import { isPrototype } from './config/env';
 
 import { Welcome } from './ui/screens/customer/Welcome/Welcome';
 import { Register } from './ui/screens/customer/Register/Register';
@@ -34,13 +30,10 @@ import { Unlock } from './ui/screens/staff/Unlock/Unlock';
 import { Panel } from './ui/screens/staff/Panel/Panel';
 import { Scan } from './ui/screens/staff/Scan/Scan';
 import { Admin } from './ui/screens/admin/Admin/Admin';
-import { ProtoPanel } from './ui/screens/proto/ProtoPanel/ProtoPanel';
-import { PairDevices } from './ui/common/PairDevices';
 
 export function App() {
   const navigate = useNavigate();
   const { actor, status } = useAuth();
-  const [protoOpen, setProtoOpen] = useState(false);
 
   // When already signed in, the logo (tap OR long-press) goes to the counter —
   // never back to the sign-in page. Admins reach the admin panel via the
@@ -75,18 +68,8 @@ export function App() {
         <Route path={ROUTES.admin} element={<Admin />} />
         <Route path="/admin/:section" element={<Admin />} />
 
-        {/* Prototype scaffolding */}
-        <Route path={ROUTES.pair} element={<PairDevices />} />
-
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-
-      {isPrototype ? (
-        <>
-          <DevTrigger onOpen={() => setProtoOpen(true)} />
-          <ProtoPanel open={protoOpen} onClose={() => setProtoOpen(false)} />
-        </>
-      ) : null}
     </LogoGesturesProvider>
   );
 }

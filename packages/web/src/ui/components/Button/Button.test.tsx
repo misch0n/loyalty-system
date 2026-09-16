@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { Button, WalletButton } from './Button';
+import { Button } from './Button';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -73,20 +73,5 @@ describe('Button', () => {
     expect(a).not.toBeNull();
     expect(a?.getAttribute('href')).toBe('/welcome');
     expect(a?.classList.contains('btn-line')).toBe(true);
-  });
-});
-
-describe('WalletButton', () => {
-  it('renders the Apple label by default', async () => {
-    await mount(<WalletButton />);
-    const btn = container.querySelector('button.wallet');
-    expect(btn?.textContent).toContain('Add to Apple Wallet');
-  });
-
-  it('renders the Google label when os="google"', async () => {
-    await mount(<WalletButton os="google" />);
-    expect(container.querySelector('button.wallet')?.textContent).toContain(
-      'Save to Google Wallet',
-    );
   });
 });

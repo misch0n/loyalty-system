@@ -8,7 +8,7 @@ import { ServicesProvider } from '../../../common/ServicesContext';
 import { AuthProvider } from '../../../app/AuthContext';
 import { LogoGesturesProvider } from '../../../app/LogoGestures';
 import { ToastProvider } from '../../../components/Toast/Toast';
-import { Stat, StatWide } from '../_parts/Stat/Stat';
+import { StatWide } from '../_parts/Stat/Stat';
 import { FeedRow } from '../_parts/FeedRow/FeedRow';
 import { Alert } from '../_parts/Alert/Alert';
 import { Admin } from './Admin';
@@ -28,11 +28,6 @@ function fakeServices(role: 'admin' | 'staff'): Services {
   ];
   return {
     loyalty: {
-      getStats: vi.fn().mockResolvedValue({
-        activeCustomers: 312,
-        pointsIssued: 900,
-        rewardsRedeemed: 19,
-      }),
       getAlerts: vi.fn().mockResolvedValue([
         {
           kind: 'self-dealing',
@@ -139,12 +134,11 @@ async function mountAdmin(role: 'admin' | 'staff') {
 }
 
 describe('Admin screen', () => {
-  it('renders derived stats and section headers for an admin', async () => {
+  it('renders section headers for an admin — and no stats surface', async () => {
     await mountAdmin('admin');
-    expect(container.textContent).toContain('This week');
-    expect(container.querySelector('.stats')).not.toBeNull();
-    expect(container.textContent).toContain('Active members');
-    expect(container.textContent).toContain('312'); // from getStats
+    // UI-0 removed the "This week" tiles: the figures are collected, not shown.
+    expect(container.textContent).not.toContain('This week');
+    expect(container.textContent).not.toContain('Export activity');
     // Section headers — shop-level only. Appendix E removed the ambient
     // cross-account "Activity" feed from the admin home.
     const headers = Array.from(container.querySelectorAll('.section-h')).map((h) => h.textContent);
@@ -164,7 +158,7 @@ describe('Admin screen', () => {
   it('shows "Admins only" for a signed-in non-admin', async () => {
     await mountAdmin('staff');
     expect(container.textContent).toContain('Admins only');
-    expect(container.querySelector('.stats')).toBeNull();
+    expect(container.querySelector('.stat')).toBeNull();
   });
 
   it('Configure → a program "Change" opens the value+PIN edit sheet', async () => {
@@ -186,26 +180,6 @@ describe('Admin screen', () => {
     });
     expect(container.querySelector('.sheet')).not.toBeNull();
     expect(container.querySelector('.pin-dots')).not.toBeNull();
-  });
-
-  it('a stat breakdown shows the chart only — no attributed per-action list', async () => {
-    await mountAdmin('admin');
-    const tile = container.querySelector('.stat') as HTMLElement;
-    expect(tile).not.toBeNull();
-    await act(async () => {
-      tile.click();
-    });
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    // The breakdown popover is open with its chart…
-    expect(container.querySelector('.statdetail')).not.toBeNull();
-    expect(container.querySelector('.statdetail-bars')).not.toBeNull();
-    // …but Appendix E removed the ambient per-action feed that sat beneath it.
-    expect(container.querySelector('.statdetail .feed')).toBeNull();
-    expect(container.querySelector('.statdetail-more')).toBeNull();
   });
 
   it('an account popover offers management actions but no activity history', async () => {
@@ -261,16 +235,8 @@ describe('admin parts render donor classes', () => {
     });
   }
 
-  it('Stat / StatWide', async () => {
-    await mountNode(
-      <>
-        <Stat n={5} label="Members" delta="+1" />
-        <StatWide setLabel="Reward at" setVal="10 coffees" onEdit={() => {}} />
-      </>,
-    );
-    expect(container.querySelector('.stat .n')?.textContent).toBe('5');
-    expect(container.querySelector('.stat .l')?.textContent).toBe('Members');
-    expect(container.querySelector('.stat .delta')?.textContent).toBe('+1');
+  it('StatWide', async () => {
+    await mountNode(<StatWide setLabel="Reward at" setVal="10 coffees" onEdit={() => {}} />);
     expect(container.querySelector('.stat.wide .setlabel')?.textContent).toBe('Reward at');
     expect(container.querySelector('.stat.wide .setval')?.textContent).toBe('10 coffees');
     expect(container.querySelector('.stat.wide .edit')?.textContent).toBe('Change');

@@ -20,10 +20,11 @@
 > **So everything below describes a prototype that has now been dismantled, not a shipping one.**
 > The adapters are gone; the screens that used them are still here and are UI-pass deletions.
 > `@cafe/web` (the SPA, physically moved to `packages/web/` in Phase 10) no longer builds, on
-> purpose: **9 of its 47 test files fail to load** because they import something Phase 6 deleted
-> (the six `tests/services/` suites, which ran on `IndexedDbStore` through
-> `tests/helpers/freshStore.ts`, plus `Card`, `EnlargedQr` and `Panel`). The file count dropped
-> from 53 to 47 in Phase 10, when the six pure-domain suites moved out into `@cafe/shared`
+> purpose: **6 of its 44 test files fail to load** — the six `tests/services/` suites, which run on
+> `IndexedDbStore` through `tests/helpers/freshStore.ts`. It was 9 of 47 until UI-0, which deleted
+> the screens behind three of them (`Card`, `EnlargedQr` and `Panel` now load and pass) along with
+> three suites whose subjects it removed. The file count had already dropped from 53 to 47 in
+> Phase 10, when the six pure-domain suites moved out into `@cafe/shared`
 > (`packages/shared/tests/`) and started passing green on their own — not because any of the 9
 > failures were fixed. The release gate for the rest of the backend run is the **`@cafe/shared` +
 > `@cafe/server` suites + their `tsc`**; a red `@cafe/web` is expected, not a regression to chase.
@@ -61,7 +62,38 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-09-16 (**Backend — Phase 9: CI + integration tests** (branch
+**Last updated:** 2026-09-16 (**UI pass — UI-0: delete what is already decided dead** (branch
+`claude/backend-implementation-2kqb08`)). First phase of [`UI-PLAN.md`](UI-PLAN.md), and pure
+deletion — no new behaviour, no new decisions; every item was **Settled** in
+[`UI-RECONCILIATION.md`](UI-RECONCILIATION.md). **Deleted:** the pairing layer's remaining screens
+(`ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx`, the `/pair` route and `ROUTES.pair`,
+`ui/common/storageSnapshot.ts` + its test — the push/pop existed only so a pairing join could start
+fresh and reverse itself), the developer panel (`ui/screens/proto/`, `ui/app/DevTrigger.tsx` +
+`dev-trigger.css`, the `isPrototype` gate in `App.tsx` — `config/env.ts` had already stopped
+exporting the flag, which is why it was a compile error), the wallet button (`WalletButton` +
+its `.wallet` CSS + tests, `EnlargedQr`'s pass resolution and its `customerId` prop, the staff
+Scan's best-effort `pushWallet`), the admin **Export activity** workflow (`_parts/Export/`,
+`AuditService.exportActivity`/`ExportRecord`/`parseExportRecord` and their tests — the server has no
+cross-account activity endpoint and its schema refuses an `audit.export` row), and the admin **stats
+surface** (the four "This week" tiles, the `Stat` tile component, `_parts/StatDetail/` — the figures
+are still collected, they are simply not presented). `e2e/prototype.e2e.ts` and `tapDevTrigger` went
+with the panel they drove; the rest of `e2e/` is UI-6's. **Two things deliberately kept:** the
+`source: 'a' | 'w'` scan enum (the ledger records it harmlessly — shrinking it would edit the shared
+port and the server's schema for no UI gain, register row **P2**), and `domain/insights.ts`, which
+the admin surface no longer reads but the server's activity route does. **One capability lost until
+UI-5:** `Card` and `Panel` refetched on the pairing `dataVersion`, which went with the pairing layer,
+so both now load once per visit — the SSE subscriber restores live refresh. **Verification:**
+`@cafe/web` **39 → 14 TypeScript errors** exactly as UI-PLAN predicted, all 14 now in `services/` or
+`tests/helpers/` (UI-2's), and its failing test files **9 → 6** — the six `tests/services/` suites
+that still build on the deleted `IndexedDbStore`; `Card`, `EnlargedQr` and `Panel` load and pass
+again. 38 SPA test files green (180 tests, down from 189 because the deleted code's tests went with
+it; the file count is 47 → 44). **`@cafe/shared` 73 tests and `@cafe/server` 442 tests green with
+both typechecks clean** — this phase touched neither package. `npm run build -w @cafe/web` still
+fails on those 14 errors, as planned: UI-2 is where the SPA builds again. Note for the register:
+UI-PLAN's header said *9 of 53* test files — the true baseline is **9 of 47**, the count STATUS has
+carried since Phase 10 moved the domain suites into `@cafe/shared`.
+
+**Prior:** 2026-09-16 (**Backend — Phase 9: CI + integration tests** (branch
 `claude/backend-implementation-2kqb08`)). **The backend build is complete**; what remains is the
 UI pass (a separate initiative, starting from [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md)) and
 the Phase 11 doc sweep. This phase changes no product behaviour — it makes every earlier phase's
@@ -571,9 +603,11 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
   `packages/server/src/testing/dataStoreConformance.ts` (moved from `tests/conformance/` in
   Phase 10) is exercised by `PostgresStore.test.ts` — its only consumer since Phase 6 deleted
   `IndexedDbStore`, the suite's former second adapter; the `@cafe/conformance` alias is gone.
-- **`@cafe/web` is red on purpose** (Phase 6; the counts below moved in Phase 10 without any new
-  failure): **9 of 47 test files fail to load, 38 pass (189 tests)**; every `tsc` error is a Phase 6
-  deletion. **`@cafe/shared` is green independently — 73 tests** (the six domain suites, moved out
+- **`@cafe/web` is red on purpose** (Phase 6; the counts moved in Phase 10 without any new
+  failure, and UI-0 cut them down): **6 of 44 test files fail to load, 38 pass (180 tests)**, and
+  **14 `tsc` errors** remain, all in `services/` or `tests/helpers/` — every one a Phase 6 deletion
+  that UI-2 resolves. Before UI-0 it was 9 of 47 with 39 errors.
+  **`@cafe/shared` is green independently — 73 tests** (the six domain suites, moved out
   of the SPA's run in Phase 10). **`@cafe/server`: 390 tests** pass, `tsc` green, `dist/` emits and
   runs on plain `node`, all against a **real** Postgres at `TEST_DATABASE_URL` (default
   `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`; the run **aborts** in `globalSetup` if
@@ -581,15 +615,18 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
   `@cafe/server`; a red `@cafe/web` is expected until the UI pass. *(Counts are Phase 10's;
   Phase 8 took the server suite to **442**.)*
 - **Puppeteer e2e suite** (`packages/web/e2e/`, run with `npm run e2e`) drives the built app in
-  headless Chrome: welcome, register→card, staff PIN, prototype panel, and the reference bug-list
-  regressions (13 checks).
+  headless Chrome: welcome, register→card, staff PIN, and the reference bug-list regressions. It
+  still builds against the deleted GitHub Pages target and **does not run** — UI-6 repoints it at
+  the Compose bundle's nginx. UI-0 deleted `prototype.e2e.ts` with the panel it drove.
 - CI: `.github/workflows/ci.yml` (Phase 9) — four jobs. `contract` (`@cafe/shared`), `server`
   (the release gate against a Postgres service container, plus a check that the suite still
   **refuses** to run without one), `bundle` (Compose up from an empty volume → `ops/smoke.sh` →
   a PII log scan → `ops/drill.sh`), and `web` (`continue-on-error`; red by decision, gates
   nothing). The old `deploy.yml` — test → build with the `VITE_*` secrets → publish to GitHub
   Pages — was deleted in Phase 6 with the prototype it deployed.
-- Five swappable seams: `DataStore`, `Transport`, `Mailer`, `IdentityStore`, `WalletProvider`.
+- **Three** swappable seams: `DataStore`, `Mailer`, `IdentityStore`. `Transport` and
+  `WalletProvider` were deleted in the triage (SCOPE-DECISIONS §1) along with every adapter behind
+  them; UI-0 removed the last screens that read them.
 - Prototype device-pairing layer in `adapters/sync/` — deleted in Phase 6; production coordinates state on the server.
 - UI rebuilt to Ckyka reference design: `packages/web/src/ui/theme/` (token slices),
   `packages/web/src/ui/components/<Name>/` (folder-per-component),
@@ -619,14 +656,14 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 | Inactivity lock (5 min) → PIN re-auth at `/staff/unlock` | ✅ | `ui/app/AuthContext.tsx`, `ui/screens/staff/Unlock/Unlock.tsx`, `StaffService.loginWithPin` |
 | Epoch-based "Sign out all devices" revocation | ✅ | `StaffService.revokeAllSessions`, `ProgramConfig.sessionEpoch` |
 | Suspicious-activity alerts — monitoring only | ✅ pruned to **two** attributed detectors (Appendix E, Phase 2): **self-dealing proximity** (same staff accrues then redeems on the same card within a window, repeatedly) and **repeat-target** (same customer credited repeatedly in a window); thresholds are admin-configurable; no role exemption | `domain/alerts.ts`, `LoyaltyService.getAlerts()`, `ui/screens/admin/_parts/Alert/Alert.tsx`, `ui/screens/admin/Admin/Admin.tsx` (Configure → "Activity alerts") |
-| WalletProvider seam; OS-detected wallet button inside enlarged-QR overlay; links to walletwallet.dev pre-generated passes | ✅ | `ports/WalletProvider.ts`, `adapters/wallet/StaticWalletProvider.ts`, `ui/screens/customer/EnlargedQr/EnlargedQr.tsx`, `wallet/passes.ts` |
-| Storage behind `DataStore`; Transport behind `Transport`; Email behind `Mailer`; Identity behind `IdentityStore`; Wallet behind `WalletProvider` — swap = no UI/service change | ✅ | `ports/`, `adapters/`, `services/Services.ts` |
-| Two-device demo over PeerJS + TURN (real cross-device, not simulated) | ✅ impl; cellular verification = manual live-demo step | `adapters/transport/PeerTransport.ts`, `config/env.ts` |
-| Device pairing — one till hosts many customers; live DataStore sync across all devices | ✅ prototype-only (see divergences e, f) | `adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` — all devices host by default; scanning a till's QR makes the scanning device a customer (**no device is auto-routed to staff** — every joiner lands on `/welcome`); a paired client also exposes the till's id (`joinedHostId`) so it can show the **host's QR** and the network can grow from any device; pairing is a reversible overlay — join **snapshots** the device's storage and starts fresh, unpair (voluntary **or** host-forced, with a "till disconnected" toast) **restores** it; unpair signals all peers and each resumes hosting |
+| WalletProvider seam; OS-detected wallet button inside enlarged-QR overlay; links to walletwallet.dev pre-generated passes | ❌ **removed** — the port and both adapters went in the triage (SCOPE-DECISIONS §1); UI-0 removed the button, `WalletButton` and `EnlargedQr`'s pass resolution. The web card is the only card |
+| Storage behind `DataStore`; Email behind `Mailer`; Identity behind `IdentityStore` — **three** ports, not five | ✅ | `packages/shared/src/ports/`, `packages/web/src/adapters/`, `services/Services.ts`. `Transport` and `WalletProvider` are deleted; the "swap = no UI/service change" promise was revoked on 2026-09-16 (SCOPE-DECISIONS §6) |
+| Two-device demo over PeerJS + TURN (real cross-device, not simulated) | ❌ **removed** — the `Transport` port and PeerJS went in Phase 6; devices meet on the server |
+| Device pairing — one till hosts many customers; live DataStore sync across all devices | ❌ **removed** — `adapters/sync/` went in Phase 6 and UI-0 deleted the last screens (`PairingContext`, `PairDevices`, `/pair`, `storageSnapshot`). The server coordinates state centrally and `GET /events` (SSE) carries liveness; the client subscriber is UI-5. Historical shape: | ~~`adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` — all devices host by default; scanning a till's QR makes the scanning device a customer (**no device is auto-routed to staff** — every joiner lands on `/welcome`); a paired client also exposes the till's id (`joinedHostId`) so it can show the **host's QR** and the network can grow from any device; pairing is a reversible overlay — join **snapshots** the device's storage and starts fresh, unpair (voluntary **or** host-forced, with a "till disconnected" toast) **restores** it; unpair signals all peers and each resumes hosting |
 | Domain unit-tested; file tree matches SPEC §12 | ✅ (new UI layout diverges from SPEC §12 — see divergences g, k) | `packages/shared/tests/`, `packages/web/tests/`, domain + services match |
 | Adapters/transports/services unit-tested (regression cover) | ✅ | `packages/web/tests/adapters/*`, `packages/web/tests/services/*`, `packages/web/tests/qr/*`, `packages/shared/tests/alerts.test.ts` |
 | Co-located component/screen tests (Vitest, jsdom) | ✅ | `packages/web/src/ui/components/**/*.test.tsx`, `packages/web/src/ui/screens/**/*.test.tsx` — included via `vite.config.ts` `test.include` |
-| Browser-level end-to-end smoke | ✅ impl (manual) | `packages/web/e2e/*.e2e.ts` (Puppeteer, headless Chrome) via `npm run e2e` — 13 checks across welcome/card/staff/prototype/regression |
+| Browser-level end-to-end smoke | ⚠️ **not running** — the suite still builds against the deleted Pages target; UI-6 repoints it at the Compose bundle | `packages/web/e2e/*.e2e.ts` (Puppeteer, headless Chrome) via `npm run e2e` — welcome/card/staff/regression (`prototype.e2e.ts` deleted in UI-0 with the panel it drove) |
 | **B1** Device persistence — remember/forget exactly one card; no auto-save on view; registration toggle | ✅ | `ui/screens/customer/Card/Card.tsx`, `ui/screens/customer/Register/Register.tsx` |
 | **B2** Card QR encodes card-page URL; `tokenFromCardScan()` extracts token; bare tokens still accepted | ✅ | `qr/encode.ts` (`cardPayload`, `tokenFromCardScan`), `ui/screens/staff/Scan/Scan.tsx` |
 | **B3** Recovery-tier disclosure at signup | ✅ | `ui/screens/customer/Register/Register.tsx` |
@@ -736,9 +773,9 @@ above). `docs/SPEC.md` is authoritative and unedited, so these are recorded here
 | Self-dealing fires on a real redemption (not the dead ledger type) | ✅ | detector runs over paired `loyalty.accrue`/`loyalty.redeem` audit events (`AttributedEvent`), not the retired `type==='redemption'` ledger match |
 | Detector thresholds editable via admin Configure | ✅ | `ProgramConfig.selfDealWindowSec`/`selfDealCount`/`repeatWindowMin`/`repeatCount`; Configure panel "Activity alerts" group — `ConfigService`/Admin tests |
 | Staff terminal shows only recent-and-local (≤10 / 1h, own actions), never full history, no Load-all | ✅ | staff Panel "Your last hour" — `actorId`-filtered, capped, no pager |
-| Admin home = shop-level only; no ambient cross-account feed; no casual per-account history | ✅ | `Admin.tsx`, `StatDetail`, `AccountSheet` tests |
-| Cross-account activity only via export: blank form, required reason, audited, accounts incl. admins | ✅ | `ui/screens/admin/_parts/Export` tests; `AuditService.exportActivity` writes an `audit.export` row |
-| Export produces a JSON file; past exports listed + re-runnable | ✅ | Export view test — download + past-exports list + "Re-run:" prefix |
+| Admin home = shop-level only; no ambient cross-account feed; no casual per-account history | ✅ — and stronger since UI-0: the stat tiles and `StatDetail` are gone too, so the admin home has no derived-figure surface at all | `Admin.tsx`, `AccountSheet` tests |
+| Cross-account activity only via export: blank form, required reason, audited, accounts incl. admins | ⛔ **retired, not regressed** — the triage dropped the export surface (SCOPE-DECISIONS §1, BE-A-12) and the server has no cross-account endpoint to feed it: `GET /audit` substitutes the session's own actor at every tier and the database **refuses** an `audit.export` row. UI-0 deleted the sheet and `AuditService.exportActivity`. Cross-account activity is now reachable through **no** client surface |
+| Export produces a JSON file; past exports listed + re-runnable | ⛔ **retired** with the row above |
 | All data retained (no retention window); balance derivation unaffected | ✅ by design | no pruning; ledger/audit unbounded |
 
 ### Pre-commit hold (replaces post-commit undo)
@@ -775,13 +812,22 @@ exemption — an admin actor is flagged exactly like staff. Alerts still only su
 - **Staff terminal:** "Today on this terminal" → **"Your last hour"** — the audit query filters by
   `actorId` (a staffer never sees a colleague's work), trims to a trailing one-hour window, caps at
   10 rows, and drops the pager/"Load all" entirely (the bound *is* the safeguard).
-- **Admin home:** the cross-account Activity feed is deleted. The all-audit read remains only as the
-  aggregate behind the "active members today" stat tile.
+- **Admin home:** the cross-account Activity feed is deleted. The all-audit read that survived as
+  the aggregate behind the "active members today" tile went with the tiles themselves in UI-0 — the
+  admin screen now reads config, alerts and accounts, and nothing else.
 - **`StatDetail`:** total + chart only — the attributed per-action `EntryList` is removed.
+  *(UI-0 deleted `StatDetail` and the stat tiles outright; the triage dropped the stats surface.)*
 - **`AccountSheet`:** keeps enable/disable, reset password, reset PIN, delete; loses its per-profile
   activity-history list (moved to the export workflow below).
 
-### Investigation & export
+### Investigation & export — **retired by UI-0**
+
+> The client half of this workflow no longer exists. The triage dropped the export surface
+> (SCOPE-DECISIONS §1, BE-A-12) and the backend built the refusal into the schema, so UI-0 deleted
+> the **Export** sheet, `AuditService.exportActivity`/`ExportRecord`/`parseExportRecord` and their
+> tests. What survives is the *filter*: `AuditFilter`'s `actions`/`actorIds`/`from`/`to` are read by
+> the server's own ranged query, which is internal-only. The rest of this section is the record of
+> what was built and why it went.
 
 `AuditFilter` (`ports/DataStore.ts`) gained `actions`/`actorIds` (OR within a field, AND across
 fields, unioned with the pre-existing singular `action`/`actorId`) and an inclusive `from`/`to`
@@ -809,8 +855,11 @@ actions).
   (`ui/app/AuthContext.tsx`) manages the active session: "remember this device"
   flag, idle lock, epoch-based revocation, and the remembered `lastUsername`.
   PIN/password are never logged.
-- **Prototype / developer panel** (`ui/screens/proto/ProtoPanel/ProtoPanel.tsx`)
-  is opened by a **hidden top-left `DevTrigger`** (`ui/app/DevTrigger.tsx`),
+- **Prototype / developer panel** — **deleted in UI-0**, along with its hidden trigger and the
+  `isPrototype` gate: with one store, one mail sender and one identity mechanism there is nothing
+  left for it to switch. The rest of this bullet is the historical record.
+  It was `ui/screens/proto/ProtoPanel/ProtoPanel.tsx`, opened by a
+  **hidden top-left `DevTrigger`** (`ui/app/DevTrigger.tsx`),
   present on every view — NOT a logo gesture (the logo now only goes home /
   long-press signs in). Gated on `isPrototype` (env.ts) — i.e. the local adapter
   selection, NOT `import.meta.env.PROD`: the deployed GitHub Pages demo is itself a
@@ -875,7 +924,8 @@ actions).
 
 Three separate suites since Phase 10 split the repo into packages — there is no longer a single
 `npm test`. `npm test -w @cafe/shared` runs **73 tests** (green, independent of the SPA).
-`npm test -w @cafe/web` runs **9 of 47 test files failing to load, 38 passing (189 tests)** —
+`npm test -w @cafe/web` runs **6 of 44 test files failing to load, 38 passing (180 tests)** (it was
+9 of 47 / 189 before UI-0) —
 includes co-located `packages/web/src/ui/**/*.test.tsx` via the extended `test.include` in
 `vite.config.ts`; red for exactly the Phase 6 reasons (below). `npm test -w @cafe/server` runs
 **390 server tests** against a real Postgres.
@@ -897,9 +947,11 @@ includes co-located `packages/web/src/ui/**/*.test.tsx` via the extended `test.i
   one-email-per-mint, `getStats` counts `reward.redeemed` audit events, plus
   `reverse` — `undo` removed, Appendix E Phase 1), `Recovery`, `Staff` (incl.
   `loginWithPin`, `setPin`, `revokeAllSessions`), `Config` (incl. the four
-  detector-threshold fields), `Audit` (incl. `exportActivity` — empty-reason
-  refusal, `audit.export` row, reason trim/cap), plus the `Services`
-  composition-root wiring.
+  detector-threshold fields), `Audit` (`log` + `list`; the `exportActivity` tests went with the
+  export workflow in UI-0), plus the `Services` composition-root wiring. **None of these six suites
+  currently load** — they build their graph on the deleted `IndexedDbStore` through
+  `tests/helpers/freshStore.ts`, and UI-2 rebuilds the harness around a fake `DataStore` held to
+  the conformance suite.
 - **conformance —** `packages/server/src/testing/dataStoreConformance.ts` (moved from
   `tests/conformance/` in Phase 10), the
   **store-agnostic `DataStore` suite** (41 tests): customers and the tombstone,
@@ -917,8 +969,9 @@ includes co-located `packages/web/src/ui/**/*.test.tsx` via the extended `test.i
   `IndexedDbStore` suite (the seed, the short-code backfill, the v5 clean-reset upgrade, the
   wedged-database self-heal, `reset()` in place, the retired `redeemReward` path), the
   `adapters/sync/` suites (`FakeLink` round-trip, `ConnLink` / `joinHost` / `PeerJsHost`),
-  `adapters/wallet/` (`StaticWalletProvider`), `PeerTransport`, `EmailJsMailer`, and
-  `ui/common/storageSnapshot` (the pairing push/pop). The adapters they covered are gone, so
+  `adapters/wallet/` (`StaticWalletProvider`), `PeerTransport` and `EmailJsMailer`; UI-0 added
+  `ui/common/storageSnapshot` (the pairing push/pop), `ProtoPanel`, the admin `_parts/Export/`
+  sheet and `e2e/prototype.e2e.ts`. The adapters and screens they covered are gone, so
   the tests went with them — **this is not missing coverage, it is a removed feature.** What
   the store suites proved about the *port* survives in the conformance suite above.
 - **`@cafe/web` ui/app/** — `session` (`packages/web/tests/ui/app/session.test.ts`): the pure session
@@ -933,13 +986,11 @@ includes co-located `packages/web/src/ui/**/*.test.tsx` via the extended `test.i
   hour" actor+time scoping), Scan + TopBar, ScanView, CustChip, StateLabel
   _parts (incl. the 3-second pre-commit hold: cancel writes nothing, timeout/
   "Commit now" writes once, `over_cap` drop-back) (staff); Admin (incl. the
-  Configure "Activity alerts" thresholds, `StatDetail` chart-only, `AccountSheet`
-  without activity history, and the `_parts/Export/` sheet — blank form, reason
-  gate, JSON download, past-exports re-run) (admin); ProtoPanel (proto).
+  Configure "Activity alerts" thresholds, `AccountSheet` without activity history, and — since
+  UI-0 — the absence of both the stats surface and the Export button) (admin).
 - **qr/** (`encode` — incl. `cardPayload` URL format and `tokenFromCardScan`,
-  `scan` with html5-qrcode mocked), **wallet/** (`passes.test.ts` — preset
-  tokens, serial lookup, URL construction, OS detection),
-  **config/** (`env` flag mapping incl. `googlePlaceId`, `walletKind`, `links.ts` URL building).
+  `scan` with html5-qrcode mocked), **config/** (`env` mapping incl. `googlePlaceId`, and
+  `links.ts` URL building). The `wallet/passes` suite went with the wallet seam in Phase 6.
 
 **Server layer** (`npm test -w @cafe/server`, 390 tests, **needs a real Postgres** at
 `TEST_DATABASE_URL` — the run aborts in `globalSetup` without one, because a suite that skips
@@ -1198,7 +1249,11 @@ d. **No server-side session for identity.** `IdentityStore` uses `localStorage`
    token/session in localStorage that points into IndexedDB records; staff-vs-admin
    role comes from the `StaffAccount` record, not the device.
 
-e. **Device pairing is a prototype-only construct.** `adapters/sync/` uses PeerJS
+e. **Device pairing is a prototype-only construct — and is now fully deleted.** Phase 6 removed
+   `adapters/sync/`; **UI-0 removed the last screens** (`PairingContext`, `PairDevices`, the
+   `/pair` route, `storageSnapshot`), so every step of the switch checklist above is done except
+   the liveness replacement, which is UI-5's `EventSource` on `GET /events`. The rest of this
+   divergence is the historical record. `adapters/sync/` uses PeerJS
    to let the till act as a temporary server for many customer devices'
    `DataStore`s simultaneously. `PeerJsLink.ts` now exports `ConnLink` (single
    connection), `joinHost()` (client side), and `PeerJsHost` (one peer, many
@@ -1224,8 +1279,11 @@ e. **Device pairing is a prototype-only construct.** `adapters/sync/` uses PeerJ
    the host. A host reset forces unpair on its clients (they restore their snapshot
    and see a "till disconnected" toast).
 
-f. **Prototype UX scaffolding (DevTrigger, ProtoPanel, Reset, pairing, QR-in-panel).**
-   The spec does not define demo-management UI. The prototype surfaces it in
+f. **Prototype UX scaffolding (DevTrigger, ProtoPanel, Reset, pairing, QR-in-panel) — deleted in
+   UI-0.** With one store, one mail sender and one identity mechanism there is nothing left to
+   switch, so the panel, its hidden trigger and the `isPrototype` gate are gone; the logo gestures
+   (tap → home, long-press → sign-in) are unaffected. The rest of this divergence is the historical
+   record. The spec does not define demo-management UI. The prototype surfaces it in
    `packages/web/src/ui/screens/proto/ProtoPanel/ProtoPanel.tsx`, opened by a hidden top-left
    `DevTrigger` (`packages/web/src/ui/app/DevTrigger.tsx`) present on every view (build-flag
    gated, non-production). The panel is stripped to three centred controls — pairing
@@ -1297,8 +1355,11 @@ m. **Cross-account activity is no longer casually browsable — access moved beh
    1-hour-capped list (no full history, no other staff's actions), removes the
    admin home's cross-account Activity feed and `StatDetail`'s per-action list
    entirely, and removes `AccountSheet`'s per-profile activity history. The only
-   way to see cross-account or historical activity is the admin **Export**
-   workflow (`ui/screens/admin/_parts/Export/`, `AuditService.exportActivity`):
+   way to see cross-account or historical activity **was** the admin **Export**
+   workflow — since UI-0 there is no client surface for it at all (the triage dropped it,
+   SCOPE-DECISIONS §1 BE-A-12, and the server's schema refuses an `audit.export` row), which makes
+   this divergence from SPEC §8.7 wider still. As built, and now removed
+   (`ui/screens/admin/_parts/Export/`, `AuditService.exportActivity`):
    a blank-by-default filter (time range · action(s) · account(s) incl. admins)
    that **requires a typed reason**, produces a downloaded JSON file, and is
    itself written to the audit log as an `audit.export` row (so "who looked at

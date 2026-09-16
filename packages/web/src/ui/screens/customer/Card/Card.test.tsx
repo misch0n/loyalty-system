@@ -9,10 +9,6 @@ vi.mock('react-router-dom', () => ({
   useParams: () => params,
 }));
 
-vi.mock('../../../common/PairingContext', () => ({
-  usePairing: () => ({ dataVersion: 0 }),
-}));
-
 import { Card } from './Card';
 import { ServicesProvider } from '../../../common/ServicesContext';
 import type { Services } from '../../../../services/Services';
@@ -83,7 +79,6 @@ function fakeServices(cs: CustomerState): Services {
       getState: vi.fn().mockResolvedValue(cs),
     },
     identity: { get: vi.fn().mockResolvedValue('tok-card-1'), set: vi.fn(), clear: vi.fn() },
-    wallet: { ensurePass: vi.fn() },
   } as unknown as Services;
 }
 

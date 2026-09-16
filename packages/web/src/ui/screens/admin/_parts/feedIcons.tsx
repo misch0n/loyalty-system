@@ -1,6 +1,6 @@
 /**
- * Shared admin activity-feed icons + the action→icon mapping. Used by the Admin
- * activity feed and the StatDetail popover so both render the same row style.
+ * Shared admin activity-feed icons + the action→icon mapping, kept beside the
+ * row style they were drawn for.
  */
 import type { FeedTone } from './FeedRow/FeedRow';
 

@@ -9,8 +9,11 @@
  * Background: blush while collecting, sage once the reward is available. States:
  * loading (skeleton), collecting, reward-ready, offline (quiet banner, keep
  * last-known state), and viewing a non-owned card (read-only banner; the saved
- * card is not overwritten). Refetches on `usePairing().dataVersion` so staff
- * credits show up live. `/card` (no token) self-resolves from IdentityStore.
+ * card is not overwritten). `/card` (no token) self-resolves from IdentityStore.
+ *
+ * LIVENESS: the pairing `dataVersion` this screen used to refetch on went with
+ * the pairing layer (UI-0). Until the SSE subscriber lands (UI-5) the card is
+ * fetched once per mount, so a staff credit shows on the next visit or reload.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -25,7 +28,6 @@ import { LogoMark } from '../../../components/Logo/Logo';
 import { GestureLogo } from '../../../app/LogoGestures';
 import { ROUTES, cardPath } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
-import { usePairing } from '../../../common/PairingContext';
 import type { CustomerState } from '../../../../services/LoyaltyService';
 import { EnlargedQr } from '../EnlargedQr/EnlargedQr';
 import { CardMenu } from '../CardMenu/CardMenu';
@@ -37,7 +39,6 @@ export function Card() {
   const { token: routeToken } = useParams<{ token: string }>();
   const navigate = useNavigate();
   const { loyalty, identity } = useServices();
-  const { dataVersion } = usePairing();
 
   const [phase, setPhase] = useState<Phase>('loading');
   const [state, setState] = useState<CustomerState | null>(null);
@@ -71,7 +72,7 @@ export function Card() {
     refreshSaved();
   }, [refreshSaved]);
 
-  // Fetch derived state; refetch live on data changes (staff credits).
+  // Fetch derived state. Live refetch returns with the SSE subscriber (UI-5).
   useEffect(() => {
     if (!routeToken) return;
     let active = true;
@@ -101,7 +102,7 @@ export function Card() {
     return () => {
       active = false;
     };
-  }, [routeToken, loyalty, dataVersion]);
+  }, [routeToken, loyalty]);
 
   if (!routeToken || phase === 'loading') {
     return (
@@ -197,7 +198,7 @@ export function Card() {
         <p className="card-hint">
           {rewardReady
             ? 'Show your free coffee at the counter — tap the reward to enlarge it.'
-            : 'Tap your code to enlarge it or add it to your wallet.'}
+            : 'Tap your code to enlarge it for the counter.'}
         </p>
         <div className="spacer" />
         <div className="card-scroll-hint">scroll for hours &amp; location ↓</div>
@@ -208,7 +209,6 @@ export function Card() {
       <EnlargedQr
         open={enlarged}
         onClose={() => setEnlarged(false)}
-        customerId={customer.id}
         token={routeToken}
         name={name}
         code={code}

@@ -7,7 +7,6 @@ import type { Actor } from '../../../../services/types';
 import { ServicesProvider } from '../../../common/ServicesContext';
 import { AuthProvider } from '../../../app/AuthContext';
 import { LogoGesturesProvider } from '../../../app/LogoGestures';
-import { PairingProvider } from '../../../common/PairingContext';
 import { ToastProvider } from '../../../components/Toast/Toast';
 import { Panel } from './Panel';
 
@@ -81,15 +80,13 @@ async function mountPanel(injected?: Services) {
         <ServicesProvider value={services}>
           <ToastProvider>
             <AuthProvider>
-              <PairingProvider>
-                <LogoGesturesProvider value={{}}>
-                  <Routes>
-                    <Route path="/staff" element={<Panel />} />
-                    <Route path="/staff/scan" element={<div>SCAN ROUTE</div>} />
-                    <Route path="/login" element={<div>LOGIN ROUTE</div>} />
-                  </Routes>
-                </LogoGesturesProvider>
-              </PairingProvider>
+              <LogoGesturesProvider value={{}}>
+                <Routes>
+                  <Route path="/staff" element={<Panel />} />
+                  <Route path="/staff/scan" element={<div>SCAN ROUTE</div>} />
+                  <Route path="/login" element={<div>LOGIN ROUTE</div>} />
+                </Routes>
+              </LogoGesturesProvider>
             </AuthProvider>
           </ToastProvider>
         </ServicesProvider>

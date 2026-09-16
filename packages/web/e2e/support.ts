@@ -60,18 +60,13 @@ export async function clickText(page: Page, text: string): Promise<void> {
   if (!clicked) throw new Error(`no clickable element with text "${text}"`);
 }
 
-/** Tap the logo (a tap → home; the dev panel is a separate corner trigger). */
+/** Tap the logo (a tap → home). */
 export async function tapLogo(page: Page): Promise<void> {
   const c = await page.$eval('.logo-gesture', (el) => {
     const r = el.getBoundingClientRect();
     return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
   });
   await page.mouse.click(c.x, c.y);
-}
-
-/** Tap the hidden top-left developer-tools trigger (prototype only). */
-export async function tapDevTrigger(page: Page): Promise<void> {
-  await page.click('.dev-trigger');
 }
 
 /** Long-press the logo (≥600ms) → staff sign-in. */

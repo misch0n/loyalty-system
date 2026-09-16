@@ -1,23 +1,22 @@
 /**
  * Admin — the reference-UI admin screen (Ckyka view 11, UX-SPEC §8).
  *
- * Single scroll: derived "This week" stats, a "Needs a look" alert list, staff
- * management, "Sign out all devices" and "Export activity". All figures are
- * DERIVED from the ledger/audit trail — no new mutable state. Destructive and
- * program changes go through step-up PIN re-auth (StepUp → useAuth().unlock →
- * service mutation).
+ * Single scroll: a "Needs a look" alert list, program configuration, account
+ * management and "Sign out all devices". No new mutable state — alerts are
+ * derived. Destructive and program changes go through step-up PIN re-auth
+ * (StepUp → useAuth().unlock → service mutation).
  *
- * Appendix E: there is deliberately NO ambient activity feed here. Attributed,
- * cross-account activity is reachable only through the Export sheet, which
- * requires a stated reason and audits itself.
+ * Appendix E: there is deliberately NO ambient activity feed here.
+ *
+ * UI-0 removed the two surfaces the triage dropped: the four "This week" stat
+ * tiles with their breakdown popover (SCOPE-DECISIONS §1, FE-A-02/03 — the
+ * figures are still collected, they are simply not presented), and the Export
+ * activity workflow (BE-A-12 — the server has no cross-account activity
+ * endpoint to export from).
  *
  * GUARD: !ready → loading · locked → /staff/unlock · anon → /login ·
  * signed-in non-admin → "Admins only" notice. Wiring is reused from the old
  * admin sections; only the markup/classes change to the donor.
- *
- * BACKEND GAP: there is no "coffees today" service read. We approximate it by
- * counting today's `loyalty.accrue` audit rows — this counts accrual EVENTS,
- * not points added (a multi-add of 2 counts once). Honest label in the delta.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
@@ -34,27 +33,18 @@ import { useServices } from '../../../common/ServicesContext';
 import type { Actor } from '../../../../services/types';
 import type { ProgramConfig, StaffAccount } from '@cafe/shared/domain/models';
 import type { Alert as AlertModel } from '@cafe/shared/domain/alerts';
-import { Stat, StatWide } from '../_parts/Stat/Stat';
+import { StatWide } from '../_parts/Stat/Stat';
 import { SectionH } from '../_parts/FeedRow/FeedRow';
 import { Alert } from '../_parts/Alert/Alert';
 import { StepUp } from '../_parts/StepUp/StepUp';
 import { ProgramEdit } from '../_parts/ProgramEdit/ProgramEdit';
 import { AccountSheet } from '../_parts/AccountSheet/AccountSheet';
-import { StatDetail } from '../_parts/StatDetail/StatDetail';
 import { AlertDetail } from '../_parts/AlertDetail/AlertDetail';
-import { Export } from '../_parts/Export/Export';
 import { usePager } from '../../../common/usePager';
 import { PersonIcon } from '../_parts/feedIcons';
-import type { MetricKind } from '@cafe/shared/domain/insights';
 import { alertKey, DEFAULT_THRESHOLDS } from '@cafe/shared/domain/alerts';
-import { isSameDay, relativeTime } from './format';
+import { relativeTime } from './format';
 import './Admin.css';
-
-interface Stats {
-  activeCustomers: number;
-  pointsIssued: number;
-  rewardsRedeemed: number;
-}
 
 const ALERT_PAGE = 4;
 
@@ -160,24 +150,17 @@ function AdminScreen({ actor }: { actor: Actor }) {
   const navigate = useNavigate();
   const { logout } = useAuth();
 
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [coffeesToday, setCoffeesToday] = useState<number | null>(null);
-  const [activeToday, setActiveToday] = useState<number | null>(null);
   const [config, setConfig] = useState<ProgramConfig | null>(null);
   const [alerts, setAlerts] = useState<AlertModel[] | null>(null);
   const [staff, setStaff] = useState<StaffAccount[] | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
 
   const [edit, setEdit] = useState<EditTarget | null>(null);
-  // Which headline stat's breakdown popover is open (null = closed).
-  const [detailMetric, setDetailMetric] = useState<MetricKind | null>(null);
   // "Needs a look" is collapsed by default; the flagged alert in detail view.
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState<AlertModel | null>(null);
   // Program-config popover (reward threshold, max coffees per scan, …).
   const [configureOpen, setConfigureOpen] = useState(false);
-  // Investigation/export popover — the ONLY route to cross-account activity.
-  const [exportOpen, setExportOpen] = useState(false);
 
   const alertPager = usePager(alerts?.length ?? 0, ALERT_PAGE);
   // The id of the profile whose management popover is open (null = closed). We
@@ -198,28 +181,11 @@ function AdminScreen({ actor }: { actor: Actor }) {
   const load = useCallback(() => {
     let cancelled = false;
     void Promise.all([
-      services.loyalty.getStats(),
-      services.audit.list({ action: 'loyalty.accrue', limit: 500 }),
       services.config.get(),
       services.loyalty.getAlerts(),
       services.staff.list(),
-      services.audit.list({}), // aggregate only — used for the 'active today' count
-    ]).then(([s, accruals, cfg, alertList, staffList, log]) => {
+    ]).then(([cfg, alertList, staffList]) => {
       if (cancelled) return;
-      setStats(s);
-      setCoffeesToday(accruals.filter((a) => isSameDay(a.timestamp)).length);
-      // Active members today = unique customer cards used (any loyalty activity).
-      const activeIds = new Set(
-        log
-          .filter(
-            (e) =>
-              (e.action === 'loyalty.accrue' || e.action === 'loyalty.redeem') &&
-              isSameDay(e.timestamp) &&
-              e.targetId,
-          )
-          .map((e) => e.targetId as string),
-      );
-      setActiveToday(activeIds.size);
       setConfig(cfg);
       setAlerts(alertList);
       setStaff(staffList);
@@ -349,8 +315,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
 
         <Eyebrow>Ckyka rewards · admin</Eyebrow>
 
-        {/* Surfaced above the week's stats; hidden when nothing needs review
-            (no flags, or all acknowledged). */}
+        {/* Hidden when nothing needs review (no flags, or all acknowledged). */}
         {flaggedCount > 0 && (
           <>
             <button
@@ -399,35 +364,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
             )}
           </>
         )}
-
-        <Title style={{ marginBottom: 14 }}>This week</Title>
-
-        <div className="stats">
-          <Stat
-            n={stats ? stats.activeCustomers : '—'}
-            label="New members"
-            delta="tap for trend"
-            onClick={() => setDetailMetric('members')}
-          />
-          <Stat
-            n={activeToday ?? '—'}
-            label="Active members"
-            delta="tap for trend"
-            onClick={() => setDetailMetric('active')}
-          />
-          <Stat
-            n={coffeesToday ?? '—'}
-            label="Coffees today"
-            delta="tap for trend"
-            onClick={() => setDetailMetric('coffees')}
-          />
-          <Stat
-            n={stats ? stats.rewardsRedeemed : '—'}
-            label="Rewards redeemed"
-            delta="tap for trend"
-            onClick={() => setDetailMetric('rewards')}
-          />
-        </div>
 
         <Button variant="line" style={{ marginTop: 12 }} onClick={() => setConfigureOpen(true)}>
           Configure program
@@ -478,13 +414,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
         >
           Sign out all devices
         </Button>
-        <Button
-          variant="line"
-          style={{ marginTop: 10 }}
-          onClick={() => setExportOpen(true)}
-        >
-          Export activity
-        </Button>
 
         <div className="admin-footer">
           <Button
@@ -499,15 +428,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
           </Button>
         </div>
       </div>
-
-      <StatDetail metric={detailMetric} onClose={() => setDetailMetric(null)} />
-
-      <Export
-        open={exportOpen}
-        actor={actor}
-        staff={staff ?? []}
-        onClose={() => setExportOpen(false)}
-      />
 
       <AlertDetail
         alert={selectedAlert}

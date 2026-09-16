@@ -1,9 +1,11 @@
 # UI pass — build plan (the SPA, rebuilt against the API)
 
 > **Active initiative.** The backend is complete (all of [`BACKEND-PLAN.md`](BACKEND-PLAN.md)'s
-> phases). `@cafe/web` is **deliberately red** — 39 TypeScript errors across 13 files, 9 of 53
-> test files failing to load — every one traceable to a Phase 6 deletion. This plan makes it green
-> again *against the API*, not against the store that was deleted.
+> phases). `@cafe/web` was **deliberately red** — 39 TypeScript errors across 13 files, and 9 of
+> its **47** test files failing to load (this plan first said 53; 47 is the count STATUS has
+> carried since Phase 10 moved the domain suites into `@cafe/shared`) — every one traceable to a
+> Phase 6 deletion. This plan makes it green again *against the API*, not against the store that
+> was deleted. **UI-0 is done: 14 errors and 6 non-loading files remain**, all of them UI-2's.
 >
 > **Input:** [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md) — 27 rows saying what the backend does,
 > what the UI does today, and the gap. That register is the specification; this file is the
@@ -32,11 +34,13 @@
 6. Tick the box, add any new conflict as a register row, refresh `STATUS.md`, commit + push.
 
 **The error count is the progress bar.** `npm run typecheck -w @cafe/web 2>&1 | grep -c "error TS"`
-starts at **39**. Each phase below states what it should read afterwards. A number that does not
+started at **39**; it reads **14** after UI-0. Each phase below states what it should read
+afterwards. A number that does not
 drop as predicted means the phase found something the register missed — add a row.
 
-**CI reports the shape of the red on every commit** (`web` job, `continue-on-error`). A **tenth**
-failing test file is something this pass broke, not something Phase 6 caused.
+**CI reports the shape of the red on every commit** (`web` job, `continue-on-error`). A failing
+test file beyond the ones this plan accounts for — **9 before UI-0, 6 after** — is something this
+pass broke, not something Phase 6 caused.
 
 ---
 
@@ -61,7 +65,7 @@ UI-6 decides with the nginx serving story in front of it).
 
 ## 2 · Progress checklist
 
-- [ ] **UI-0** — Delete what is already decided dead → **39 errors becomes ~14**
+- [x] **UI-0** — Delete what is already decided dead → **39 errors became 14** ✅ 2026-09-16
 - [ ] **UI-1** — `ApiStore.request` + the error surface (**blocked on X2**)
 - [ ] **UI-2** — Services reshaped to the routes, and their tests rebuilt → **0 errors**
 - [ ] **UI-3** — Screens whose behaviour the backend changed
@@ -90,8 +94,26 @@ Pure deletion, no new code, no decisions. Every item is **Settled** in the regis
 - **Admin stats** (A2): the four stat tiles, `StatDetail`.
 - **Env flags** (P4): `isPrototype` in `App.tsx`, `turnConfigured`. *1 error.*
 
-**Done when:** `~14` errors remain, all of them in `services/` or `tests/`; the 44 currently-passing
+**Done when:** `~14` errors remain, all of them in `services/` or `tests/`; the currently-passing
 SPA test files still pass; no `grep` hit for `adapters/sync`, `WalletProvider`, `isPrototype`.
+
+**As built (2026-09-16).** Exactly 14 errors remain, all in `services/` (5 files) and
+`tests/helpers/freshStore.ts`. Test files went 47 → 44 and failures 9 → **6**: `Card`,
+`EnlargedQr` and `Panel` load and pass again, and the three suites whose subjects were deleted
+(`ProtoPanel`, `_parts/Export`, `storageSnapshot`) went with them — 38 files green, 180 tests.
+`@cafe/shared` (73) and `@cafe/server` (442) stayed green with clean typechecks; this phase
+touched neither package. Beyond the list above it also deleted **`ui/common/storageSnapshot.ts`**
+(the pairing push/pop had no other caller, and `main.tsx`'s boot self-heal existed only to undo a
+half-finished pairing) and **`e2e/prototype.e2e.ts`** + `tapDevTrigger` (the panel they drove is
+gone; the rest of `e2e/` is UI-6's). Three judgement calls worth knowing:
+- **The `source: 'a' | 'w'` enum stays** (P2's open question): the ledger and audit rows record it
+  harmlessly, and shrinking it would edit `@cafe/shared` and the server's schema to no UI end.
+- **`@cafe/shared/domain/insights.ts` stays** even though no screen reads it now — the server's
+  activity route does.
+- **`Card` and `Panel` lost their live refetch.** Both keyed an effect on the pairing
+  `dataVersion`; with `PairingContext` gone they load once per visit until UI-5's SSE subscriber
+  restores it. This is the one behaviour UI-0 took away rather than deleted outright, and it is
+  called out in each screen's header comment.
 
 ### UI-1 — `ApiStore.request` + the error surface
 **Blocked on X2.** Rows P8, X3, X2.

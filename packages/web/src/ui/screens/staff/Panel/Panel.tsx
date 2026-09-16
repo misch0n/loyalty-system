@@ -10,7 +10,9 @@
  * "End shift / switch staff" ghost button → logout → sign-in.
  *
  * UI → services only. Reads via `services.audit/staff/customers`; the session
- * via `useAuth`; the feed refetches on the prototype pairing `dataVersion`.
+ * via `useAuth`. The feed used to refetch on the pairing `dataVersion`, which
+ * went with the pairing layer (UI-0); live refresh returns with the SSE
+ * subscriber (UI-5), so for now it loads once per visit.
  * Reuses the old StaffPanel + activity.ts wiring, restyled to the reference.
  */
 import { useCallback, useEffect, useState } from 'react';
@@ -19,7 +21,6 @@ import { Button } from '../../../components/Button/Button';
 import { useAuth } from '../../../app/AuthContext';
 import { ROUTES } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
-import { usePairing } from '../../../common/PairingContext';
 import { TopBar, OnShift } from '../_parts';
 import { useStaffGuard } from '../useStaffGuard';
 import { actionLabel, isLoyaltyAction, relativeTime } from '../activity';
@@ -68,7 +69,6 @@ export function Panel(): JSX.Element {
   const services = useServices();
   const navigate = useNavigate();
   const { logout, recordActivity } = useAuth();
-  const { dataVersion } = usePairing();
 
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -121,7 +121,7 @@ export function Panel(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [actorId, loadActivity, dataVersion]);
+  }, [actorId, loadActivity]);
 
   if (guard.redirect) return guard.redirect;
   const actor = guard.actor;

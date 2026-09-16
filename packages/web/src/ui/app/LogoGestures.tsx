@@ -9,9 +9,9 @@
  *   - tap               → onHome  (home: '/' → entry resolver → welcome/card/staff/admin)
  *   - long-press ≥600ms → onHold  (staff/admin sign-in)
  *
- * The prototype tools panel is NOT a logo gesture any more — it has its own
- * dedicated hidden corner trigger (see `DevTrigger`) so the logo can be a clean
- * "go home" affordance for staff and admin without competing with redirects.
+ * There are only these two gestures: the developer panel and its hidden corner
+ * trigger were deleted in UI-0, so the logo is a clean "go home" affordance for
+ * staff and admin without competing with redirects.
  *
  * App supplies the handlers once via `LogoGesturesProvider`; screens stay
  * presentational. A visually-hidden, always-focusable button gives a guaranteed

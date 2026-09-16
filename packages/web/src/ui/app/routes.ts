@@ -29,8 +29,6 @@ export const ROUTES = {
   staffScan: '/staff/scan',
   /** Admin root; subroutes live under `/admin/...` (§4.10). */
   admin: '/admin',
-  /** Prototype device-pairing screen (kept for the prototype build). */
-  pair: '/pair',
 } as const;
 
 export type RouteKey = keyof typeof ROUTES;

@@ -1,4 +1,4 @@
-/* Buttons + wallet pill — donor theme.css rules, verbatim. */
+/* Buttons — donor theme.css rules, verbatim. */
 .btn {
   appearance: none;
   border: 0;
@@ -43,23 +43,4 @@
 .btn[disabled] {
   opacity: 0.42;
   cursor: not-allowed;
-}
-.wallet {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  background: #16201a;
-  color: var(--cream);
-  border-radius: 14px;
-  padding: 14px;
-  font-weight: 600;
-  font-size: 14px;
-  width: 100%;
-  border: 0;
-  cursor: pointer;
-}
-.wallet svg {
-  width: 18px;
-  height: 18px;
 }

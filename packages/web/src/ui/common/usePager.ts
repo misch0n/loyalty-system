@@ -1,8 +1,7 @@
 /**
  * usePager — "Load more" paging that, after 3 taps, also offers a "Load all"
- * shortcut. Shared by the admin Activity / Needs-a-look lists, the StatDetail
- * entry list, and the counter's "Recent on this terminal" list so they all page
- * identically.
+ * shortcut. Used by the admin "Needs a look" list, so paging stays consistent
+ * wherever a bounded list needs it.
  */
 import { useState } from 'react';
 
