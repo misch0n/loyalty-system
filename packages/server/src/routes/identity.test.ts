@@ -34,7 +34,7 @@ beforeEach(async () => {
   deps = createAuthDeps({ db, store, cookieSecure: true });
   app = buildServer({ logLevel: 'silent', auth: deps });
   await app.ready();
-  await store.createStaff({ ...STAFF, passwordHash: STAFF.password, role: 'staff' });
+  await store.createStaff({ ...STAFF, role: 'staff' });
 });
 
 afterEach(async () => {

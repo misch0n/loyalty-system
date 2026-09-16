@@ -39,8 +39,8 @@ beforeEach(async () => {
   app = buildServer({ logLevel: 'silent', auth: deps });
   await app.ready();
 
-  adminId = (await store.createStaff({ ...ADMIN, passwordHash: ADMIN.password, role: 'admin' })).id;
-  staffId = (await store.createStaff({ ...STAFF, passwordHash: STAFF.password, role: 'staff' })).id;
+  adminId = (await store.createStaff({ ...ADMIN, role: 'admin' })).id;
+  staffId = (await store.createStaff({ ...STAFF, role: 'staff' })).id;
   admin = await signIn(app, ADMIN.username, ADMIN.password);
 });
 
@@ -204,7 +204,7 @@ describe('PATCH /staff/:id', () => {
   it('always leaves an active admin standing, however many are removed', async () => {
     const deputy = await store.createStaff({
       username: 'deputy',
-      passwordHash: 'deputy-password-1',
+      password: 'deputy-password-1',
       role: 'admin',
     });
     const deputyJar = await signIn(app, 'deputy', 'deputy-password-1');

@@ -197,9 +197,9 @@ beforeEach(async () => {
   app = buildServer({ logLevel: 'silent', auth: deps });
   await app.ready();
 
-  await store.createStaff({ ...ADMIN, passwordHash: ADMIN.password, role: 'admin' });
-  await store.createStaff({ ...STAFF, passwordHash: STAFF.password, role: 'staff' });
-  const spare = await store.createStaff({ ...SPARE, passwordHash: SPARE.password, role: 'staff' });
+  await store.createStaff({ ...ADMIN, role: 'admin' });
+  await store.createStaff({ ...STAFF, role: 'staff' });
+  const spare = await store.createStaff({ ...SPARE, role: 'staff' });
   spareStaffId = spare.id;
 
   const a = await registerCard('card-a@example.test');

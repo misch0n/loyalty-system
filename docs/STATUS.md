@@ -14,17 +14,20 @@
 >    revoked. Conflicts are collected in [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md) for the
 >    maintainer to confirm — **add to it as you go**.
 > 2. **The IndexedDB prototype is retired**, not kept working: `IndexedDbStore`, the PeerJS
->    pairing layer, the transport and wallet adapters, `EmailJsMailer` and the Pages demo all go
->    in Phase 6.
+>    pairing layer, the transport and wallet adapters, `EmailJsMailer` and the Pages demo went in
+>    Phase 6 — **done, 2026-09-16**.
 >
-> **So everything below describes a prototype that is being dismantled, not a shipping one**, and
-> from Phase 6 the SPA knowingly stops building. The release gate for the backend run is the
-> server suite + server `tsc`; a red root build is expected, not a regression to chase.
+> **So everything below describes a prototype that has now been dismantled, not a shipping one.**
+> The adapters are gone; the screens that used them are still here and are UI-pass deletions. The
+> SPA no longer builds, on purpose: **9 of its 53 test files fail to load** because they import
+> something Phase 6 deleted (the six `tests/services/` suites, which ran on `IndexedDbStore`
+> through `tests/helpers/freshStore.ts`, plus `Card`, `EnlargedQr` and `Panel`). The release gate
+> for the rest of the backend run is the **server suite + server `tsc`**; a red root build is
+> expected, not a regression to chase.
 >
 > **▶ Active initiative — the production backend.** [`BACKEND-PLAN.md`](BACKEND-PLAN.md) is the
-> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose; **Phases 0–5 done**,
-> next is Phase 6 — retire the prototype + reshape the shared port; execution order is then
-> 10 → 7 → 8 → 9, UI pass, 11) and
+> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose; **Phases 0–6 done**,
+> next is Phase 10 — the monorepo flip; execution order is then 7 → 8 → 9, UI pass, 11) and
 > [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) is the maintainer's feature triage, which **overrides
 > scope statements elsewhere including `CLAUDE.md`** — mandatory name + email, wallet and transport
 > seams deleted, no admin stats or export surface. Everything described below is the prototype's
@@ -51,7 +54,34 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-09-16 (**Backend — Phase 5: the server-side `Mailer` + the recovery flow**
+**Last updated:** 2026-09-16 (**Backend — Phase 6: the prototype retired, the shared port
+reshaped** (branch `claude/backend-implementation-2kqb08`)). The phase with two halves, and the
+second was the work. **Deleted:** `IndexedDbStore` + `schema.ts` + `demoSeed`, the whole PeerJS
+pairing layer (`src/adapters/sync/`), `src/adapters/transport/` + `ports/Transport.ts`,
+`src/adapters/wallet/` + `ports/WalletProvider.ts` + `src/wallet/` (the preset card tokens with
+it), `EmailJsMailer`, the `VITE_TRANSPORT`/`VITE_WALLET`/`VITE_DATASTORE`/`isPrototype` adapter
+flags, the GitHub Pages deploy workflow, and the `peerjs` + `idb` dependencies. **Reshaped:**
+BACKEND-PLAN §4's six contract problems, each of which had been worked around at the route
+boundary only because `ports/DataStore.ts` could not be edited. `setStaffPassword` and
+`CreateStaffInput` now say **`password`**, which is what every caller always passed —
+`passwordHash` was a name that invited a store to write the digest it was handed and make that
+digest a working credential. **`getStaffByPin` and `redeemReward` are gone from the port and the
+store**, so §4-B's credential oracle is not something a guardrail keeps callers away from, it is
+something that does not exist. The recovery pair took the **scoped** shape `recovery/codes.ts`
+already implemented, so there is one implementation instead of two-plus-a-guardrail.
+**`CommitResult` carries `replayed`**, and `routes/shared.ts` stopped reading `idempotency_keys`
+behind the store's back. `appendAudit` and the recovery trio moved off `DataStore` onto a new
+**`TrustedStore`**, the capabilities a client may not have — a type, now, rather than a grep. And
+`Snapshot` gained **`rewards` + `rewardEvents`** (§3-A-6, snapshot version **7**), so a restore no
+longer silently drops the free coffee a customer was owed; recovery codes are deliberately still
+absent, being credentials that expire fifteen minutes after they are issued. The conformance suite
+**kept**, reframed in its own header as `PostgresStore`'s specification rather than a cross-store
+contract, with the missing second harness explained rather than merely missing. Two new claims were
+**verified by breaking them**: deleting the `replayed` stamp fails 4 tests, and dropping `rewards`
+from the export fails the round-trip. **+1 server test → 390**, none skipped. The SPA is knowingly
+red — see the box above — and every screen-level consequence is a row in
+[`UI-RECONCILIATION.md`](UI-RECONCILIATION.md). Divergences **aa–ad** record the port's new shape.
+Prior — (**Backend — Phase 5: the server-side `Mailer` + the recovery flow**
 (branch `claude/backend-implementation-2kqb08`)). Mail leaves the browser and recovery becomes a
 **typed code** (SCOPE-DECISIONS §2.3). New under `packages/server/src/`: **`mail/`** —
 `SmtpMailer` (nodemailer; mailpit in dev, SES/Brevo/Resend in production, all over one
@@ -1269,6 +1299,57 @@ z. **Transactional mail is sent after the response, not during it (Phase 5).**
    prototype's own "best-effort, never blocks" rule, kept. The cost is that a
    send in flight when the process dies is lost; `installShutdownHandlers` drains
    before closing the pool, and a customer can always ask for another code.
+
+aa. **The port asks for the plaintext, and says so (BACKEND-PLAN §4-A, Phase 6).**
+   `setStaffPassword(id, passwordHash)` and `CreateStaffInput.passwordHash` were
+   the most dangerous names in the codebase: no caller ever passed a hash, and a
+   store that had written what the name described would have made the stored
+   digest a working credential for anyone who could read the database. Both are
+   now `password`. Nothing about the behaviour changed — Phases 2 and 3 already
+   hashed server-side with argon2id and verified rather than compared — the
+   signature simply stopped lying. `setStaffPin` was always honest.
+
+ab. **`getStaffByPin` and `redeemReward` are off the port entirely (Phase 6).**
+   Both were previously implemented-but-forbidden: `PostgresStore` had to carry
+   them because the port demanded them, and `routes/guardrails.test.ts` kept
+   callers away. The port no longer demands them, so the methods are gone. For
+   `getStaffByPin` that upgrades divergence **p** from "a global PIN search must
+   never get a route" to "there is no global PIN search"; the guardrail now fails
+   if the identifier appears anywhere in the server at all. `redeemReward` was
+   the pre-rework redeem path, already refused by migration 001's ledger
+   vocabulary. **The SPA consequence is real:** `StaffService.loginWithPin` and
+   `LoyaltyService.redeem` no longer compile — see `UI-RECONCILIATION.md` S1.
+
+ac. **`DataStore` is what a client may ask for; `TrustedStore` is the rest
+   (BACKEND-PLAN §4-C, Phase 6).** `appendAudit` takes a client-supplied actor
+   and action, and the recovery-code methods take the customer whose codes are
+   being played against — both are safe as in-process calls and hand a client
+   exactly what the design withholds. They now live on `TrustedStore extends
+   DataStore`, which `PostgresStore` implements and `AuthDeps.store` requires,
+   so a client-side adapter cannot express them. The recovery pair also took the
+   **scoped** shape (`createRecoveryCode(customerId)` →
+   `consumeRecoveryCode(customerId, code)` → `recordFailedRecoveryAttempt`),
+   which divergence **x** described as living only in `recovery/codes.ts`; the
+   store delegates to that module, so there is one implementation rather than
+   two. `POST /audit` still answers 204 and writes nothing, for the older client
+   that calls it. **SPA consequence:** `AuditService.log` and both
+   `RecoveryService` paths no longer compile.
+
+ad. **`CommitResult` says whether it was replayed, and `Snapshot` carries rewards
+   (Phase 6).** Two carried workarounds, both deleted. The commit route used to
+   answer "is this a retry?" by reading `idempotency_keys` itself
+   (`isCommitReplay`), because the port could not say — two simultaneous retries
+   could both read "fresh" and write the audit rows twice. `CommitResult.ok` now
+   carries `replayed`, stamped on the way out of the store's own cache read, and
+   a guardrail keeps any second reader off that table. Separately `Snapshot`
+   gained `rewards` and `rewardEvents` (version **6 → 7**): it predated
+   rewards-as-objects, so a restore brought back the ledger and silently dropped
+   every materialized reward. **Recovery codes are still not in a snapshot, and
+   that part is a decision, not the same gap** — they expire fifteen minutes
+   after they are issued, so every code in a restorable file is long dead, and
+   carrying credential hashes in a file that travels to laptops is the thing
+   `publicStaff` already blanks digests to avoid. A version-6 file still imports,
+   minus those tables, rather than being refused.
 
 ## Pointers
 

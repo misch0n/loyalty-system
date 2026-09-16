@@ -9,12 +9,15 @@
  * log only if the snapshot contains it, which it will not, so the row is
  * written first and the operator's own trail records the attempt.
  *
- * Known gap, carried from Phase 2 rather than fixed here: `Snapshot` does not
- * carry rewards, reward events or recovery codes (BACKEND-PLAN §3-A-6). A
- * restore therefore loses materialized rewards. Widening `Snapshot` changes a
- * shared domain type, which Phases 0–9 may not do; Phase 10 or 11 is where it
- * belongs. Until then this is a **config-and-ledger** backup, not a full one,
- * and that is what the route's name should be read as promising.
+ * Phase 6 closed the gap this file used to carry: `Snapshot` now includes
+ * rewards and their event log (BACKEND-PLAN §3-A-6), so a restore no longer
+ * quietly drops the free coffee a customer was owed. Recovery codes are still
+ * absent, and that one is a decision rather than a gap — see {@link Snapshot}.
+ *
+ * It remains a backup that **cannot restore sign-in**: `publicStaff` blanks the
+ * credential digests on the way out, so an operator restoring sets passwords
+ * afterwards. Phase 8's scheduled backup should use `pg_dump`, which has no such
+ * hole; this pair is for an operator moving data by hand.
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -26,6 +29,9 @@ import { publicStaff, requireActor } from './shared';
 const IMPORT_SCHEMA = {
   body: {
     type: 'object',
+    // `rewards`/`rewardEvents` are NOT required: a version-6 file predates them
+    // and restores as it always did (minus those tables) rather than being
+    // refused. `importAll` treats an absent array as empty.
     required: ['version', 'config', 'staff', 'customers', 'transactions', 'audit'],
     properties: {
       version: { type: 'integer', minimum: 1 },
@@ -34,6 +40,8 @@ const IMPORT_SCHEMA = {
       staff: { type: 'array' },
       customers: { type: 'array' },
       transactions: { type: 'array' },
+      rewards: { type: 'array' },
+      rewardEvents: { type: 'array' },
       audit: { type: 'array' },
     },
   },

@@ -241,7 +241,23 @@ export interface AuditLogEntry {
   timestamp: string;
 }
 
-/** Full data snapshot for prototype JSON export/import. */
+/**
+ * Full data snapshot for JSON export/import.
+ *
+ * `rewards` and `rewardEvents` were missing until Phase 6 (BACKEND-PLAN §3-A-6):
+ * the snapshot predated rewards-as-objects, so a restore silently dropped every
+ * materialized reward — a customer with a free coffee owing came back without
+ * it. They are carried now, and `rewardEvents` is the load-bearing half, being
+ * the append-only source of truth a reward's `status` is derived from.
+ *
+ * **Recovery codes are deliberately NOT here**, and that is the one part of
+ * §3-A-6 left unfixed on purpose. They are credentials with a fifteen-minute
+ * expiry: by the time any snapshot is restored every code in it is long dead, so
+ * carrying them adds nothing a restore can use and puts credential hashes in a
+ * file that travels to laptops and cloud drives — the same reason the export
+ * blanks staff password digests (BACKEND-PLAN, Phase 4 as-built). A customer
+ * mid-recovery across a restore asks for a new code.
+ */
 export interface Snapshot {
   version: number;
   exportedAt: string;
@@ -249,5 +265,7 @@ export interface Snapshot {
   staff: StaffAccount[];
   customers: Customer[];
   transactions: LoyaltyTransaction[];
+  rewards: Reward[];
+  rewardEvents: RewardEvent[];
   audit: AuditLogEntry[];
 }

@@ -10,7 +10,6 @@ import type { CustomerPatch, DataStore } from '../ports/DataStore';
 import type { Mailer } from '../ports/Mailer';
 import type { RegistrationDetails } from '../ports/Transport';
 import { generateToken, isValidToken } from '../domain/tokens';
-import { PRESET_CARD_TOKENS } from '../wallet/passes';
 import { appUrl } from '../config/links';
 import {
   findDuplicates,
@@ -67,19 +66,13 @@ export class CustomerService {
    * consent are filled in later via `finalizeRegistration`.
    */
   async issueCard(actor: Actor): Promise<Customer> {
-    const customer = await this.store.createCustomer({ token: await this.nextCardToken() });
+    // Every card gets a random token. The first three used to get fixed preset
+    // ones so the pre-generated wallet passes resolved to them; the triage
+    // dropped wallet (SCOPE-DECISIONS §1) and Phase 6 deleted the presets with
+    // it, which also removes the one place a card's identity was predictable.
+    const customer = await this.store.createCustomer({ token: generateToken() });
     await this.audit.log(actor, 'card.issue', customer.id);
     return customer;
-  }
-
-  /**
-   * Prototype-only: the first three cards in a store get fixed preset tokens so
-   * the pre-generated wallet passes resolve to them (see wallet/passes.ts);
-   * everything after is a normal random token.
-   */
-  private async nextCardToken(): Promise<string> {
-    const count = await this.store.countActiveCustomers();
-    return count < PRESET_CARD_TOKENS.length ? PRESET_CARD_TOKENS[count] : generateToken();
   }
 
   /**

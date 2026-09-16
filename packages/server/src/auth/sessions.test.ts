@@ -44,7 +44,7 @@ beforeEach(async () => {
 async function makeStaff(over: { role?: 'admin' | 'staff'; pin?: string } = {}) {
   return store.createStaff({
     username: `staff-${Math.random().toString(36).slice(2, 8)}`,
-    passwordHash: 'correct horse',
+    password: 'correct horse',
     role: over.role ?? 'staff',
     name: 'On Shift',
     pin: over.pin,

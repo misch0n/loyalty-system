@@ -1,13 +1,12 @@
 /**
- * `PostgresStore` — the production `DataStore` implementation.
+ * `PostgresStore` — the one store.
  *
- * Same 33-method contract as `IndexedDbStore`, same signatures, same observable
- * behaviour; both are held to it by one shared conformance suite
- * (`tests/conformance/dataStoreConformance.ts`). If both pass, the
- * composition-root swap in Phase 6 is provably safe — that is the whole point of
- * the ports architecture, made checkable.
+ * Phase 6 retired `IndexedDbStore`, so this is no longer "the production half of
+ * a pair": it is the implementation, and
+ * `tests/conformance/dataStoreConformance.ts` — written to prove two stores
+ * agreed — is now simply its specification.
  *
- * What Postgres adds over IndexedDB is integrity the browser could not give us:
+ * What Postgres gave us over IndexedDB is integrity the browser could not:
  * unique short codes and emails among *active* cards, foreign keys, append-only
  * triggers, and — the one that matters most — a real row lock.
  * `commitCounterTransaction` takes `SELECT … FOR UPDATE` on the customer row, so
@@ -17,18 +16,21 @@
  * Deliberately thin: hand-written SQL, no ORM (BACKEND-PLAN §2). The commit is
  * the one piece of logic that has to be *obvious*.
  *
- * Deliberate divergences from the prototype adapter, each load-bearing rather
- * than incidental:
+ * Deliberate behaviours, each load-bearing rather than incidental:
  *   • **Credentials are hashed here** (argon2id), never stored as given —
- *     BACKEND-PLAN §4-A. The port's `passwordHash`/`pin` parameters carry a
- *     plaintext credential in a server-backed build; whatever the client sends
- *     *is* the credential, so hashing it is the store's job, not the caller's.
+ *     BACKEND-PLAN §4-A. The port's `password`/`pin` parameters carry the
+ *     plaintext; whatever the client sends *is* the credential, so hashing it is
+ *     the store's job, not the caller's. (Phase 6 renamed those parameters: they
+ *     used to say `passwordHash`, and no caller ever passed a hash.)
  *   • **`softDeleteCustomer` erases the token and short code too**
  *     (SCOPE-DECISIONS §3.3) — the dead token can never be scanned again, and
  *     the email is freed for re-registration.
  *   • **A tombstone cannot be committed against.** A deleted card is not a
  *     customer; it keeps its history and gains none.
- *   • **`redeemReward` is refused.** See the method.
+ *
+ * It implements {@link TrustedStore}, not just `DataStore`: appending audit rows
+ * and issuing recovery codes are in-process capabilities no client-side adapter
+ * may hold, and since Phase 6 the type says so rather than a guardrail test.
  */
 
 import type {
@@ -38,13 +40,11 @@ import type {
   CommitResult,
   CounterTransaction,
   CreateCustomerInput,
-  CreateRecoveryCodeInput,
   CreateStaffInput,
   CustomerPatch,
   CustomerQuery,
-  DataStore,
-  RedeemResult,
   RejectedRedemption,
+  TrustedStore,
 } from '@cafe/shared/ports/DataStore';
 import type {
   AuditLogEntry,
@@ -53,6 +53,7 @@ import type {
   LoyaltyTransaction,
   ProgramConfig,
   Reward,
+  RewardEvent,
   RewardStatus,
   Snapshot,
   StaffAccount,
@@ -68,8 +69,8 @@ import { cardProgress, isOverCap, mintFold, validateRedemption } from '@cafe/sha
 import { normalizeEmail, normalizePhone } from '@cafe/shared/domain/validation';
 import type { Db, Queryable } from './db';
 import { withTransaction } from './db';
-import { hashSecret, verifySecret } from './hashing';
-import { hashRecoveryCode } from './recovery/codes';
+import { hashSecret } from './hashing';
+import { consumeRecoveryCode, issueRecoveryCode, recordFailedAttempt } from './recovery/codes';
 
 // ── row shapes ────────────────────────────────────────────────────────────────
 
@@ -108,6 +109,16 @@ interface RewardRow {
   description_snapshot: string;
   spent_at: Date | null;
   spent_by_staff_id: string | null;
+}
+
+interface RewardEventRow {
+  id: string;
+  reward_id: string;
+  type: RewardEvent['type'];
+  customer_id: string;
+  staff_id: string | null;
+  timestamp: Date;
+  details: Record<string, string> | null;
 }
 
 interface StaffRow {
@@ -151,6 +162,7 @@ const TRANSACTION_COLUMNS =
   'id, customer_id, type, points, staff_id, timestamp, note, reverses_transaction_id, reward_id';
 const REWARD_COLUMNS =
   'id, token, short_code, owner_id, status, issued_at, source_txn_id, description_snapshot, spent_at, spent_by_staff_id';
+const REWARD_EVENT_COLUMNS = 'id, reward_id, type, customer_id, staff_id, timestamp, details';
 const STAFF_COLUMNS = 'id, username, name, password_hash, pin_hash, role, active, created_at';
 const AUDIT_COLUMNS = 'id, actor_id, actor_role, action, target_id, details, timestamp';
 const CONFIG_COLUMNS = `points_per_reward, reward_description, points_per_purchase,
@@ -158,11 +170,14 @@ const CONFIG_COLUMNS = `points_per_reward, reward_description, points_per_purcha
   self_deal_window_sec, self_deal_count, repeat_count, repeat_window_min`;
 
 /**
- * Snapshot format version. It describes the JSON shape, not the database schema,
- * so it tracks the prototype's `DB_VERSION` rather than the migration count —
- * a snapshot taken from either store must import into the other.
+ * Snapshot format version. It describes the JSON shape, not the database schema.
+ *
+ * Bumped to 7 in Phase 6, when `Snapshot` gained `rewards` and `rewardEvents`
+ * (BACKEND-PLAN §3-A-6). A version-6 file is a config-and-ledger backup that
+ * silently lost every materialized reward; a reader that meets one should know
+ * it is looking at an incomplete restore, which is what the number is for.
  */
-const SNAPSHOT_VERSION = 6;
+const SNAPSHOT_VERSION = 7;
 
 /** Postgres unique-violation. */
 const UNIQUE_VIOLATION = '23505';
@@ -244,6 +259,18 @@ function toReward(row: RewardRow): Reward {
   };
 }
 
+function toRewardEvent(row: RewardEventRow): RewardEvent {
+  return {
+    id: row.id,
+    rewardId: row.reward_id,
+    type: row.type,
+    customerId: row.customer_id,
+    staffId: opt(row.staff_id),
+    timestamp: row.timestamp.toISOString(),
+    details: opt(row.details),
+  };
+}
+
 function toStaff(row: StaffRow): StaffAccount {
   return {
     id: row.id,
@@ -304,7 +331,7 @@ const CONFIG_FIELD_COLUMNS: Record<keyof ProgramConfig, string> = {
 
 // ── the store ─────────────────────────────────────────────────────────────────
 
-export class PostgresStore implements DataStore {
+export class PostgresStore implements TrustedStore {
   constructor(private readonly db: Db) {}
 
   private now(): string {
@@ -492,23 +519,6 @@ export class PostgresStore implements DataStore {
     return rows.map(toTransaction);
   }
 
-  /**
-   * RETIRED. The pre-rework redeem path wrote a `'redemption'` ledger entry; the
-   * rewards-as-objects rework replaced it with `commitCounterTransaction`, and
-   * migration 001 deliberately narrows the ledger's type vocabulary so the
-   * database refuses one outright.
-   *
-   * Refusing loudly is the honest implementation: silently returning `ok: false`
-   * would read as "not enough points" and hide a caller still on the dead path.
-   * The port signature (and this method) goes in Phase 11 with the rest of the
-   * transitional surface; no UI or route reaches it today.
-   */
-  async redeemReward(_customerId: string, _staffId: string): Promise<RedeemResult> {
-    throw new Error(
-      'redeemReward is retired — use commitCounterTransaction (rewards-as-objects).',
-    );
-  }
-
   // ── rewards-as-objects (the unified, atomic commit) ─────────────────────────
 
   /**
@@ -633,7 +643,7 @@ export class PostgresStore implements DataStore {
       await this.readTransactions(tx, txn.customerId),
       await this.readRewards(tx, txn.customerId),
     );
-    const result: CommitResult = { ok: true, state, minted, redeemed, rejected };
+    const result: CommitResult = { ok: true, state, minted, redeemed, rejected, replayed: false };
 
     const inserted = await tx.query(
       'INSERT INTO idempotency_keys (key, result) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING',
@@ -644,13 +654,25 @@ export class PostgresStore implements DataStore {
     return result;
   }
 
+  /**
+   * The cached result for an idempotency key, or null if this key is new.
+   *
+   * `replayed` is stamped on the way *out* rather than stored, so the cached
+   * JSON is exactly what the first caller was told and every later caller is
+   * told the same thing plus "this already happened". The route needs that
+   * because the work it does *around* the commit — the audit rows, the
+   * reward-available mail — is not idempotent on its own, and a retry must do
+   * neither (BACKEND-PLAN §4-C). Before Phase 6 it read `idempotency_keys`
+   * itself to find out, because `CommitResult` could not say.
+   */
   private async readCommitResult(db: Queryable, key: string): Promise<CommitResult | null> {
     const { rows } = await db.query<{ result: CommitResult }>(
       'SELECT result FROM idempotency_keys WHERE key = $1',
       [key],
     );
     const row = rows[0];
-    return row ? row.result : null;
+    if (!row) return null;
+    return row.result.ok ? { ...row.result, replayed: true } : row.result;
   }
 
   /**
@@ -787,14 +809,14 @@ export class PostgresStore implements DataStore {
   // ── staff & config ──────────────────────────────────────────────────────────
 
   /**
-   * BACKEND-PLAN §4-A: the `passwordHash`/`pin` inputs carry a **plaintext**
-   * credential in a server-backed build — whatever reaches the server is the
-   * secret, whatever it is called — so they are hashed here with argon2id and
-   * the plaintext is never stored.
+   * BACKEND-PLAN §4-A: `password` and `pin` are **plaintext** — whatever reaches
+   * the server is the secret — so they are hashed here with argon2id and the
+   * plaintext is never stored. The input field was called `passwordHash` until
+   * Phase 6, which is the same fact told as a lie.
    */
   async createStaff(input: CreateStaffInput): Promise<StaffAccount> {
     const [passwordHash, pinHash] = await Promise.all([
-      hashSecret(input.passwordHash),
+      hashSecret(input.password),
       input.pin ? hashSecret(input.pin) : Promise.resolve(null),
     ]);
     const { rows } = await this.db.query<StaffRow>(
@@ -815,37 +837,19 @@ export class PostgresStore implements DataStore {
     return row ? toStaff(row) : null;
   }
 
-  /**
-   * Find the single active account whose PIN matches.
-   *
-   * A hashed PIN cannot be looked up by value, so this verifies against each
-   * active account that has one — fine for a café's handful of accounts, and the
-   * same answer the prototype gives.
-   *
-   * BACKEND-PLAN §4-B: this must **never** become a route. Over HTTP a global
-   * "which account has this PIN?" search is an unauthenticated credential oracle,
-   * brute-forceable across the whole staff table at four digits. Phase 3 exposes
-   * PIN re-auth only as "verify this PIN for the account this device's session
-   * already identifies", rate-limited and locked out.
-   */
-  async getStaffByPin(pin: string): Promise<StaffAccount | null> {
-    if (!pin) return null;
-    const { rows } = await this.db.query<StaffRow>(
-      `SELECT ${STAFF_COLUMNS} FROM staff_accounts
-        WHERE active AND pin_hash IS NOT NULL ORDER BY created_at, id`,
-    );
-    for (const row of rows) {
-      if (row.pin_hash && (await verifySecret(row.pin_hash, pin))) return toStaff(row);
-    }
-    return null;
-  }
+  // `getStaffByPin` is deliberately absent, and Phase 6 took it off the port
+  // rather than leaving it implemented with a guardrail test warning nobody to
+  // call it. A global "which account has this PIN?" search is an unauthenticated
+  // credential oracle over HTTP, brute-forceable across the whole staff table at
+  // four digits (BACKEND-PLAN §4-B). PIN re-auth is `POST /auth/unlock`, which
+  // verifies a PIN against the account this device's session already names.
 
   async setStaffActive(id: string, active: boolean): Promise<void> {
     await this.updateStaff(id, 'active = $2', [active]);
   }
 
-  async setStaffPassword(id: string, passwordHash: string): Promise<void> {
-    await this.updateStaff(id, 'password_hash = $2', [await hashSecret(passwordHash)]);
+  async setStaffPassword(id: string, password: string): Promise<void> {
+    await this.updateStaff(id, 'password_hash = $2', [await hashSecret(password)]);
   }
 
   async setStaffPin(id: string, pin: string): Promise<void> {
@@ -907,41 +911,30 @@ export class PostgresStore implements DataStore {
   // ── recovery codes (single-use, short-expiry) ───────────────────────────────
 
   /**
-   * Codes are hashed at rest (SCOPE-DECISIONS §2.3) — a stolen database must not
-   * hand over live recovery codes. The hash is {@link hashRecoveryCode}, shared
-   * with `recovery/codes.ts` so the two can never disagree about what is stored.
+   * The recovery trio, all three delegating to `recovery/codes.ts` — which is
+   * where the reasoning lives, and where it always was.
    *
-   * **This pair is the prototype's shape and has no route** (Phase 5). The
-   * prototype's code is a 128-bit token, so "consume whatever code this is"
-   * carries its own security; the server's code is six typed characters, and the
-   * same call over HTTP would be the recovery twin of §4-B's global PIN lookup.
-   * `recovery/codes.ts` inverts it to "verify this code for the address that
-   * asked", and these two keep working for the prototype, held to its answer by
-   * the conformance suite.
+   * Until Phase 6 there were two implementations: the port's prototype-shaped
+   * pair here (`consumeRecoveryCode(code)` — a lookup by value across the whole
+   * table) and the scoped one in `recovery/codes.ts` that the routes actually
+   * use, with a guardrail test forbidding anything from calling the first. The
+   * port now carries the scoped shape, so there is one implementation and the
+   * guardrail has nothing left to forbid: the signature itself refuses to look a
+   * code up without naming whose it is.
+   *
+   * These are on {@link TrustedStore}, not `DataStore`: a client that could name
+   * the customer could name someone else's.
    */
-  async createRecoveryCode(input: CreateRecoveryCodeInput): Promise<void> {
-    await this.db.query(
-      `INSERT INTO recovery_codes (id, code_hash, customer_id, expires_at)
-       VALUES ($1, $2, $3, to_timestamp($4 / 1000.0))`,
-      [generateId(), hashRecoveryCode(input.code), input.customerId, input.expiresAt],
-    );
+  async createRecoveryCode(customerId: string): Promise<string> {
+    return issueRecoveryCode(this.db, customerId, () => Date.parse(this.now()));
   }
 
-  /**
-   * Validate and consume in ONE statement: the `used_at IS NULL` predicate and
-   * the write happen under the same row lock, so two simultaneous consumes of
-   * the same code cannot both succeed. Single-use is enforced, not just checked.
-   */
-  async consumeRecoveryCode(code: string): Promise<string | null> {
-    if (!code) return null;
-    const { rows } = await this.db.query<{ customer_id: string }>(
-      `UPDATE recovery_codes SET used_at = now()
-        WHERE code_hash = $1 AND used_at IS NULL AND expires_at > now()
-        RETURNING customer_id`,
-      [hashRecoveryCode(code)],
-    );
-    const row = rows[0];
-    return row ? row.customer_id : null;
+  async consumeRecoveryCode(customerId: string, code: string): Promise<boolean> {
+    return consumeRecoveryCode(this.db, customerId, code);
+  }
+
+  async recordFailedRecoveryAttempt(customerId: string): Promise<void> {
+    await recordFailedAttempt(this.db, customerId);
   }
 
   // ── audit ───────────────────────────────────────────────────────────────────
@@ -1035,8 +1028,20 @@ export class PostgresStore implements DataStore {
 
   // ── backup/restore ──────────────────────────────────────────────────────────
 
+  /**
+   * Everything a restore needs, as JSON.
+   *
+   * `rewards` and `rewardEvents` are here since Phase 6 (BACKEND-PLAN §3-A-6):
+   * without them a restore brought back the ledger and silently dropped the free
+   * coffee a customer was owed. `recoveryCodes` is *not*, and that is a decision
+   * rather than the same gap left open — see {@link Snapshot}.
+   *
+   * Credentials are blanked by the route, not here, because an in-process caller
+   * restoring a database wants the digests and a file on someone's laptop must
+   * not carry them.
+   */
   async exportAll(): Promise<Snapshot> {
-    const [config, staff, customers, transactions, audit] = await Promise.all([
+    const [config, staff, customers, transactions, rewards, rewardEvents, audit] = await Promise.all([
       this.getConfig(),
       this.listStaff(),
       this.db
@@ -1044,20 +1049,41 @@ export class PostgresStore implements DataStore {
         .then((r) => r.rows.map(toCustomer)),
       this.listAllTransactions(),
       this.db
+        .query<RewardRow>(`SELECT ${REWARD_COLUMNS} FROM rewards ORDER BY issued_at, id`)
+        .then((r) => r.rows.map(toReward)),
+      this.db
+        .query<RewardEventRow>(
+          `SELECT ${REWARD_EVENT_COLUMNS} FROM reward_events ORDER BY timestamp, id`,
+        )
+        .then((r) => r.rows.map(toRewardEvent)),
+      this.db
         .query<AuditRow>(`SELECT ${AUDIT_COLUMNS} FROM audit_log ORDER BY timestamp, id`)
         .then((r) => r.rows.map(toAudit)),
     ]);
-    return { version: SNAPSHOT_VERSION, exportedAt: this.now(), config, staff, customers, transactions, audit };
+    return {
+      version: SNAPSHOT_VERSION,
+      exportedAt: this.now(),
+      config,
+      staff,
+      customers,
+      transactions,
+      rewards,
+      rewardEvents,
+      audit,
+    };
   }
 
   /**
    * Replace everything with the snapshot's contents.
    *
-   * `Snapshot` predates rewards-as-objects and carries no rewards, reward events
-   * or recovery codes, so — exactly as the prototype adapter does — those tables
-   * are cleared rather than left pointing at customers that no longer exist. The
-   * gap itself is a known one (BACKEND-PLAN §3-A-6); widening `Snapshot` changes
-   * a shared domain type and belongs with the export/import routes, not here.
+   * Rewards and their event log are restored since Phase 6. Recovery codes are
+   * not carried by a snapshot and so are simply cleared — every code in a file
+   * old enough to be restored expired long before (see {@link Snapshot}), along
+   * with sessions and the idempotency cache, which are live state rather than
+   * data.
+   *
+   * A pre-Phase-6 (version 6) file has no `rewards`/`rewardEvents` at all; it
+   * restores as it always did, minus those tables, rather than being refused.
    *
    * TRUNCATE rather than DELETE is what makes this possible at all: the
    * append-only triggers on the ledger and audit log reject row deletes, and
@@ -1142,6 +1168,34 @@ export class PostgresStore implements DataStore {
             t.reversesTransactionId ?? null,
             t.rewardId ?? null,
           ],
+        );
+      }
+
+      // Rewards before their events: `reward_events.reward_id` is an FK.
+      for (const r of snapshot.rewards ?? []) {
+        await tx.query(
+          `INSERT INTO rewards (${REWARD_COLUMNS})
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [
+            r.id,
+            r.token,
+            r.shortCode,
+            r.ownerId,
+            r.status,
+            r.issuedAt,
+            r.sourceTxnId,
+            r.descriptionSnapshot,
+            r.spentAt ?? null,
+            r.spentByStaffId ?? null,
+          ],
+        );
+      }
+
+      for (const e of snapshot.rewardEvents ?? []) {
+        await tx.query(
+          `INSERT INTO reward_events (${REWARD_EVENT_COLUMNS})
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [e.id, e.rewardId, e.type, e.customerId, e.staffId ?? null, e.timestamp, e.details ?? null],
         );
       }
 

@@ -17,7 +17,7 @@
  */
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { DataStore } from '@cafe/shared/ports/DataStore';
+import type { TrustedStore } from '@cafe/shared/ports/DataStore';
 import type { Mailer } from '@cafe/shared/ports/Mailer';
 import { BackgroundWork } from '../background';
 import type { Db } from '../db';
@@ -51,7 +51,13 @@ const UNAUTHENTICATED_PATHS = new Set(['/healthz', '/readyz']);
 
 export interface AuthDeps {
   db: Db;
-  store: DataStore;
+  /**
+   * {@link TrustedStore}, not `DataStore`: the routes write their own audit rows
+   * and issue recovery codes, and Phase 6 moved both off the client-facing
+   * interface (BACKEND-PLAN §4-C). The stronger type is what makes "only the
+   * server may do this" a compile error rather than a guardrail grep.
+   */
+  store: TrustedStore;
   sessions: SessionStore;
   /** `Secure` on the cookies. Off only for plain-HTTP local development. */
   cookieSecure: boolean;
@@ -108,7 +114,7 @@ export interface AuthDeps {
 
 export interface CreateAuthDepsInput {
   db: Db;
-  store: DataStore;
+  store: TrustedStore;
   cookieSecure: boolean;
   allowedOrigins?: readonly string[];
   /** Injectable clock — sessions and limiters share it, so tests move one dial. */

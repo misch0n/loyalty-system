@@ -45,7 +45,7 @@ context cleared between tasks.
 3. Find the first **unchecked** box in the *Progress checklist* (§1) — that's the next task.
 4. Do **only that phase**. Stay within its file list. Honour the architecture rules in
    [`../CLAUDE.md`](../CLAUDE.md), as amended by SCOPE-DECISIONS §5 and §6.
-5. Before committing, the gate is **`npm test -w @cafe/server`** (**389** as of Phase 5) plus
+5. Before committing, the gate is **`npm test -w @cafe/server`** (**390** as of Phase 6) plus
    **`npx tsc --noEmit -p packages/server/tsconfig.json`** — the server suite does *not*
    typecheck itself, and that second command is the server's `build` script.
    **Root `npm test` / `npm run build` are no longer a gate** and are expected to be red from
@@ -69,7 +69,7 @@ place.
 
 **Running the server tests.** The suite **requires** a real Postgres and fails without one:
 `packages/server/src/testing/globalSetup.ts` checks reachability once per run and aborts with
-setup instructions, so there is no way to get a green tick without a database. Most of the 389
+setup instructions, so there is no way to get a green tick without a database. Most of the 390
 tests are database-backed. Point the suite somewhere with `TEST_DATABASE_URL` (default
 `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`). Until the Compose bundle lands in
 Phase 8, a local server does the job:
@@ -81,13 +81,15 @@ su postgres -c "/usr/lib/postgresql/16/bin/initdb -D $PGDATA -A trust"
 su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D $PGDATA -l /tmp/pg.log -w start"
 su postgres -c "psql -h localhost -c \"CREATE ROLE cafe LOGIN PASSWORD 'cafe' SUPERUSER;\""
 su postgres -c "psql -h localhost -c 'CREATE DATABASE cafe_loyalty_test OWNER cafe;'"
-npm test -w @cafe/server                             # expect: 389 passed, 0 skipped
+npm test -w @cafe/server                             # expect: 390 passed, 0 skipped
 ```
 
 **Do not reintroduce a skip.** The conformance harness has no `skip` option, and the database
 check lives in the Vitest config rather than in a `skipIf` per file — so a new database-backed
-test cannot opt out by accident. A suite whose entire purpose is proving `PostgresStore` behaves
-like `IndexedDbStore` is worthless skipped, and worse than worthless when the skip reports green.
+test cannot opt out by accident. A skipped conformance run proves nothing while still reporting
+green, which is worse than not running it at all. (It was written to prove `PostgresStore` and
+`IndexedDbStore` behaved alike; Phase 6 deleted the second store, and the suite survives as
+`PostgresStore`'s own specification — see its header.)
 
 **Scope.** The maintainer's feature triage (2026-09-02) is recorded in
 [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) and **supersedes this plan wherever they differ** —
@@ -106,13 +108,17 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 
 ## 1 · Progress checklist
 
-> **NEXT TASK: Phase 6** — retire the prototype, reshape the shared port. **Read the
-> revoked-promise box at the top of this file first**; Phase 6 does not exist in the plan as it
-> was written before 2026-09-16, and it is the phase that takes the SPA red.
-> Phase 5 landed 2026-09-16: mail left the browser (`SmtpMailer` / `LogMailer`, templates in the
-> repo), recovery became a typed code over two public routes, and the welcome + reward-available
-> mails moved to the routes that know they happened. **389 server tests** (was 315); the SPA's
-> **461** still pass at the moment Phase 6 begins, and will not afterwards.
+> **NEXT TASK: Phase 10** — the monorepo flip. `src/domain` + `src/ports` → `packages/shared/src`,
+> what remains of `src/` → `packages/web/src`, and the `@cafe/shared/*` alias stops being an alias.
+> A pure move, no logic change — and a much smaller one than it was, because Phase 6 deleted most
+> of what `src/` contained. It is also the moment the server can stop running on `tsx` and `build`
+> can emit (Phases 0–1 as built). **Read the revoked-promise box at the top of this file first.**
+>
+> Phase 6 landed 2026-09-16: the prototype adapters are deleted and the shared port is reshaped
+> around the server. **390 server tests** (was 389), server `tsc` green. **The SPA is now red, on
+> purpose** — 9 of its 53 test files fail to load and `tsc -b` fails, which is the outcome the
+> 2026-09-16 decision chose. Do not chase it. **The gate from here is `npm test -w @cafe/server`
+> plus `npx tsc --noEmit -p packages/server/tsconfig.json`, and nothing else**, until the UI pass.
 >
 > **The server suite needs a real Postgres and FAILS without one** — it does not skip. Most of
 > its tests are database-backed, and before Phase 2 they skipped themselves when no database was
@@ -120,28 +126,14 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 > having tested nothing. It now aborts in `globalSetup` with the commands to start one. See §0
 > *Running the server tests*.
 >
-> Read §5 Phase 6 and the decisions Phases 1–5 recorded at the foot of §5 before starting. The
-> four calls the *old* Phase 6 inherited (the two services that cannot survive the swap, the
-> `NoopMailer` wiring, the recovery port pair, the offline posture) are **not Phase 6's any
-> more** — they are UI-pass work and have moved into
-> [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md), where the maintainer confirms them. Phase 6
-> inherits these instead:
-> - **Deleting is the easy half; reshaping the port is the phase.** §4's six contract problems
->   were each solved *server-side so the port would not have to change*. That constraint is gone,
->   so re-read §4 and take the honest fix where one exists — `setStaffPassword(id, passwordHash)`
->   should not claim to take a hash, `getStaffByPin` and `redeemReward` should leave the port, the
->   recovery pair should take its scoped shape, and `CommitResult` should carry `replayed` so
->   `routes/shared.ts` can stop reading `idempotency_keys` behind the store's back.
-> - **The conformance suite loses one of its two stores and should not be deleted with it.** Its
->   41 tests are real port behaviour and become `PostgresStore`'s specification. What it stops
->   being is a *cross-store* contract — say so in the file, or the next reader will think the
->   second store went missing by accident.
-> - **`Snapshot` is still missing rewards, reward events and recovery codes** (§3-A-6). It was
->   carried rather than fixed because widening it changes a shared domain type. That is now
->   allowed; fix it, and note that `/export` remains a config-and-ledger backup until you do.
-> - **Deleting the Pages deploy leaves the SPA with no host until Phase 8** serves it from nginx.
->   That is the same knowing gap as the red build, not a separate problem — but `.github/workflows`
->   should not be left pointing at a deploy that cannot work.
+> Read §5 Phase 10 and the decisions Phases 1–6 recorded at the foot of §5 before starting.
+> Phase 10 inherits two things:
+> - **`domain/` is now compiled by a stricter compiler than the SPA's.** Phase 4 had to make
+>   `src/domain/alerts.ts` index-safe for `noUncheckedIndexedAccess`. Giving `packages/shared` one
+>   tsconfig is what ends that mismatch for good — it is the phase's quiet win, not a side effect.
+> - **The SPA half of the move lands broken and stays broken.** `packages/web/src` will not
+>   compile when the move finishes, for the reasons §5 Phase 6 lists. Move it anyway; the UI pass
+>   works on it where it lands, not where it used to be.
 >
 > **A live gap Phase 4 found and did not fix, for whoever reaches Phase 8:** `bootstrap.ts` is
 > built and tested but **nothing calls it**. `index.ts` does not (a long-running API should not
@@ -167,7 +159,7 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 - [x] **Phase 3** — Auth: password/PIN hashing, sessions, epoch revocation, rate limits
 - [x] **Phase 4** — HTTP API surface + the authorization boundary
 - [x] **Phase 5** — Server-side `Mailer` + recovery flow
-- [ ] **Phase 6** — **Retire the prototype + reshape the shared port**  ⟵ the SPA goes red here
+- [x] **Phase 6** — **Retire the prototype + reshape the shared port**  ⟵ the SPA went red here
 - [ ] **Phase 10** — Monorepo flip (`packages/shared` + `packages/web`) — pulled forward
 - [ ] **Phase 7** — Realtime push (SSE) — replaces what device pairing provided
 - [ ] **Phase 8** — Docker Compose bundle + ops (backups, health, logging)
@@ -321,17 +313,18 @@ APNs, Google REST), the server registration handoff, and bounded stats reads. Th
 
 ---
 
-## 4 · Contract problems (resolved at the boundary in Phases 3–5; **revisit in Phase 6**)
+## 4 · Contract problems (resolved at the boundary in Phases 3–5; **resolved in the port in Phase 6**)
 
 A `DataStore` method is a **trusted, in-process call** in the prototype and becomes an
 **untrusted, cross-network call** over HTTP. Six of them are unsafe as literally specified.
 
 **Read this section twice.** Every fix below was taken *server-side, at the route boundary*, for
-one reason that no longer holds: `ports/DataStore.ts` was off limits, so a signature had to
-survive even where it was actively misleading about what it does. Since 2026-09-16 the port is
-editable, and most of these deserve the honest fix — that is Phase 6's work, listed in §5. The
-boundary defence stays in place regardless: a correct signature is not a substitute for a guard,
-and the guards are what the authorization matrix tests.
+one reason that stopped holding on 2026-09-16: `ports/DataStore.ts` was off limits, so a signature
+had to survive even where it was actively misleading about what it does. **Phase 6 took the honest
+fix in the port for all six** — see its as-built notes in §5 for which workaround each one deleted.
+The boundary defence stays in place regardless, and that is the point worth keeping: a correct
+signature is not a substitute for a guard, and the guards are what the authorization matrix tests.
+Nothing below was removed when the port was fixed.
 
 - **A · `setStaffPassword(id, passwordHash)`** — **resolved in Phase 3 for sign-in**; the reset
   *routes* are Phase 4's and must follow the same rule. The parameter name promises the client
@@ -854,6 +847,75 @@ Done when: `npm test -w @cafe/server` and the server `tsc` are green, no workaro
 survives that the port could have fixed, and every screen-level consequence is a row in
 [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md). **The root build and the SPA suite are red, and
 that is the expected outcome, not a failure of the phase.**
+
+#### Phase 6 — as built (2026-09-16), and the decisions taken
+
+**Deleted:** `src/adapters/storage/IndexedDbStore.ts`, `schema.ts` and `demoSeed.ts`;
+`src/adapters/sync/` and `tests/adapters/sync/`; `src/adapters/transport/` + `src/ports/Transport.ts`;
+`src/adapters/wallet/` + `src/ports/WalletProvider.ts` + `src/wallet/` (the preset card tokens);
+`src/adapters/email/EmailJsMailer.ts`; the IndexedDB, demoSeed, EmailJS, PeerTransport and wallet
+test files; `.github/workflows/deploy.yml`; the `peerjs` and `idb` dependencies.
+**Edited:** `src/ports/DataStore.ts` and `src/domain/models.ts` (the reshape), `src/config/env.ts`,
+`src/services/Services.ts`, `src/services/CustomerService.ts`, `src/adapters/storage/ApiStore.ts`,
+`tests/conformance/dataStoreConformance.ts`, and across the server `PostgresStore.ts`,
+`auth/guards.ts`, `routes/{customers,recovery,snapshot,staff,activity,auth,index,shared}.ts` and
+their tests. **390 server tests** (was 389).
+
+- **The port got a second interface, and that is the phase's one structural idea.** §4-C says a
+  client-writable audit log is not an audit log, and the recovery pair says the same thing about
+  a client naming whose code it is guessing. Both were "the port demands it, a route refuses it,
+  a guardrail test greps for callers". They are now on **`TrustedStore extends DataStore`** —
+  `appendAudit`, `createRecoveryCode`, `consumeRecoveryCode`, `recordFailedRecoveryAttempt` —
+  which `PostgresStore` implements and `AuthDeps.store` requires. `DataStore` is what a browser
+  may ask for; an HTTP adapter *cannot implement* `TrustedStore`, which is a stronger statement
+  than any guardrail was making.
+- **Every reshape deleted a workaround, and here is which.** `setStaffPassword(id, password)` +
+  `CreateStaffInput.password` delete the comment in `routes/staff.ts` apologising for the
+  parameter name. `getStaffByPin` leaving the port deletes both its implementation and the
+  guardrail that kept callers off it — the guard now asserts the identifier appears **nowhere**
+  in the server. The scoped recovery trio deletes `PostgresStore`'s second, prototype-shaped
+  implementation of the same table, so `recovery/codes.ts` is the only one and the routes reach
+  it through the store. `CommitResult.replayed` deletes `routes/shared.ts`'s `isCommitReplay`,
+  which read `idempotency_keys` behind the store's back and could disagree with it under two
+  simultaneous retries. `redeemReward` leaving deletes a method whose whole body was a `throw`.
+- **`Snapshot` gained rewards and reward events but NOT recovery codes**, and the omission is a
+  decision rather than the same gap left open. A recovery code expires fifteen minutes after it
+  is issued, so every code in a file old enough to restore is long dead — carrying them would add
+  nothing a restore can use while putting credential hashes in a file that travels to laptops and
+  cloud drives, which is exactly what Phase 4's credential-blanking decision was about. Version
+  **6 → 7**; a version-6 file still imports, minus those tables, rather than being refused.
+- **The conformance suite was kept and re-framed, not quietly left to look abandoned.** Its
+  header now says in full that the second store was deleted on purpose and that what survives is
+  `PostgresStore`'s specification. It also gained four recovery tests it could not have had
+  before (scoping, superseding, durable attempt lockout) because the port now carries the shape
+  those behaviours live in, and the snapshot round-trip now mints a reward first — which is the
+  assertion that would have caught §3-A-6 in the first place.
+- **The two new claims were verified by breaking them**, as Phases 2–5 did. Deleting the
+  `replayed` stamp from `readCommitResult` fails 4 tests (the idempotent-commit test, the
+  concurrent-retry test, and both "no second audit row / no second mail on replay" route tests);
+  emptying `rewards`/`rewardEvents` in `exportAll` fails the snapshot round-trip. **Re-run both
+  if you touch either.**
+- **The screens were left alone, as the phase says, but the composition root could not be.**
+  `Services.ts` imported five deleted modules, so it was rewritten: one store (`ApiStore`), a
+  `NoopMailer` — the routes are the only sender, and a client mailer means every customer gets
+  each mail twice — and `LocalStorageIdentityStore` until `ServerIdentityStore` lands. `Services`
+  lost `transport`, `wallet`, `sync` and `reset`; every caller of those is a screen already
+  slated for deletion (register P5). `env.ts` lost every adapter flag, because with one store,
+  one sender and no peer connection there is nothing left to select.
+- **`CustomerService.issueCard` stopped handing out preset tokens.** The first three cards used to
+  get fixed tokens so the pre-generated wallet passes resolved to them. Wallet is gone, and a
+  predictable card token was the one place this system's opaque-identity rule had an exception.
+- **What the SPA redness actually is**, so the next session recognises it rather than investigates
+  it: `tsc -b` fails, and **9 of 53 SPA test files fail to load** — the six `tests/services/`
+  suites (they build their graph on `IndexedDbStore` through `tests/helpers/freshStore.ts`) plus
+  `Card`, `EnlargedQr` and `Panel`. The other 44 files (262 tests) still pass. `fake-indexeddb`
+  was left in `devDependencies` because `freshStore.ts` still imports it; both go together in the
+  UI pass. **How the services get tested again is genuinely undecided** and is register row P6.
+  The `e2e/` suite is dead for the same reason — `npm run e2e` runs `vite build` first — and was
+  left in place rather than deleted, because what it should cover is a UI-pass question.
+- **`.github/workflows/` is now empty.** Deleting the Pages deploy left it with no workflow at
+  all, which is honest — there is nothing to deploy until Phase 8 serves the SPA from nginx — and
+  Phase 9 is what puts a workflow back.
 
 ### — UI pass — (a separate initiative, after Phase 9)
 What the old Phase 6 was, plus everything the register accumulated. `ApiStore.request`

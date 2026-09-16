@@ -18,7 +18,6 @@
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { StaffAccount } from '@cafe/shared/domain/models';
-import type { Db } from '../db';
 import type { StaffActor } from '../auth/sessions';
 
 /**
@@ -75,27 +74,6 @@ export function publicStaff(account: StaffAccount): StaffAccount {
     active: account.active,
     createdAt: account.createdAt,
   };
-}
-
-/**
- * Whether this idempotency key has already been committed.
- *
- * The route writes the audit rows for a commit (§4-C), and a retried commit
- * returns its cached result without writing to the ledger again — so without
- * this check the retry would append a second `loyalty.accrue` row for one
- * accrual, inflating exactly the data the self-dealing detector reads.
- *
- * It reads `idempotency_keys` directly because `CommitResult` does not say
- * whether it was served from the cache, and saying so would mean changing a
- * shared port type — which Phases 0–9 may not do. Two *simultaneous* retries
- * could still both see "fresh"; the ledger stays correct either way, and the
- * realistic retry (a client re-sending after a timeout) is covered.
- */
-export async function isCommitReplay(db: Db, idempotencyKey: string): Promise<boolean> {
-  const { rowCount } = await db.query('SELECT 1 FROM idempotency_keys WHERE key = $1', [
-    idempotencyKey,
-  ]);
-  return (rowCount ?? 0) > 0;
 }
 
 /** 404 with a fixed body — never echoes back what was looked up. */

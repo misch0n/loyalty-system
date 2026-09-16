@@ -1,29 +1,32 @@
 /**
- * ApiStore — PRODUCTION SKELETON (stub).
+ * ApiStore — the client half of the seam, still a SKELETON.
  *
- * Implements the exact same `DataStore` contract as `IndexedDbStore`, but each
- * method maps to an HTTP call against the Node backend. It ships here as a
- * clearly-marked stub so the contract is visible and the prototype→production
- * swap is a ONE-LINE wiring change in the composition root (pick `ApiStore`
- * instead of `IndexedDbStore`). No UI or service call site changes.
+ * Every method maps to an HTTP call against the Fastify API, which now exists
+ * (`packages/server/`). The bodies show the intended request shape and throw:
+ * `request` is the piece that is not written, and it is not a small one —
+ * `credentials: 'include'`, the CSRF header echoed from the script-readable
+ * cookie, and one typed error surface for the refusals every screen can now
+ * meet. That is **UI-pass work** (BACKEND-PLAN, *UI pass*), because it cannot be
+ * finished without deciding how a failed call reaches a screen
+ * (`UI-RECONCILIATION.md` X2).
  *
- * The method bodies show the intended request shape but throw, because the
- * prototype has no backend. Implement them when the Node + Postgres API exists.
+ * What it does carry today is the shape of the contract, kept honest against the
+ * port. Phase 6 removed four methods from it — `redeemReward`, `getStaffByPin`,
+ * `appendAudit` and the by-value recovery pair — because the port removed them:
+ * each is something a client must not be able to ask for at all, rather than
+ * something a route refuses (see `DataStore`'s header and `TrustedStore`).
  */
 
 import type {
-  AppendAuditInput,
   AppendTransactionInput,
   AuditFilter,
   CommitResult,
   CounterTransaction,
   CreateCustomerInput,
-  CreateRecoveryCodeInput,
   CreateStaffInput,
   CustomerPatch,
   CustomerQuery,
   DataStore,
-  RedeemResult,
 } from '../../ports/DataStore';
 import type {
   AuditLogEntry,
@@ -104,10 +107,6 @@ export class ApiStore implements DataStore {
   listTransactions(customerId: string): Promise<LoyaltyTransaction[]> {
     return this.request('GET', `/customers/${customerId}/transactions`);
   }
-  redeemReward(customerId: string, staffId: string): Promise<RedeemResult> {
-    return this.request('POST', `/customers/${customerId}/redeem`, { staffId });
-  }
-
   commitCounterTransaction(txn: CounterTransaction): Promise<CommitResult> {
     return this.request('POST', `/customers/${txn.customerId}/commit`, txn);
   }
@@ -119,12 +118,11 @@ export class ApiStore implements DataStore {
     return this.request('GET', `/customers/${customerId}/state`);
   }
 
-  createRecoveryCode(input: CreateRecoveryCodeInput): Promise<void> {
-    return this.request('POST', '/recovery-codes', input);
-  }
-  consumeRecoveryCode(code: string): Promise<string | null> {
-    return this.request('POST', '/recovery-codes/consume', { code });
-  }
+  // Recovery has no store methods here: the client cannot name the customer a
+  // code belongs to, and the scoping is the whole security of a six-character
+  // code. It is two public routes — `POST /recovery/request` (address) and
+  // `POST /recovery/consume` (address + code) — which `RecoveryService` is
+  // rewritten against in the UI pass (`UI-RECONCILIATION.md` C3).
 
   createStaff(input: CreateStaffInput): Promise<StaffAccount> {
     return this.request('POST', '/staff', input);
@@ -132,16 +130,18 @@ export class ApiStore implements DataStore {
   getStaffByUsername(username: string): Promise<StaffAccount | null> {
     return this.request('GET', `/staff/by-username/${encodeURIComponent(username)}`);
   }
-  getStaffByPin(pin: string): Promise<StaffAccount | null> {
-    // Production verifies the PIN server-side (never trusts a client lookup); the
-    // shape is illustrative only.
-    return this.request('POST', '/staff/by-pin', { pin });
-  }
+  // No `getStaffByPin`: "which account has this PIN?" over HTTP is a credential
+  // oracle across the whole staff table at four digits (BACKEND-PLAN §4-B). PIN
+  // re-auth is `POST /auth/unlock`, against the account the session already
+  // names — which means a device with no session cannot PIN in at all
+  // (`UI-RECONCILIATION.md` S1).
   setStaffActive(id: string, active: boolean): Promise<void> {
     return this.request('PATCH', `/staff/${id}`, { active });
   }
-  setStaffPassword(id: string, passwordHash: string): Promise<void> {
-    return this.request('PATCH', `/staff/${id}/password`, { passwordHash });
+  setStaffPassword(id: string, password: string): Promise<void> {
+    // The plaintext, over TLS. The server hashes it with argon2id; a client that
+    // hashed would make its digest the credential (BACKEND-PLAN §4-A).
+    return this.request('PATCH', `/staff/${id}/password`, { password });
   }
   setStaffPin(id: string, pin: string): Promise<void> {
     // Production hashes/verifies the PIN server-side; the shape is illustrative.
@@ -160,9 +160,9 @@ export class ApiStore implements DataStore {
     return this.request('PATCH', '/config', patch);
   }
 
-  appendAudit(entry: AppendAuditInput): Promise<void> {
-    return this.request('POST', '/audit', entry);
-  }
+  // No `appendAudit`: a client-supplied actor and action is not an audit log
+  // (BACKEND-PLAN §4-C). Route handlers write their own rows from the session;
+  // `POST /audit` answers 204 and writes nothing.
   listAudit(filter: AuditFilter = {}): Promise<AuditLogEntry[]> {
     const params = new URLSearchParams();
     if (filter.action) params.set('action', filter.action);

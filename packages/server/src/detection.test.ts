@@ -32,7 +32,7 @@ beforeEach(async () => {
   staffId = (
     await store.createStaff({
       username: 'barista',
-      passwordHash: 'barista-password-1',
+      password: 'barista-password-1',
       name: 'Sam Barista',
       role: 'staff',
     })

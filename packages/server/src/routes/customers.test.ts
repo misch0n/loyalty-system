@@ -51,10 +51,10 @@ beforeEach(async () => {
   app = buildServer({ logLevel: 'silent', auth: deps });
   await app.ready();
 
-  adminId = (await store.createStaff({ ...ADMIN, passwordHash: ADMIN.password, role: 'admin' })).id;
-  staffId = (await store.createStaff({ ...STAFF, passwordHash: STAFF.password, role: 'staff' })).id;
+  adminId = (await store.createStaff({ ...ADMIN, role: 'admin' })).id;
+  staffId = (await store.createStaff({ ...STAFF, role: 'staff' })).id;
   otherStaffId = (
-    await store.createStaff({ ...OTHER_STAFF, passwordHash: OTHER_STAFF.password, role: 'staff' })
+    await store.createStaff({ ...OTHER_STAFF, role: 'staff' })
   ).id;
 });
 
@@ -329,7 +329,10 @@ describe('POST /customers/:id/commit', () => {
       payload,
     });
 
-    expect(first.json()).toEqual(second.json());
+    // `replayed` is how the route knows not to write the second audit row, so
+    // it is the one field the two responses differ in.
+    expect(second.json()).toEqual({ ...first.json(), replayed: true });
+    expect(first.json().replayed).toBe(false);
     expect(await store.listTransactions(customer.id)).toHaveLength(1);
     expect(await auditRows('loyalty.accrue')).toHaveLength(1);
   });

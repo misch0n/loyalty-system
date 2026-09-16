@@ -95,7 +95,7 @@ async function createAccount(
 ) {
   return store.createStaff({
     username,
-    passwordHash: PASSWORD,
+    password: PASSWORD,
     role: over.role ?? 'staff',
     name: over.name,
     pin: over.pin ?? PIN,

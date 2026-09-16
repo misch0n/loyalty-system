@@ -11,13 +11,14 @@
  *   • **§4-A** — the client never hashes. `POST /auth/login` takes the plaintext
  *     over TLS and hands it to argon2id `verify`; `PostgresStore` did the hashing
  *     when the account was created. Nothing here re-hashes a hash.
- *   • **§4-B** — `getStaffByPin` is a *global* "which account has this PIN?"
- *     search, which over HTTP is an unauthenticated credential oracle across the
- *     whole staff table at four digits. It gets **no route**. `POST /auth/unlock`
- *     instead verifies the PIN against the account this device's session already
- *     identifies, rate-limited and locked out. That is a real divergence from
- *     prototype behaviour — a device with no session cannot PIN in at all — and
- *     is recorded as one in `STATUS.md`.
+ *   • **§4-B** — the port used to carry `getStaffByPin`, a *global* "which
+ *     account has this PIN?" search, which over HTTP is an unauthenticated
+ *     credential oracle across the whole staff table at four digits. It never
+ *     got a route, and Phase 6 removed it from the port outright. `POST
+ *     /auth/unlock` verifies the PIN against the account this device's session
+ *     already identifies, rate-limited and locked out. That is a real
+ *     divergence from prototype behaviour — a device with no session cannot PIN
+ *     in at all — and is recorded as one in `STATUS.md`.
  *
  * Every failure answers the same way whatever went wrong (no such account, wrong
  * password, disabled account), so the route is not an account-enumeration

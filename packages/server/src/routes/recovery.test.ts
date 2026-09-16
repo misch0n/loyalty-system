@@ -71,7 +71,7 @@ beforeEach(async () => {
   });
   app = buildServer({ logLevel: 'silent', auth: deps });
   await app.ready();
-  await store.createStaff({ ...STAFF, passwordHash: STAFF.password, role: 'staff' });
+  await store.createStaff({ ...STAFF, role: 'staff' });
   card = await register(EMAIL);
 });
 

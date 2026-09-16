@@ -1,37 +1,38 @@
 /**
  * Composition root.
  *
- * The ONLY place that names concrete adapters. It picks the DataStore,
- * Transport, Mailer and IdentityStore implementations from feature flags and
- * wires the services. Swapping the prototype for production is a change here and
- * nowhere else:
- *   - DataStore:     IndexedDbStore → ApiStore
- *   - Transport:     PeerTransport (PeerJS+TURN) → ServerTransport (server flow)
- *   - Mailer:        EmailJsMailer → server-side provider
- *   - IdentityStore: LocalStorageIdentityStore → server cookie/session
+ * The ONLY place that names concrete adapters. Phase 6 left it with very little
+ * to decide: the triage deleted the wallet and transport seams, and retiring the
+ * IndexedDB prototype left one store. Five seams became three, and two of the
+ * three now have one implementation each.
+ *
+ *   - `DataStore`     → `ApiStore` (the Fastify API). There is no other.
+ *   - `Mailer`        → `NoopMailer`. **The routes send the mail now** — the
+ *                       welcome mail from `POST /customers`, the
+ *                       reward-available one from the commit — so a client-side
+ *                       mailer here would mean every customer got each one
+ *                       twice. `EmailJsMailer` is gone; it shipped its provider
+ *                       credential in the bundle, where anyone could drive it.
+ *   - `IdentityStore` → `LocalStorageIdentityStore`, for now. The server already
+ *                       sets an HttpOnly identity cookie (`PUT /me`), which is
+ *                       the recognition that survives iOS ITP; pointing the port
+ *                       at it (`ServerIdentityStore`) is UI-pass work.
+ *
+ * **This does not work yet, knowingly.** `ApiStore.request` is unwritten, so
+ * every call throws, and the services below still call methods the port no
+ * longer has (`AuditService.appendAudit`, `RecoveryService`'s code pair,
+ * `StaffService.loginWithPin`). That is the state BACKEND-PLAN's revoked-promise
+ * box describes: the backend is built first and the UI is adjusted to it
+ * afterwards, with every conflict recorded in `docs/UI-RECONCILIATION.md`.
  */
 
 import type { DataStore } from '../ports/DataStore';
-import type { Transport } from '../ports/Transport';
 import type { Mailer } from '../ports/Mailer';
 import type { IdentityStore } from '../ports/IdentityStore';
-import type { WalletProvider } from '../ports/WalletProvider';
-import {
-  storeKind,
-  transportKind,
-  walletKind,
-  emailConfig,
-  isEmailConfigured,
-} from '../config/env';
-import { IndexedDbStore } from '../adapters/storage/IndexedDbStore';
+import { apiBaseUrl } from '../config/env';
 import { ApiStore } from '../adapters/storage/ApiStore';
-import { EmailJsMailer } from '../adapters/email/EmailJsMailer';
 import { NoopMailer } from '../adapters/email/NoopMailer';
 import { LocalStorageIdentityStore } from '../adapters/identity/LocalStorageIdentityStore';
-import { StaticWalletProvider } from '../adapters/wallet/StaticWalletProvider';
-import { ServerWalletProvider } from '../adapters/wallet/ServerWalletProvider';
-import { createObservableStore } from '../adapters/sync/ObservableStore';
-import { createSwitchableStore } from '../adapters/sync/SwitchableStore';
 
 import { AuditService } from './AuditService';
 import { ConfigService } from './ConfigService';
@@ -40,108 +41,33 @@ import { CustomerService } from './CustomerService';
 import { LoyaltyService } from './LoyaltyService';
 import { RecoveryService } from './RecoveryService';
 
-/**
- * Prototype sync kit — the seam that lets a paired device stand in for the
- * server. `observable` is the local store wrapped to emit on every mutation (the
- * host serves + watches it); `switchable` is the live store the services use —
- * flipping its target to a remote peer-client routes all reads/writes to the
- * paired host with no service/UI changes.
- */
-export interface SyncKit {
-  observable: { store: DataStore; onMutate(cb: () => void): () => void };
-  switchable: { store: DataStore; setTarget(t: DataStore): void; getTarget(): DataStore };
-}
-
 export interface Services {
   store: DataStore;
-  transport: Transport;
   mailer: Mailer;
   identity: IdentityStore;
-  wallet: WalletProvider;
-  sync: SyncKit;
   audit: AuditService;
   config: ConfigService;
   staff: StaffService;
   customers: CustomerService;
   loyalty: LoyaltyService;
   recovery: RecoveryService;
-  /** Prototype-only: wipe this device's local store (used by the Reset action). */
-  reset(): Promise<void>;
-}
-
-function createStore(): DataStore {
-  if (storeKind === 'api') {
-    // Production wiring. The base URL would come from build-time env.
-    return new ApiStore({ baseUrl: import.meta.env.VITE_API_BASE ?? '/api' });
-  }
-  // Prototype: seed demo members/ledger/audit on a fresh DB so the admin stat
-  // breakdowns have data across ranges.
-  return new IndexedDbStore({ seedDemo: true });
-}
-
-async function createTransport(): Promise<Transport> {
-  if (transportKind === 'server') {
-    // Production: server-mediated registration. Dynamic import + the dead branch
-    // means PeerJS tree-shakes out of a production-configured build.
-    const { ServerTransport } = await import('../adapters/transport/ServerTransport');
-    return new ServerTransport();
-  }
-  // Prototype's REAL transport: PeerJS + TURN between two devices. This is the
-  // default, including the deployed GitHub Pages build.
-  const { PeerTransport } = await import('../adapters/transport/PeerTransport');
-  return new PeerTransport();
-}
-
-function createMailer(): Mailer {
-  // EmailJS when configured (secrets injected at build time); otherwise a no-op
-  // so local dev without secrets doesn't crash on send.
-  return isEmailConfigured ? new EmailJsMailer(emailConfig) : new NoopMailer();
-}
-
-function createIdentityStore(): IdentityStore {
-  return new LocalStorageIdentityStore();
-}
-
-function createWalletProvider(store: DataStore): WalletProvider {
-  // Production swaps the static, key-free map for server-side mint-on-demand.
-  return walletKind === 'server'
-    ? new ServerWalletProvider()
-    : new StaticWalletProvider(store);
 }
 
 export async function createServices(): Promise<Services> {
-  // Local store → observable (emits on mutation) → switchable (the live target).
-  // Services bind to the switchable store, so pairing can re-point it at a remote
-  // peer-client without touching any service or screen.
-  const local = createStore();
-  const observable = createObservableStore(local);
-  const switchable = createSwitchableStore(observable.store);
-  const store = switchable.store;
-
-  const transport = await createTransport();
-  const mailer = createMailer();
-  const identity = createIdentityStore();
-  const wallet = createWalletProvider(store);
+  const store: DataStore = new ApiStore({ baseUrl: apiBaseUrl });
+  const mailer: Mailer = new NoopMailer();
+  const identity: IdentityStore = new LocalStorageIdentityStore();
   const audit = new AuditService(store);
+
   return {
     store,
-    transport,
     mailer,
     identity,
-    wallet,
-    sync: { observable, switchable },
     audit,
     config: new ConfigService(store, audit),
     staff: new StaffService(store, audit),
     customers: new CustomerService(store, audit, mailer),
     loyalty: new LoyaltyService(store, audit, mailer),
     recovery: new RecoveryService(store, mailer, audit),
-    reset: async () => {
-      // Full DATA reset: wipe + reseed the store IN PLACE so the live store stays
-      // usable without a page reload. Storage keys, the snapshot and pairing are
-      // the caller's concern (PairingContext.reset). ApiStore has no reset (it's
-      // the server's job) — the optional call is a no-op there.
-      await (local as { reset?: () => Promise<void> }).reset?.();
-    },
   };
 }

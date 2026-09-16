@@ -7,14 +7,13 @@
  *
  * Two things here are not in the prototype and have to be:
  *
- *   • **§4-A — the client never hashes.** `setStaffPassword(id, passwordHash)`
- *     promises the client sends a digest. If the server stored what it was
- *     given, that "hash" *would be* the password: anyone reading the database
- *     could authenticate with it, and a client could set an account's credential
- *     to a value it already knows. The routes take the plaintext over TLS;
- *     `PostgresStore` hashes it with argon2id. The wire field is named
- *     `password` accordingly — naming it `passwordHash` is how the mistake
- *     happens.
+ *   • **§4-A — the client never hashes.** The routes take the plaintext over
+ *     TLS and `PostgresStore` hashes it with argon2id. The port used to call
+ *     the parameter `passwordHash`, which promised the client sent a digest:
+ *     had a store written what that name described, the "hash" *would be* the
+ *     password, and anyone who could read the database could sign in with it.
+ *     Phase 6 renamed it (`setStaffPassword(id, password)`); the wire field
+ *     was always `password`.
  *   • **`GET /staff/by-username/:username` does not exist.** `getStaffByUsername`
  *     returns the account *including its credential digests*, and it is the
  *     prototype's login lookup. Sign-in is `POST /auth/login`, which verifies
@@ -129,9 +128,8 @@ export function registerStaffRoutes(app: FastifyInstance, deps: AuthDeps): void 
 
       const account = await store.createStaff({
         username,
-        // Plaintext over TLS; `PostgresStore` hashes with argon2id (§4-A). The
-        // port's parameter name is the only thing here that says "hash".
-        passwordHash: request.body.password,
+        // Plaintext over TLS; `PostgresStore` hashes with argon2id (§4-A).
+        password: request.body.password,
         role: request.body.role,
         name: request.body.name?.trim() || undefined,
         pin: request.body.pin,

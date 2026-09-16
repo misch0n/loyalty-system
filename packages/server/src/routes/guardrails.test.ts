@@ -48,36 +48,46 @@ function sourcesMatching(pattern: RegExp): string[] {
 }
 
 describe('§4-B — the PIN is never searched for globally', () => {
-  it('gives `getStaffByPin` no route', () => {
-    // `PostgresStore.getStaffByPin` implements the port and must keep working —
-    // the conformance suite holds it to the prototype's answer. What must never
-    // exist is an HTTP path that reaches it: over the network, "which account
-    // has this PIN?" is an unauthenticated credential oracle across the whole
-    // staff table at four digits. `POST /auth/unlock` verifies a PIN against the
-    // account the session already names instead.
-    const callers = sourcesMatching(/getStaffByPin/).filter(
-      (path) => !path.endsWith('PostgresStore.ts') && !path.endsWith('PostgresStore.test.ts'),
-    );
-    expect(callers).toEqual([]);
+  it('has no `getStaffByPin` left to call', () => {
+    // Until Phase 6 this guard read "no file outside the store may call it": the
+    // port demanded the method, so the store implemented it and a grep kept the
+    // routes away. The port no longer demands it, so the method is gone and the
+    // guard can say the stronger thing — over the network "which account has
+    // this PIN?" is an unauthenticated credential oracle across the whole staff
+    // table at four digits, and there is now nothing to reach. `POST
+    // /auth/unlock` verifies a PIN against the account the session already
+    // names.
+    expect(sourcesMatching(/getStaffByPin/)).toEqual([]);
   });
 });
 
-describe('Phase 5 — a short typed code is never consumed globally', () => {
-  it('gives the port’s recovery pair no caller outside the store', () => {
-    // `DataStore.consumeRecoveryCode` looks a code up by value across the whole
-    // table, which is right for the prototype's 128-bit token and wrong for six
-    // typed characters: it would let one guess play against every live code in
-    // the café at once. `recovery/codes.ts` scopes the lookup to the address
-    // that asked (the recovery twin of §4-B's PIN inversion), and the port pair
-    // keeps working for the prototype with no route attached.
+describe('a short typed code is never consumed globally', () => {
+  it('reaches `recovery_codes` only through the scoped module', () => {
+    // The scoping IS the security (SCOPE-DECISIONS §2.3): a guess is checked
+    // against the codes issued to *one* customer, never against every live code
+    // in the café, which would get easier with every customer who asked for one.
     //
-    // Matched through the `store.` receiver rather than by bare name, because
-    // `recovery/codes.ts` exports a *scoped* `consumeRecoveryCode` of its own
-    // and `routes/recovery.ts` is supposed to call that one. What must not
-    // appear anywhere — that file included — is the call through the port.
-    const callers = sourcesMatching(
-      /\bstore\.(createRecoveryCode|consumeRecoveryCode)\b/,
-    ).filter((path) => !path.endsWith('.test.ts'));
+    // Phase 6 put that shape on the port itself — `consumeRecoveryCode` cannot
+    // be called without naming whose code it is — so the old guard (nothing may
+    // call the port pair) has nothing left to forbid. What still needs saying is
+    // that nobody writes their own query against the table and scopes it
+    // differently, or forgets to.
+    const allowed = [join('recovery', 'codes.ts'), 'PostgresStore.ts'];
+    const callers = sourcesMatching(/recovery_codes/)
+      .filter((path) => !path.endsWith('.test.ts'))
+      .filter((path) => !allowed.some((suffix) => path.endsWith(suffix)));
+    expect(callers).toEqual([]);
+  });
+
+  it('reaches `idempotency_keys` only through the store', () => {
+    // The commit route used to read this table itself, because `CommitResult`
+    // could not say whether it had been served from the cache and the port was
+    // not editable (BACKEND-PLAN §4, Phase 4 as-built). It says `replayed` now,
+    // and a second reader — racing the store's own transaction — is exactly the
+    // disagreement that fix removed.
+    const callers = sourcesMatching(/idempotency_keys/)
+      .filter((path) => !path.endsWith('.test.ts'))
+      .filter((path) => !path.endsWith('PostgresStore.ts'));
     expect(callers).toEqual([]);
   });
 });
@@ -130,8 +140,9 @@ describe('§4 — the routes that must not exist', () => {
     // `getStaffByUsername` returns the account WITH its argon2id digests. It is
     // the prototype's login lookup; sign-in is `POST /auth/login` here.
     '/staff/by-username',
-    // Retired by the rewards rework. Migration 001 refuses the `redemption`
-    // ledger entry it would write, and `PostgresStore.redeemReward` throws.
+    // Retired by the rewards rework, and off the port since Phase 6. Migration
+    // 001 refuses the `redemption` ledger entry it would write, so there is
+    // nothing left for such a route to call.
     '/redeem',
   ];
 

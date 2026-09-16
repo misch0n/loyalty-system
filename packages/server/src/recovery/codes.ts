@@ -21,16 +21,18 @@
  *   3. **Issuing supersedes.** A second request kills the first code, so a
  *      caller cannot stack live codes to widen the target.
  *
- * ## Why this is not `DataStore.createRecoveryCode` / `consumeRecoveryCode`
+ * ## This IS the port's shape now
  *
- * The port's pair is the **prototype's** shape, and it is right there: the
- * prototype's code is a 128-bit token, so "consume whatever code this is"
- * carries its own security and needs no address. The same call over HTTP with a
- * six-character code does not — it is the recovery-flow twin of §4-B's global
- * PIN lookup, and gets the same treatment: the lookup is inverted to "verify
- * this code for the account we already named", and the port method keeps working
- * for the prototype (the conformance suite holds it to the prototype's answer)
- * while getting **no route**. Recorded as a divergence in `STATUS.md`.
+ * The port used to carry a different pair: `consumeRecoveryCode(code)`, a lookup
+ * by value across the whole table. That was right for the prototype's 128-bit
+ * token, which carries its own security and needs no address, and wrong for six
+ * typed characters — the recovery-flow twin of §4-B's global PIN lookup. Phase 5
+ * inverted the lookup here and left the port's version implemented-but-unused,
+ * with a guardrail test forbidding callers; Phase 6 put this shape *on* the port
+ * (`TrustedStore.createRecoveryCode` / `consumeRecoveryCode` /
+ * `recordFailedRecoveryAttempt`), so `PostgresStore` simply delegates to these
+ * three and there is one implementation rather than two. Recorded as a
+ * divergence from prototype behaviour in `STATUS.md`.
  *
  * The code itself is never stored: only its SHA-256. That is the right hash for
  * this value even though it is short, because {@link hashRecoveryCode} is not

@@ -41,10 +41,9 @@
  *     no `POST /customers/:id/redeem`         retired by rewards-as-objects
  *     no `POST /recovery/codes`               minting a code is an internal step
  *                                             of `/recovery/request`, never a
- *                                             thing a client asks for; and the
- *                                             port's `consumeRecoveryCode` is
- *                                             global-by-code, which a six-digit
- *                                             typed code cannot be (Phase 5)
+ *                                             thing a client asks for — which is
+ *                                             why it sits on `TrustedStore`
+ *                                             rather than `DataStore` (Phase 6)
  *     no cross-account activity read at all   (§4-F, SCOPE-DECISIONS §1)
  *     no undo of any kind                     (Appendix E)
  * `routes/guardrails.test.ts` fails if any of them appears.

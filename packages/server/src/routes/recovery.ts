@@ -44,12 +44,7 @@ import { normalizeEmail } from '@cafe/shared/domain/validation';
 import type { AuthDeps } from '../auth/guards';
 import { cookieMaxAgeSec, setSessionCookies } from '../auth/guards';
 import type { AttemptLimiter, RateLimitDecision } from '../auth/rateLimit';
-import {
-  RECOVERY_EXPIRY_MINUTES,
-  consumeRecoveryCode,
-  issueRecoveryCode,
-  recordFailedAttempt,
-} from '../recovery/codes';
+import { RECOVERY_EXPIRY_MINUTES } from '../recovery/codes';
 import { refuse } from './shared';
 
 const REQUEST_SCHEMA = {
@@ -168,7 +163,7 @@ export function registerRecoveryRoutes(app: FastifyInstance, deps: AuthDeps): vo
           const customer = await cardFor(email);
           if (!customer || !customer.email) return;
 
-          const code = await issueRecoveryCode(deps.db, customer.id);
+          const code = await store.createRecoveryCode(customer.id);
           // Audited before the send, so the trail records that recovery was
           // requested even if the mail server is down. `system` is the actor and
           // the details carry no address — `CLAUDE.md` keeps PII out of the audit
@@ -224,14 +219,14 @@ export function registerRecoveryRoutes(app: FastifyInstance, deps: AuthDeps): vo
 
       const customer = await cardFor(request.body.email);
       const code = normalizeShortCode(request.body.code);
-      const ok = customer !== null && (await consumeRecoveryCode(deps.db, customer.id, code));
+      const ok = customer !== null && (await store.consumeRecoveryCode(customer.id, code));
 
       if (!ok) {
         deps.recoveryConsumeAddressLimiter.fail(emailKey);
         deps.recoveryConsumeIpLimiter.fail(ipKey);
         // The durable half of the lockout: five wrong guesses burn the code in
         // the database, so restarting the process does not buy five more.
-        if (customer) await recordFailedAttempt(deps.db, customer.id);
+        if (customer) await store.recordFailedRecoveryAttempt(customer.id);
         return refuse(reply, 400, RECOVERY_INVALID);
       }
 

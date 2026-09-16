@@ -35,7 +35,7 @@ beforeEach(async () => {
   deps = createAuthDeps({ db, store, cookieSecure: true });
   app = buildServer({ logLevel: 'silent', auth: deps });
   await app.ready();
-  await store.createStaff({ ...ADMIN, passwordHash: ADMIN.password, role: 'admin' });
+  await store.createStaff({ ...ADMIN, role: 'admin' });
   admin = await signIn(app, ADMIN.username, ADMIN.password);
 });
 

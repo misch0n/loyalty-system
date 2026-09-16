@@ -1,33 +1,39 @@
 /**
- * The shared `DataStore` conformance suite.
+ * The `DataStore` conformance suite — now `PostgresStore`'s specification.
  *
- * One suite, run against every adapter that claims to implement the port:
- * `IndexedDbStore` (prototype, fake-indexeddb) and `PostgresStore` (production,
- * a real database). If both pass, swapping them at the composition root is
- * provably safe — which is the promise the ports architecture makes and the one
- * thing nothing else in the repo actually checks.
+ * ## It has one store, and that is a decision
+ *
+ * This suite was written to be run against **two** adapters — `IndexedDbStore`
+ * on fake-indexeddb and `PostgresStore` on a real database — so that a green
+ * run proved the composition-root swap was safe. Phase 6 retired the IndexedDB
+ * prototype (BACKEND-PLAN §2, *Prototype path*, reversed 2026-09-16), so there
+ * is no second adapter and no cross-store equivalence left to prove.
+ *
+ * **It was kept anyway, and deliberately.** Its assertions are the port's real
+ * behaviour written down — single-use recovery codes, subset redeem, idempotent
+ * commits, tombstones that keep their history — and that is worth at least as
+ * much as a specification for the one store as it was as a contract between
+ * two. If you are reading this wondering where the second harness went: it was
+ * deleted on purpose, along with the adapter it drove.
  *
  * **What belongs here:** behaviour the port guarantees, phrased so it can be
- * true of any backing store. Nothing about IndexedDB versions, SQL, seeds or
- * connection handling — adapter-specific behaviour stays in that adapter's own
- * test file, next to the thing it is specific to.
+ * true of any backing store. Nothing about SQL, migrations, seeds or connection
+ * handling — adapter-specific behaviour stays in `PostgresStore.test.ts`, next
+ * to the thing it is specific to. Keeping that line matters more now, not less:
+ * it is what stops this drifting into a second copy of the adapter's own tests.
  *
- * **Written against the contract, not either implementation.** In particular the
- * suite never assumes an empty store is *completely* empty (the prototype seeds
- * mock staff, a production database does not), and it never inspects how a
- * credential is stored (the prototype keeps a plain value, Postgres an argon2id
- * digest) — only that the behaviour built on it holds.
+ * **Written against the contract, not the implementation.** The suite never
+ * assumes an empty store is *completely* empty (a seeded staff account is
+ * allowed) and never inspects how a credential is stored — only that the
+ * behaviour built on it holds.
  *
- * **Deliberately not covered:** `redeemReward`. It is the pre-rework redeem path
- * that writes a `'redemption'` ledger entry; the rewards-as-objects rework
- * replaced it with `commitCounterTransaction`, and the production schema refuses
- * that entry type outright. The two stores genuinely differ there, on purpose —
- * see `PostgresStore.redeemReward`. It goes in Phase 11 with the rest of the
- * transitional surface.
+ * It takes a {@link TrustedStore}, because the things a store must be trusted
+ * with — appending audit rows, issuing recovery codes — are things the suite has
+ * to exercise.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import type { CounterTransaction, DataStore } from '../../src/ports/DataStore';
+import type { CounterTransaction, TrustedStore } from '../../src/ports/DataStore';
 import type { Snapshot } from '../../src/domain/models';
 
 export interface StoreHarness {
@@ -38,23 +44,23 @@ export interface StoreHarness {
    * recovery codes, and the default program config. Seeded staff accounts are
    * allowed — the suite never assumes their absence.
    */
-  create(): Promise<DataStore>;
+  create(): Promise<TrustedStore>;
   /** Optional per-test teardown (close a connection, drop a database). */
-  dispose?(store: DataStore): Promise<void>;
+  dispose?(store: TrustedStore): Promise<void>;
 }
 
 /** Small real delay so successive ISO timestamps are strictly ordered. */
 const tick = () => new Promise((r) => setTimeout(r, 5));
 
 /**
- * There is deliberately no way to skip this suite. It exists to prove the two
- * stores agree, and a skipped conformance run proves nothing while still
- * reporting green. An adapter whose backing store is unavailable must fail —
- * the server suite enforces that in `packages/server/src/testing/globalSetup.ts`.
+ * There is deliberately no way to skip this suite. A skipped conformance run
+ * proves nothing while still reporting green, which is worse than not running
+ * it. A store whose database is unavailable must fail — the server suite
+ * enforces that in `packages/server/src/testing/globalSetup.ts`.
  */
 export function describeDataStoreConformance(harness: StoreHarness): void {
   describe(`DataStore conformance — ${harness.name}`, () => {
-    let store: DataStore;
+    let store: TrustedStore;
     let seq = 0;
 
     beforeEach(async () => {
@@ -70,7 +76,7 @@ export function describeDataStoreConformance(harness: StoreHarness): void {
      * required at registration (SCOPE-DECISIONS §2.1) and the production schema
      * enforces it, so a token-only card is not a conformance case.
      */
-    const addCustomer = (over: Partial<Parameters<DataStore['createCustomer']>[0]> = {}) => {
+    const addCustomer = (over: Partial<Parameters<TrustedStore['createCustomer']>[0]> = {}) => {
       seq += 1;
       return store.createCustomer({
         token: `token-${seq}-${Math.random().toString(36).slice(2, 10)}`,
@@ -80,11 +86,11 @@ export function describeDataStoreConformance(harness: StoreHarness): void {
       });
     };
 
-    const addStaff = (over: Partial<Parameters<DataStore['createStaff']>[0]> = {}) => {
+    const addStaff = (over: Partial<Parameters<TrustedStore['createStaff']>[0]> = {}) => {
       seq += 1;
       return store.createStaff({
         username: `user${seq}`,
-        passwordHash: 'secret',
+        password: 'secret',
         role: 'staff',
         ...over,
       });
@@ -284,7 +290,11 @@ export function describeDataStoreConformance(harness: StoreHarness): void {
         const txn = counter({ customerId: c.id, pointsDelta: 3 });
         const first = await store.commitCounterTransaction(txn);
         const second = await store.commitCounterTransaction(txn);
-        expect(second).toEqual(first);
+        // Same outcome, and the retry says so. `replayed` is the one field that
+        // differs by design: the caller's audit rows and outbound mail are not
+        // idempotent on their own, so it has to be told.
+        expect(second).toEqual({ ...first, replayed: true });
+        expect(first.ok && first.replayed).toBe(false);
         expect(await store.listTransactions(c.id)).toHaveLength(1);
         expect((await store.getCustomerState(c.id)).balance).toBe(3);
       });
@@ -420,7 +430,7 @@ export function describeDataStoreConformance(harness: StoreHarness): void {
       it('rejects a duplicate username', async () => {
         const first = await addStaff();
         await expect(
-          store.createStaff({ username: first.username, passwordHash: 'pw', role: 'staff' }),
+          store.createStaff({ username: first.username, password: 'pw', role: 'staff' }),
         ).rejects.toThrow();
       });
 
@@ -436,22 +446,10 @@ export function describeDataStoreConformance(harness: StoreHarness): void {
         await expect(store.setStaffPin('nope', '6666')).rejects.toThrow();
       });
 
-      it('resolves an account by its PIN, and replaces it on reset', async () => {
-        const s = await addStaff({ pin: '5678' });
-        expect(await store.getStaffByPin('5678')).toMatchObject({ id: s.id });
-        expect(await store.getStaffByPin('0000')).toBeNull();
-        expect(await store.getStaffByPin('')).toBeNull();
-
-        await store.setStaffPin(s.id, '4444');
-        expect(await store.getStaffByPin('5678')).toBeNull();
-        expect(await store.getStaffByPin('4444')).toMatchObject({ id: s.id });
-      });
-
-      it('never resolves a disabled account by its PIN', async () => {
-        const s = await addStaff({ pin: '7777' });
-        await store.setStaffActive(s.id, false);
-        expect(await store.getStaffByPin('7777')).toBeNull();
-      });
+      // There is no "find the account with this PIN" test, because Phase 6 took
+      // `getStaffByPin` off the port: a global PIN search is a credential oracle
+      // over HTTP (BACKEND-PLAN §4-B). PIN re-auth is verified against a named
+      // account by `POST /auth/unlock`, and `routes/auth.test.ts` owns it.
 
       it('deletes an account', async () => {
         const s = await addStaff();
@@ -502,24 +500,41 @@ export function describeDataStoreConformance(harness: StoreHarness): void {
     describe('recovery codes', () => {
       it('consumes a code exactly once', async () => {
         const c = await addCustomer();
-        await store.createRecoveryCode({
-          code: 'code-abc',
-          customerId: c.id,
-          expiresAt: Date.now() + 60_000,
-        });
-        expect(await store.consumeRecoveryCode('code-abc')).toBe(c.id);
-        expect(await store.consumeRecoveryCode('code-abc')).toBeNull();
+        const code = await store.createRecoveryCode(c.id);
+        expect(await store.consumeRecoveryCode(c.id, code)).toBe(true);
+        expect(await store.consumeRecoveryCode(c.id, code)).toBe(false);
       });
 
-      it('refuses an unknown or expired code', async () => {
+      it('refuses a code that belongs to someone else', async () => {
+        const [mine, theirs] = [await addCustomer(), await addCustomer()];
+        const code = await store.createRecoveryCode(mine.id);
+        // The scoping IS the security (SCOPE-DECISIONS §2.3): a six-character
+        // code checked against every live code in the table gets easier to guess
+        // with every customer who asks for one.
+        expect(await store.consumeRecoveryCode(theirs.id, code)).toBe(false);
+        expect(await store.consumeRecoveryCode(mine.id, code)).toBe(true);
+      });
+
+      it('supersedes a live code when a new one is issued', async () => {
         const c = await addCustomer();
-        await store.createRecoveryCode({
-          code: 'code-expired',
-          customerId: c.id,
-          expiresAt: Date.now() - 1_000,
-        });
-        expect(await store.consumeRecoveryCode('code-expired')).toBeNull();
-        expect(await store.consumeRecoveryCode('never-issued')).toBeNull();
+        const first = await store.createRecoveryCode(c.id);
+        const second = await store.createRecoveryCode(c.id);
+        expect(await store.consumeRecoveryCode(c.id, first)).toBe(false);
+        expect(await store.consumeRecoveryCode(c.id, second)).toBe(true);
+      });
+
+      it('burns a code after too many wrong guesses, durably', async () => {
+        const c = await addCustomer();
+        const code = await store.createRecoveryCode(c.id);
+        for (let i = 0; i < 5; i++) await store.recordFailedRecoveryAttempt(c.id);
+        // The count lives in the database, not in a process-local limiter, so
+        // restarting the server cannot buy a guesser five more attempts.
+        expect(await store.consumeRecoveryCode(c.id, code)).toBe(false);
+      });
+
+      it('refuses a code that was never issued', async () => {
+        const c = await addCustomer();
+        expect(await store.consumeRecoveryCode(c.id, 'ZZZZZZ')).toBe(false);
       });
     });
 
@@ -604,15 +619,19 @@ export function describeDataStoreConformance(harness: StoreHarness): void {
 
       it('round-trips a snapshot, replacing whatever was there', async () => {
         const kept = await addCustomer({ displayName: 'Maria', email: 'maria@cafe.test' });
-        await store.appendTransaction({
-          customerId: kept.id,
-          type: 'accrual',
-          points: 3,
-          staffId: 's',
-        });
+        // Enough points to mint a reward, so the restore has something to lose.
+        // Until Phase 6 it lost it: `Snapshot` carried no rewards, and Maria came
+        // back without the free coffee she was owed (BACKEND-PLAN §3-A-6).
+        await pinProgram();
+        const committed = await store.commitCounterTransaction(
+          counter({ customerId: kept.id, pointsDelta: 8 }),
+        );
+        expect(committed.ok && committed.minted).toHaveLength(1);
         await store.appendAudit({ actorId: 's', actorRole: 'staff', action: 'card.issue' });
         const snapshot = await store.exportAll();
         expect(snapshot.customers.map((c) => c.id)).toContain(kept.id);
+        expect(snapshot.rewards).toHaveLength(1);
+        expect(snapshot.rewardEvents.map((e) => e.type)).toEqual(['reward.issued']);
 
         // Data created after the snapshot must not survive the restore.
         const discarded = await addCustomer({ email: 'discarded@cafe.test' });
@@ -620,7 +639,8 @@ export function describeDataStoreConformance(harness: StoreHarness): void {
 
         expect(await store.getCustomerById(discarded.id)).toBeNull();
         expect(await store.getCustomerByToken(kept.token)).toMatchObject({ displayName: 'Maria' });
-        expect(await store.listTransactions(kept.id)).toHaveLength(1);
+        expect(await store.listTransactions(kept.id)).toHaveLength(2);
+        expect(await store.listRewards(kept.id, 'unspent')).toHaveLength(1);
         expect(await store.listAudit()).toHaveLength(1);
         expect(await store.getConfig()).toEqual(snapshot.config);
       });
@@ -634,6 +654,8 @@ export function describeDataStoreConformance(harness: StoreHarness): void {
           staff: [],
           customers: [],
           transactions: [],
+          rewards: [],
+          rewardEvents: [],
           audit: [],
         };
         await store.importAll(empty);

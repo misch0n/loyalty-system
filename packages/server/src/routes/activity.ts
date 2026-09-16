@@ -121,14 +121,15 @@ export function registerActivityRoutes(app: FastifyInstance, deps: AuthDeps): vo
   );
 
   /**
-   * `DataStore.appendAudit`, refused (§4-C).
+   * `POST /audit`, refused (§4-C).
    *
-   * It answers 204 rather than 403 deliberately. The route that performed the
+   * Phase 6 moved `appendAudit` off `DataStore` and onto `TrustedStore`, so a
+   * client-side adapter can no longer even express this call. The route stays
+   * because an older client can still make it, and because the *attempt* is
+   * worth seeing: it answers 204 rather than 403 (the route that performed the
    * action has already written the real row from the session actor, so there is
-   * nothing for the caller to do about the refusal and failing the call would
-   * break a service that is otherwise unchanged across the swap — the promise
-   * this whole plan is built on. The attempt is logged at `warn` so a missing
-   * server-side audit row shows up as noise here rather than as silence.
+   * nothing for the caller to do about a refusal) and logs at `warn`, so a
+   * missing server-side audit row shows up as noise rather than as silence.
    */
   app.post('/audit', { preHandler: requireStaff }, async (request, reply) => {
     request.log.warn('client attempted to write an audit row; ignored — audit is server-written');

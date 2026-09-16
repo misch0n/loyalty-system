@@ -193,7 +193,11 @@ describe('PostgresStore — beyond the prototype', () => {
         store.commitCounterTransaction(txn),
       ]);
 
-      expect(a).toEqual(b);
+      // One of the two wrote; the other replayed. Which is which is genuinely
+      // undecided under a race, so compare them with `replayed` set aside — and
+      // assert separately that exactly one of them claims to have done the work.
+      expect({ ...a, replayed: false }).toEqual({ ...b, replayed: false });
+      expect([a, b].filter((r) => r.ok && !r.replayed)).toHaveLength(1);
       expect(await store.listTransactions(c.id)).toHaveLength(1);
       expect((await store.getCustomerState(c.id)).balance).toBe(3);
     });
@@ -239,7 +243,7 @@ describe('PostgresStore — beyond the prototype', () => {
     it('hashes a password and a PIN with argon2id, never storing what it was given', async () => {
       const created = await store.createStaff({
         username: 'cashier',
-        passwordHash: 'hunter2',
+        password: 'hunter2',
         role: 'staff',
         pin: '4321',
       });
@@ -252,14 +256,15 @@ describe('PostgresStore — beyond the prototype', () => {
       expect(rows[0]?.password_hash).not.toBe('hunter2');
       expect(rows[0]?.pin_hash).toMatch(/^\$argon2id\$/);
       expect(rows[0]?.pin_hash).not.toBe('4321');
-      // …and the behaviour built on them still holds.
-      expect(await store.getStaffByPin('4321')).toMatchObject({ id: created.id });
+      // …and the digest is not a usable credential: `routes/auth.test.ts` sends
+      // the stored hash as the password and expects 401, which is the whole of
+      // §4-A in one assertion.
     });
 
     it('re-hashes on reset rather than storing the new value verbatim', async () => {
       const created = await store.createStaff({
         username: 'cashier',
-        passwordHash: 'old',
+        password: 'old',
         role: 'staff',
       });
       await store.setStaffPassword(created.id, 'new-password');
@@ -274,31 +279,22 @@ describe('PostgresStore — beyond the prototype', () => {
 
     it('stores recovery codes hashed', async () => {
       const c = await addCustomer();
-      await store.createRecoveryCode({
-        code: 'plaintext-code',
-        customerId: c.id,
-        expiresAt: Date.now() + 60_000,
-      });
+      const code = await store.createRecoveryCode(c.id);
 
       const { rows } = await db.query<{ code_hash: string }>('SELECT code_hash FROM recovery_codes');
-      expect(rows[0]?.code_hash).not.toBe('plaintext-code');
+      expect(rows[0]?.code_hash).not.toBe(code);
       expect(rows[0]?.code_hash).toMatch(/^[0-9a-f]{64}$/);
-      expect(await store.consumeRecoveryCode('plaintext-code')).toBe(c.id);
+      expect(await store.consumeRecoveryCode(c.id, code)).toBe(true);
     });
   });
 
   describe('the retired redeem path', () => {
     /**
-     * `redeemReward` wrote a `'redemption'` ledger entry; migration 001 narrows
-     * the type vocabulary so the database refuses one. Refusing loudly beats
-     * returning `ok: false`, which staff would read as "not enough points".
+     * The pre-rework `redeemReward` wrote a `'redemption'` ledger entry. Phase 6
+     * took it off the port and out of this store; migration 001 narrows the type
+     * vocabulary so the database refuses the entry as well, which is the half of
+     * the retirement that no future caller can talk its way around.
      */
-    it('refuses redeemReward rather than writing a retired ledger type', async () => {
-      const c = await addCustomer();
-      await expect(store.redeemReward(c.id, 'staff-1')).rejects.toThrow(/retired/);
-      expect(await store.listTransactions(c.id)).toHaveLength(0);
-    });
-
     it('refuses a directly appended redemption entry', async () => {
       const c = await addCustomer();
       await expect(
@@ -326,7 +322,7 @@ describe('PostgresStore — beyond the prototype', () => {
     it('keeps ledger attribution after the staff account is deleted', async () => {
       const staff = await store.createStaff({
         username: 'leaver',
-        passwordHash: 'pw',
+        password: 'pw',
         role: 'staff',
       });
       const c = await addCustomer();

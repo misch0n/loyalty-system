@@ -44,7 +44,6 @@ import { cookieMaxAgeSec, requireStaff, setSessionCookies } from '../auth/guards
 import { cardLink } from '../mail/links';
 import {
   isActiveStaff,
-  isCommitReplay,
   notFound,
   refuse,
   requireActor,
@@ -548,8 +547,6 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): vo
           .send({ error: 'rate_limited', retryAfterSec: limited.retryAfterSec });
       }
 
-      const replay = await isCommitReplay(deps.db, body.idempotencyKey);
-
       const result: CommitResult = await store.commitCounterTransaction({
         customerId: request.params.id,
         pointsDelta: body.pointsDelta,
@@ -569,7 +566,13 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): vo
       }
       deps.commitLimiter.succeed(limitKey);
 
-      if (!replay) {
+      // A retry of a commit that already happened wrote nothing to the ledger,
+      // and must write nothing here either — the audit rows and the mail are the
+      // parts that are not idempotent by themselves. `replayed` comes from the
+      // store since Phase 6; the route used to answer this by reading
+      // `idempotency_keys` behind the store's back (`isCommitReplay`), which
+      // could disagree with the store under two simultaneous retries.
+      if (!result.replayed) {
         if (body.pointsDelta > 0) {
           await store.appendAudit({
             actorId: actor.id,
@@ -684,9 +687,8 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: AuthDeps): vo
     },
   );
 
-  // `POST /customers/:id/redeem` (`DataStore.redeemReward`) deliberately has no
-  // route. The rewards-as-objects rework replaced it with the unified commit,
-  // migration 001 refuses the `redemption` ledger entry it would write, and
-  // `PostgresStore.redeemReward` throws for the same reason. Nothing in the
-  // product calls it; it is removed from the port in Phase 11.
+  // `POST /customers/:id/redeem` deliberately has no route, and now has nothing
+  // behind it either: the rewards-as-objects rework replaced `redeemReward` with
+  // the unified commit, migration 001 refuses the `redemption` ledger entry it
+  // wrote, and Phase 6 took the method off the port and out of the store.
 }

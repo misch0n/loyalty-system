@@ -38,8 +38,8 @@ beforeEach(async () => {
   app = buildServer({ logLevel: 'silent', auth: deps });
   await app.ready();
 
-  adminId = (await store.createStaff({ ...ADMIN, passwordHash: ADMIN.password, role: 'admin' })).id;
-  await store.createStaff({ ...STAFF, passwordHash: STAFF.password, role: 'staff' });
+  adminId = (await store.createStaff({ ...ADMIN, role: 'admin' })).id;
+  await store.createStaff({ ...STAFF, role: 'staff' });
   admin = await signIn(app, ADMIN.username, ADMIN.password);
 });
 
