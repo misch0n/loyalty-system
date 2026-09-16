@@ -42,11 +42,17 @@ RUN npm run build --workspace @cafe/server
 # `node_modules` only, which is safe exactly as long as everything a running
 # server needs hoists there — so that stops being an assumption and becomes a
 # build failure.
+#
+# It looks for a `package.json`, not for a directory. `@types/node` does not hoist
+# (the workspaces pin different versions), so `npm prune` deletes it and leaves the
+# empty `@types/` scope directory standing — which a directory check reads as a
+# stranded dependency and fails the build on. A package is a `package.json`; an
+# empty directory the runtime stage would not miss is not.
 RUN npm prune --omit=dev \
- && if find packages -mindepth 3 -maxdepth 3 -path '*/node_modules/*' | grep -q .; then \
+ && if find packages -path '*/node_modules/*/package.json' | grep -q .; then \
       echo 'ERROR: a production dependency did not hoist to the root node_modules;' >&2; \
       echo 'the runtime stage copies only /app/node_modules and would miss it.' >&2; \
-      find packages -mindepth 3 -maxdepth 3 -path '*/node_modules/*' >&2; \
+      find packages -path '*/node_modules/*/package.json' >&2; \
       exit 1; \
     fi
 
