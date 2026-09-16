@@ -24,6 +24,18 @@ concrete subagent definitions live in `.claude/agents/`.
 > These describe where the code is *going*. The prototype still behaves as documented below until
 > each item is built, so treat the rules as current-state and the decisions doc as intent.
 >
+> **⚠ 2026-09-16 — two further decisions (SCOPE-DECISIONS §6) that outrank most of this file.**
+> **(1)** The backend is built **without consideration for the UI**; the UI is adjusted afterwards
+> with the backend as ground truth, and conflicts are collected in `docs/UI-RECONCILIATION.md` for
+> the maintainer to confirm. BACKEND-PLAN's *no UI or service rewrite* promise is revoked, which
+> means **`src/ports/` and `src/services/` are editable** where the server needs them to be.
+> **(2)** The IndexedDB prototype is **retired**. `IndexedDbStore`, `src/adapters/sync/`
+> (PeerJS pairing), `src/adapters/transport/`, `src/adapters/wallet/`, `EmailJsMailer`, `demoSeed`
+> and the GitHub Pages demo are deleted in Phase 6 — so the "Prototype transport" section below,
+> the `DataStore`-is-IndexedDB framing, and the UI rules describing the Prototype panel, the
+> pairing flow and the wallet button are all **describing something being removed**. The SPA
+> knowingly stops building at Phase 6; the gate is the server suite until the UI pass.
+>
 > **`docs/BACKEND-PLAN.md`** is the live, phase-by-phase build plan (Fastify + Postgres + Docker
 > Compose) with a resume protocol and progress checklist — a fresh session picks up the first
 > unchecked box. Re-read both files, and merge `main`, at the start of every phase.

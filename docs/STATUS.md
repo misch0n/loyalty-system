@@ -5,9 +5,26 @@
 > [`SPEC.md`](SPEC.md); working rules in [`../CLAUDE.md`](../CLAUDE.md).
 > **Keep this file current** — see the Scribe role in `CLAUDE.md`.
 >
+> ### ⚠ 2026-09-16 — the backend now leads and the prototype is being deleted
+>
+> Two maintainer decisions, recorded in [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) §6, that change
+> how this whole file should be read:
+> 1. **The backend is built without consideration for the UI**, and the UI is adjusted afterwards
+>    with the backend as ground truth. BACKEND-PLAN's *no UI or service rewrite* promise is
+>    revoked. Conflicts are collected in [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md) for the
+>    maintainer to confirm — **add to it as you go**.
+> 2. **The IndexedDB prototype is retired**, not kept working: `IndexedDbStore`, the PeerJS
+>    pairing layer, the transport and wallet adapters, `EmailJsMailer` and the Pages demo all go
+>    in Phase 6.
+>
+> **So everything below describes a prototype that is being dismantled, not a shipping one**, and
+> from Phase 6 the SPA knowingly stops building. The release gate for the backend run is the
+> server suite + server `tsc`; a red root build is expected, not a regression to chase.
+>
 > **▶ Active initiative — the production backend.** [`BACKEND-PLAN.md`](BACKEND-PLAN.md) is the
-> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose, 12 phases; **Phases 0–5 done**,
-> next is Phase 6 — the client adapters + the composition root) and
+> live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose; **Phases 0–5 done**,
+> next is Phase 6 — retire the prototype + reshape the shared port; execution order is then
+> 10 → 7 → 8 → 9, UI pass, 11) and
 > [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) is the maintainer's feature triage, which **overrides
 > scope statements elsewhere including `CLAUDE.md`** — mandatory name + email, wallet and transport
 > seams deleted, no admin stats or export surface. Everything described below is the prototype's

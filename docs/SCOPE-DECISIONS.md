@@ -9,6 +9,12 @@
 >
 > Tally: **89 keep · 18 drop · 6 change**, plus 10 already-removed items confirmed to stay out.
 > **All open questions (Q1–Q7) answered 2026-09-15 — see §4.**
+>
+> **§6 holds later maintainer decisions**, taken after the triage and equally authoritative. Two
+> so far, both from 2026-09-16 and both large: the backend is now built **before** the UI and
+> without regard for it, and the IndexedDB prototype is **retired**. Read §6 before §5 — it
+> changes what "the prototype keeps its current behaviour until the backend reaches each item"
+> means.
 
 ---
 
@@ -225,3 +231,53 @@ quietly contradicting. A Scribe pass owes each of these an edit:
 
 The prototype keeps its current behaviour until the backend build reaches each item; these
 edits land with the work, not before.
+
+---
+
+## 6 · Later decisions (after the triage)
+
+### 6.1 · 2026-09-16 — the backend is built first, and the UI follows it
+
+The maintainer revoked [`BACKEND-PLAN.md`](BACKEND-PLAN.md)'s founding promise (*no UI or service
+rewrite*):
+
+> *"We are preparing the backend now. We do it the way it needs to be done without consideration
+> for the UI. Once backend work is complete, we will adjust UI, taking the backend as ground
+> truth, and marking conflicts for confirmation."*
+
+**What it changes.** `ports/DataStore.ts` and `src/services/` become editable, so the fixes that
+were forced to the route boundary purely to keep a shared file untouched can be taken properly
+(BACKEND-PLAN §4). The three "this is where the promise is under pressure" problems —
+`LoyaltyService.getAlerts`, `RecoveryService`, and the offline posture — stop being constraints
+to design around and become UI-pass decisions.
+
+**What it costs, stated once.** The UI is knowingly left broken for the duration: from the phase
+that deletes `IndexedDbStore`, the SPA does not build, and the release gate is the server suite
+plus the server typecheck. There is **no demoable build** until the server-backed UI is
+deployable.
+
+**The mechanism.** Every backend-vs-UI conflict is recorded in
+[`UI-RECONCILIATION.md`](UI-RECONCILIATION.md) as it is created, with a status saying whether the
+triage already answers it or the maintainer still has to. The UI pass starts from that register
+with the maintainer's confirmations against it, not from discovery.
+
+### 6.2 · 2026-09-16 — the IndexedDB prototype is retired, not frozen
+
+Asked what the prototype was *for* once the port was free to change for the server's benefit, the
+maintainer chose retirement over freezing it or keeping it in lockstep.
+
+BACKEND-PLAN §2 had locked the opposite ("stays fully working and is not deleted") for three
+reasons: it is the demo, it is the reference implementation, and it is how the swap is proven
+behaviour-preserving. **The third is void** — §6.1 drops behaviour preservation as a goal — and
+the first two do not justify mirroring every server-shaped port change into a second adapter.
+
+Deleted in Phase 6: `IndexedDbStore`, `src/adapters/sync/` (PeerJS pairing), `src/adapters/transport/`
++ `ports/Transport.ts`, `src/adapters/wallet/` + `ports/WalletProvider.ts`, `EmailJsMailer`,
+`demoSeed` and the preset tokens, the `VITE_*` adapter flags, and the GitHub Pages deploy; plus
+the `peerjs` and `idb` dependencies. The shared conformance suite survives as `PostgresStore`'s
+specification rather than as a cross-store contract. The prototype's *screens* go in the UI pass.
+
+**Net architectural effect, updated:** the triage took five swappable seams to three. This takes
+three to **one implementation each** — `PostgresStore`, `SmtpMailer`/`LogMailer`, and a
+server-cookie `IdentityStore`. The ports remain as the boundary; what goes is the second
+implementation behind each.

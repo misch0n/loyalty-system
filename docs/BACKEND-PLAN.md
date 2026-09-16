@@ -6,11 +6,29 @@
 > Production Migration) steps 1, 2, 4 and 5. Step 3 (Wallet) is **out of scope entirely** — the
 > triage dropped wallet, retiring the `WalletProvider` port with it.
 >
-> **The promise this plan must keep:** *no UI or service rewrite.* Every screen and every
-> `services/` call site stays byte-for-byte identical; only adapters and the composition
-> root change. If a phase below requires touching `src/ui/`, that is a defect in the plan,
-> not a licence to edit the UI. Two phases touch `src/` by design and only those two: **Phase 6**
-> (additive adapter wiring) and **Phase 10** (the monorepo file move).
+> ### ⚠ THE PLAN'S ORIGINAL PROMISE IS REVOKED (maintainer, 2026-09-16)
+>
+> **Was:** *no UI or service rewrite* — every screen and every `services/` call site stays
+> byte-for-byte identical, only adapters and the composition root change, and a phase that
+> needed to touch `src/ui/` was a defect in the plan.
+>
+> **Now:** *the backend is built the way it needs to be built, without consideration for the
+> UI.* When the backend is complete the UI is adjusted to it, **taking the backend as ground
+> truth**, and every place the two disagree is written down for the maintainer to confirm
+> rather than quietly resolved. The register is
+> [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md) — **add to it as you go**; it is what the UI
+> pass starts from, and a conflict nobody recorded is a conflict nobody confirms.
+>
+> Three consequences, all load-bearing:
+> - **`ports/DataStore.ts` and `src/services/` are now editable.** Every compromise taken
+>   because Phases 0–9 may not touch a shared file is back on the table — §4 lists them.
+> - **The IndexedDB prototype is retired, not frozen** (same decision). One store, one truth.
+>   `IndexedDbStore`, the PeerJS pairing layer, the wallet and transport adapters, `EmailJsMailer`
+>   and the GitHub Pages demo all go. See §2, *Prototype path*.
+> - **The SPA stops building, knowingly, and stays broken until the UI pass.** From the phase
+>   that deletes `IndexedDbStore` onward the release gate is the **server suite + server
+>   `tsc`**, and nothing else. A red SPA build during the backend run is expected, not a
+>   regression to chase.
 
 ---
 
@@ -20,33 +38,34 @@ Same protocol as [`REWARDS-PLAN.md`](REWARDS-PLAN.md) — written so work contin
 context cleared between tasks.
 
 **Resume protocol for a new session:**
-1. Work on branch **`claude/backend-implementation-2kqb08`**. Merge `origin/main` first —
-   frontend work lands there and has already changed the `DataStore` port once mid-plan.
+1. Work on branch **`claude/backend-implementation-2kqb08`**. Merge `origin/main` first.
 2. Read [`STATUS.md`](STATUS.md) (current state), [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md)
-   (what is in scope — it **overrides** `../CLAUDE.md` where they differ), then this file.
+   (what is in scope — it **overrides** `../CLAUDE.md` where they differ), the revoked-promise
+   box at the top of this file, then this file.
 3. Find the first **unchecked** box in the *Progress checklist* (§1) — that's the next task.
 4. Do **only that phase**. Stay within its file list. Honour the architecture rules in
-   [`../CLAUDE.md`](../CLAUDE.md), as amended by SCOPE-DECISIONS §5.
-5. Before committing: root `npx tsc --noEmit` + `npm test` + `npm run build` must pass **and**,
-   from Phase 0 on, the server's own `npm test -w @cafe/server` (**389** as of Phase 5). Note that
-   `npm test -w @cafe/server` does **not** typecheck — run `npx tsc --noEmit -p
-   packages/server/tsconfig.json` too; it is the server's `build` script and it covers the tests.
-   The SPA's
-   461 tests must not regress — if a phase breaks them, the phase is wrong, not the tests. (They
-   were 448 until Phase 2 moved the port contract into the shared conformance suite: +41
-   conformance tests, −28 duplicates the shared suite absorbed from `IndexedDbStore.test.ts`.)
-6. Tick the box here, update the `STATUS.md` "Last updated" line, commit + push.
-7. Stop. The next session picks up the next box.
+   [`../CLAUDE.md`](../CLAUDE.md), as amended by SCOPE-DECISIONS §5 and §6.
+5. Before committing, the gate is **`npm test -w @cafe/server`** (**389** as of Phase 5) plus
+   **`npx tsc --noEmit -p packages/server/tsconfig.json`** — the server suite does *not*
+   typecheck itself, and that second command is the server's `build` script.
+   **Root `npm test` / `npm run build` are no longer a gate** and are expected to be red from
+   Phase 6 (prototype retirement) until the UI pass; see the revoked-promise box. Until Phase 6
+   they should still pass, so keep running them.
+6. **Record every backend-vs-UI conflict you create** in
+   [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md). This is not optional bookkeeping — it is the
+   entire input to the UI pass, and the maintainer confirms from it.
+7. Tick the box here, update the `STATUS.md` "Last updated" line, commit + push.
+8. Stop. The next session picks up the next box.
 
-**Parallel work warning.** Frontend work has been landing on `main` in parallel with this
-initiative (Appendix E arrived mid-plan and changed the `DataStore` port — see *Baseline*). **Phases 0–9 deliberately do not move or rewrite a single
-existing frontend file** — new code lands in `packages/server/`, and the only edits to
-`src/` are the two additive adapter changes in Phase 6. *(One exception so far: Phase 4 made
-`src/domain/alerts.ts` index-safe so the server could import it under its stricter tsconfig —
-a pure refactor, no behaviour change, recorded in "Phase 4 — as built". Expect the same for any
-other shared file the server comes to import.)* The monorepo file move that would
-conflict with every frontend diff is isolated into **Phase 10**, to be run *after* frontend
-work has settled. Divergences get reconciled then. **Merge `main` at the start of every phase.**
+**The parallel-frontend warning is retired.** It said Phases 0–9 must not move or rewrite a
+single existing frontend file, because a frontend agent was landing work on `main` and the
+monorepo move would conflict with every diff it produced. Both halves are gone: the UI is now
+adjusted *after* the backend rather than beside it, and the prototype it was protecting is being
+deleted. What survives from it is one habit worth keeping — **merge `main` at the start of every
+phase** — and one fact: Phase 4 had to make `src/domain/alerts.ts` index-safe to import it under
+the server's stricter tsconfig. `domain/` is now shared with a compiler that sets
+`noUncheckedIndexedAccess`; expect the same friction from any other shared file, and fix it in
+place.
 
 **Running the server tests.** The suite **requires** a real Postgres and fails without one:
 `packages/server/src/testing/globalSetup.ts` checks reachability once per run and aborts with
@@ -87,11 +106,13 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 
 ## 1 · Progress checklist
 
-> **NEXT TASK: Phase 6** — the client adapters + the composition root.
+> **NEXT TASK: Phase 6** — retire the prototype, reshape the shared port. **Read the
+> revoked-promise box at the top of this file first**; Phase 6 does not exist in the plan as it
+> was written before 2026-09-16, and it is the phase that takes the SPA red.
 > Phase 5 landed 2026-09-16: mail left the browser (`SmtpMailer` / `LogMailer`, templates in the
 > repo), recovery became a typed code over two public routes, and the welcome + reward-available
 > mails moved to the routes that know they happened. **389 server tests** (was 315); the SPA's
-> **461** are untouched.
+> **461** still pass at the moment Phase 6 begins, and will not afterwards.
 >
 > **The server suite needs a real Postgres and FAILS without one** — it does not skip. Most of
 > its tests are database-backed, and before Phase 2 they skipped themselves when no database was
@@ -99,26 +120,28 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 > having tested nothing. It now aborts in `globalSetup` with the commands to start one. See §0
 > *Running the server tests*.
 >
-> Read §5 Phase 6 and the decisions Phases 1–5 recorded at the foot of §5 before starting. Phase 6
-> inherits four calls in particular, and the first two are the phase's real work:
-> - **Two services cannot survive the swap as written, and both were left for this phase
->   deliberately.** `LoyaltyService.getAlerts` derives alerts from two cross-account `listAudit`
->   reads that `GET /audit` no longer permits (Phase 4; `GET /alerts` returns findings instead).
->   `RecoveryService` mints its own code and sends its own mail, which a client may not do, and its
->   `redeem(code)` now needs the address alongside the code (Phase 5; `POST /recovery/request` and
->   `/recovery/consume`). Neither screen's *call* changes — `services.recovery.request(email)` and
->   `getAlerts()` stay — so the swap belongs in the composition root, as a server-backed sibling
->   behind the same shape. This is where "no service rewrite" is under real pressure; decide it,
->   don't discover it.
-> - **Wire the SPA with `NoopMailer` under `VITE_DATASTORE=api`.** The routes now send the welcome
->   and reward-available mails. Leaving `EmailJsMailer` in the client build means every customer
->   gets each mail twice, and the client's copy is the one that cannot be trusted.
-> - **`ApiStore` needs no route for `createRecoveryCode` / `consumeRecoveryCode`, and must not gain
->   one.** They are the prototype's shape (global-by-code, right for a 128-bit token, wrong for six
->   typed characters) and `guardrails.test.ts` fails if anything outside `PostgresStore` calls them.
-> - **The offline posture is still undecided** (§4, last item). `IndexedDbStore` never fails;
->   `ApiStore` will. The intended answer is a shared error surface in the adapter plus the existing
->   toast, not per-screen changes — and SCOPE-DECISIONS §2.4 already specifies what staff should see.
+> Read §5 Phase 6 and the decisions Phases 1–5 recorded at the foot of §5 before starting. The
+> four calls the *old* Phase 6 inherited (the two services that cannot survive the swap, the
+> `NoopMailer` wiring, the recovery port pair, the offline posture) are **not Phase 6's any
+> more** — they are UI-pass work and have moved into
+> [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md), where the maintainer confirms them. Phase 6
+> inherits these instead:
+> - **Deleting is the easy half; reshaping the port is the phase.** §4's six contract problems
+>   were each solved *server-side so the port would not have to change*. That constraint is gone,
+>   so re-read §4 and take the honest fix where one exists — `setStaffPassword(id, passwordHash)`
+>   should not claim to take a hash, `getStaffByPin` and `redeemReward` should leave the port, the
+>   recovery pair should take its scoped shape, and `CommitResult` should carry `replayed` so
+>   `routes/shared.ts` can stop reading `idempotency_keys` behind the store's back.
+> - **The conformance suite loses one of its two stores and should not be deleted with it.** Its
+>   41 tests are real port behaviour and become `PostgresStore`'s specification. What it stops
+>   being is a *cross-store* contract — say so in the file, or the next reader will think the
+>   second store went missing by accident.
+> - **`Snapshot` is still missing rewards, reward events and recovery codes** (§3-A-6). It was
+>   carried rather than fixed because widening it changes a shared domain type. That is now
+>   allowed; fix it, and note that `/export` remains a config-and-ledger backup until you do.
+> - **Deleting the Pages deploy leaves the SPA with no host until Phase 8** serves it from nginx.
+>   That is the same knowing gap as the red build, not a separate problem — but `.github/workflows`
+>   should not be left pointing at a deploy that cannot work.
 >
 > **A live gap Phase 4 found and did not fix, for whoever reaches Phase 8:** `bootstrap.ts` is
 > built and tested but **nothing calls it**. `index.ts` does not (a long-running API should not
@@ -131,21 +154,37 @@ below are stated against the post-Appendix-E contract, not the rewards-rework on
 > error's SQLSTATE. Phase 5 works around it by putting the provider's error code in the *message*
 > (`SMTP send failed for a "recovery" mail (ESOCKET)`); narrow the key when Phase 8 revisits logging.
 
+> **Phase numbers are labels, not sequence.** The 2026-09-16 decision reordered the work and
+> gave **Phase 6** entirely new contents; renumbering the rest would invalidate every forward
+> reference the "as built" notes already carry (*"whoever reaches Phase 8"*, *"Phase 10 or 11"*,
+> …). So each number keeps its subject and the list below is in **execution order**. Old Phase 6
+> (client adapters) is no longer a backend phase at all — it moved into the UI pass, because
+> `ApiStore` cannot be finished without the service and screen decisions the UI pass makes.
+
 - [x] **Phase 0** — Workspace scaffolding + Fastify skeleton (no frontend files touched)
 - [x] **Phase 1** — Postgres schema + migrations
 - [x] **Phase 2** — `PostgresStore` + the shared `DataStore` conformance suite  ⟵ the core
 - [x] **Phase 3** — Auth: password/PIN hashing, sessions, epoch revocation, rate limits
 - [x] **Phase 4** — HTTP API surface + the authorization boundary
 - [x] **Phase 5** — Server-side `Mailer` + recovery flow
-- [ ] **Phase 6** — Client adapters: real `ApiStore`, `ServerIdentityStore`, composition root
+- [ ] **Phase 6** — **Retire the prototype + reshape the shared port**  ⟵ the SPA goes red here
+- [ ] **Phase 10** — Monorepo flip (`packages/shared` + `packages/web`) — pulled forward
 - [ ] **Phase 7** — Realtime push (SSE) — replaces what device pairing provided
 - [ ] **Phase 8** — Docker Compose bundle + ops (backups, health, logging)
 - [ ] **Phase 9** — CI + integration tests against a real Postgres
-- [ ] **Phase 10** — Monorepo flip (`packages/shared` + `packages/web`) — **after** frontend lands
+- [ ] **— UI pass —** a separate initiative: client adapters, services reshaped to the API,
+      screens reconciled against [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md)
 - [ ] **Phase 11** — Docs (STATUS divergences, README, CLAUDE.md, SPEC §15 rows)
 
 Phase 2 was the big one and everything from 4 onward builds on it (Phases 0+1 landed together).
 The wallet phase is gone — the triage dropped wallet entirely.
+
+**Why Phase 10 moved forward.** It was last for one reason: a monorepo move renames every
+frontend file and would have conflicted with every diff the parallel frontend agent produced.
+That agent is gone, and Phases 8 and 9 both *encode the file layout* — a Dockerfile and a CI
+workflow written against `src/` would be rewritten days later. Flipping before them costs
+nothing and saves that rework. It is also much cheaper than it was: Phase 6 deletes most of what
+`src/` contains before anything has to be moved.
 
 ---
 
@@ -154,14 +193,14 @@ The wallet phase is gone — the triage dropped wallet entirely.
 | # | Decision | Rationale |
 |---|---|---|
 | Code layout | **npm workspaces monorepo** — `packages/shared` (domain + ports), `packages/web` (the SPA), `packages/server`. One source of truth for the contract; no drift. | Chosen over a path-alias `server/` and over a duplicated copy. A drifting copy of `ports/DataStore.ts` is exactly the failure the ports architecture exists to prevent. |
-| Move timing | The **physical file move is Phase 10**, last. Phases 0–9 build the server at `packages/server` importing `domain`/`ports` **through the workspace alias `@cafe/shared`, resolved for now to the existing `src/domain` + `src/ports`**. Phase 10 moves those two folders into `packages/shared` and `src/` into `packages/web/src` — a pure move, no logic change. | A restructure that renames every frontend file would conflict with every diff the parallel frontend agent produces. Destination is unchanged; only the ordering is chosen to avoid a merge disaster. |
+| Move timing | **REVISED 2026-09-16 — the move runs straight after Phase 6**, not last. Until then the server imports `domain`/`ports` through the workspace alias `@cafe/shared`, resolved to the existing `src/domain` + `src/ports`; the move puts those two in `packages/shared` and what remains of `src/` in `packages/web/src`. Still a pure move, no logic change. | It was last to avoid conflicting with every diff the parallel frontend agent produced. That agent is gone, and Phases 8 and 9 both encode the file layout — writing a Dockerfile and a CI workflow against `src/` and then moving it is pure rework. Destination unchanged; only the ordering moved, and Phase 6 shrinks the thing being moved first. |
 | HTTP + DB | **Fastify + `pg` + hand-written numbered SQL migrations.** No ORM. | Matches the repo's "small and boring" rule. The commit transaction is the one piece of logic that must be *obvious* — explicit `BEGIN` / `SELECT … FOR UPDATE` / `COMMIT` beats an ORM's transaction abstraction. Fastify's JSON-schema route validation covers the boundary without a validation dependency. |
 | Sessions | **HttpOnly, `Secure`, `SameSite=Lax` cookie sessions for both staff and customers**, server-side session rows. CSRF via double-submit token on all mutating routes. | Server-set HttpOnly cookies are the **only** customer recognition that survives iOS ITP — the durability gap [`COLLAB-NOTES.md`](COLLAB-NOTES.md) records as unsolvable client-side, and a large part of why the backend is worth building. Cookie sessions also make `sessionEpoch` revocation real (delete the rows) rather than "wait for the JWT to expire". |
 | Passwords/PINs | **argon2id**, hashed **server-side from the plaintext**. The client never hashes. | See §4-A: `setStaffPassword(id, passwordHash)` as written would make the hash itself the password. |
 | Actor | `staffId` / actor identity is **always derived from the session server-side** and overrides anything in the request body. | The client is untrusted. This is the anti-fraud anchor from `CLAUDE.md` ("staff initiates the credit") made real. |
 | Audit | Audit rows are written **by the route handler**, server-side, in the same transaction as the action. The client's `appendAudit` becomes a rejected/no-op call. | A client-writable audit log is not an audit log. |
 | Migrations | Numbered, forward-only `.sql` files applied by a one-shot `migrate` container before `api` starts. No down-migrations. | Restores are from backups, not from down-migrations. |
-| Prototype path | The IndexedDB prototype **stays fully working and is not deleted**. Both stores must pass the same conformance suite. | The prototype is the demo and the reference implementation. It is also how we prove the swap is behaviour-preserving. |
+| ~~Prototype path~~ **REVERSED 2026-09-16** | The IndexedDB prototype is **retired, not kept**: `IndexedDbStore`, `adapters/sync/` (PeerJS pairing), `adapters/transport/`, `adapters/wallet/`, `EmailJsMailer`, `demoSeed`, the `VITE_*` adapter flags and the GitHub Pages deploy all go in Phase 6. One store, one truth. | It was kept to be the demo, the reference implementation, and the proof that the swap preserves behaviour. The third reason is gone — the maintainer has dropped behaviour preservation as a goal — and the first two do not justify mirroring every server-shaped port change into a second adapter. The cost is accepted and stated: **no demoable build at all until the server-backed UI is deployable.** |
 | Corrections | **No post-commit undo, server-side or otherwise.** The staff counter's 3-second **pre-commit hold** is purely client-side and survives the swap untouched; the only correction primitive is `LoyaltyService.reverse` (a ledger entry). | Appendix E decision — a "reverse an already-committed transaction" endpoint is exactly the affordance staff misuse. `CLAUDE.md`: do not reintroduce `undo`/`undoCommit`/`planUndo`. The backend must not add one back under a new name. |
 | Cross-account reads | The API exposes **no cross-account activity endpoint at all** — the triage dropped the export surface too (SCOPE-DECISIONS §1). Audit rows are collected and reachable only by querying the database directly. The ranged audit query survives as an **internal** server function feeding the detectors, with no route attached. | Appendix E deleted every ambient feed; the triage went further and deleted the sanctioned export as well. A backend makes both *easy* to re-expose, which is why it's locked here. |
 
@@ -282,13 +321,17 @@ APNs, Google REST), the server registration handoff, and bounded stats reads. Th
 
 ---
 
-## 4 · Contract problems to resolve before Phase 4 (read before writing routes)
+## 4 · Contract problems (resolved at the boundary in Phases 3–5; **revisit in Phase 6**)
 
-`ApiStore` mirrors `DataStore` 1:1. That is right for *shape* — it is what keeps the UI
-unchanged — but a `DataStore` method is a **trusted, in-process call** in the prototype and
-becomes an **untrusted, cross-network call** over HTTP. Six of them are unsafe as literally
-specified. The fix in each case is server-side, so `ports/DataStore.ts` and every UI call
-site stay untouched:
+A `DataStore` method is a **trusted, in-process call** in the prototype and becomes an
+**untrusted, cross-network call** over HTTP. Six of them are unsafe as literally specified.
+
+**Read this section twice.** Every fix below was taken *server-side, at the route boundary*, for
+one reason that no longer holds: `ports/DataStore.ts` was off limits, so a signature had to
+survive even where it was actively misleading about what it does. Since 2026-09-16 the port is
+editable, and most of these deserve the honest fix — that is Phase 6's work, listed in §5. The
+boundary defence stays in place regardless: a correct signature is not a substitute for a guard,
+and the guards are what the authorization matrix tests.
 
 - **A · `setStaffPassword(id, passwordHash)`** — **resolved in Phase 3 for sign-in**; the reset
   *routes* are Phase 4's and must follow the same rule. The parameter name promises the client
@@ -339,13 +382,14 @@ site stay untouched:
   code in the prototype and are removed in Phase 11. `GET /audit` must not accept a
   cross-account filter at all.
 
-**One more, not a security issue but a behaviour change:** `IndexedDbStore` never fails
-offline; `ApiStore` will. No screen currently has a network-error path. Phase 6 must decide
-the posture — surface a retry/offline state, or accept that a server-backed build requires
-connectivity — and Phase 11 must record it (the plan has no Phase 12). This is one of two places
-where "no UI rewrite" is under real pressure; the intended answer is a shared error surface in the
-adapter plus the existing toast, not per-screen changes. **The other is `LoyaltyService.getAlerts`,
-which Phase 4 left without a `DataStore` path** — see "Phase 4 — as built".
+**One more, not a security issue but a behaviour change:** `IndexedDbStore` never fails offline;
+its replacement will. No screen has a network-error path, and after Phase 6 there is no store
+that cannot fail. This was listed here as one of the two places "no UI rewrite" was under real
+pressure (the other being `LoyaltyService.getAlerts`, which Phase 4 left without a `DataStore`
+path). Both are now simply **UI-pass decisions** rather than constraints to design around, and
+both live in [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md). SCOPE-DECISIONS §2.4 already
+specifies what staff must see for each failure the terminal can detect — that is the starting
+point, not a blank page.
 
 ---
 
@@ -780,12 +824,46 @@ recovery hash is now shared), `routes/guardrails.test.ts`, `routes/authz.test.ts
   The log was then searched for the name, address, phone, card token, short code, recovery code,
   sender address and both session tokens — none present.
 
-### Phase 6 — Client adapters + composition root
-Fill in `ApiStore.request` (credentials, CSRF header, typed errors, one error surface); new
-`ServerIdentityStore`; `createServices` wires the server adapters under `VITE_DATASTORE=api`;
-`isPrototype` already flips correctly and drops the dev panel + pairing. **The only phase
-that edits `src/`**, and only additively.
-Done when: the SPA runs fully against the API with no screen changed.
+### Phase 6 — Retire the prototype + reshape the shared port
+**Redefined 2026-09-16.** The old Phase 6 (client adapters, additive, no screen changed) moved
+into the UI pass; see the revoked-promise box.
+
+**Delete.** `src/adapters/storage/IndexedDbStore.ts` and its tests; `src/adapters/sync/` (the
+whole PeerJS pairing layer — `PeerJsHost`, `ConnLink`, `joinHost`, `SwitchableStore`);
+`src/adapters/transport/` and `src/ports/Transport.ts`; `src/adapters/wallet/` and
+`src/ports/WalletProvider.ts` (both retired by the triage, SCOPE-DECISIONS §1);
+`src/adapters/email/EmailJsMailer.ts`; `demoSeed` and the preset card tokens; the `VITE_TRANSPORT`
+/ `VITE_WALLET` / `isPrototype` adapter flags; the GitHub Pages deploy workflow. Drop `peerjs`
+and `idb`/Dexie from `package.json`. **Leave the screens alone** — `ProtoPanel`, `DevTrigger`,
+`PairDevices`, `PairingContext` and `/pair` are UI-pass deletions; record them in the register
+rather than chasing them here.
+
+**Reshape.** §4's six contract problems, now that the port is editable:
+`setStaffPassword(id, passwordHash)` → a name that admits it takes a plaintext credential;
+`getStaffByPin` and `redeemReward` off the port entirely; `createRecoveryCode` /
+`consumeRecoveryCode` → the scoped shape `recovery/codes.ts` already implements;
+`CommitResult` → `+ replayed`, so `routes/shared.ts` stops reading `idempotency_keys` behind the
+store's back; `appendAudit` off the client-facing surface; `Snapshot` → the three stores it is
+missing (§3-A-6). Each one deletes a workaround — say which, in the as-built notes.
+
+**Keep.** `tests/conformance/dataStoreConformance.ts`. It stops being a cross-store contract and
+becomes `PostgresStore`'s specification; rename its role in the file so the missing second store
+reads as a decision rather than an accident.
+
+Done when: `npm test -w @cafe/server` and the server `tsc` are green, no workaround from §4
+survives that the port could have fixed, and every screen-level consequence is a row in
+[`UI-RECONCILIATION.md`](UI-RECONCILIATION.md). **The root build and the SPA suite are red, and
+that is the expected outcome, not a failure of the phase.**
+
+### — UI pass — (a separate initiative, after Phase 9)
+What the old Phase 6 was, plus everything the register accumulated. `ApiStore.request`
+(credentials, CSRF header, typed errors, one error surface); `ServerIdentityStore`;
+`createServices` wiring the server adapters and **`NoopMailer`** (the routes send the mail now —
+leaving a client mailer in means every customer gets each mail twice); `LoyaltyService.getAlerts`
+and `RecoveryService` reshaped to the routes that replaced them; the offline posture built
+against SCOPE-DECISIONS §2.4; the prototype's screens deleted.
+Starts from [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md) with the maintainer's confirmations
+against it — not from discovery.
 
 ### Phase 7 — Realtime push (SSE)
 `GET /events` + a client subscriber feeding the existing `dataVersion` refresh.
@@ -803,25 +881,41 @@ Extend `.github/workflows/` to build/test the server against a Postgres service 
 and build the images.
 Done when: CI is green on this branch.
 
-### Phase 10 — Monorepo flip (after the frontend work lands)
-Move `src/domain` + `src/ports` → `packages/shared/src`, `src/` → `packages/web/src`; point
-the alias at the real package. Pure move, no logic change. Reconcile frontend divergences here.
-Done when: root `npm test` + `npm run build` + the server suite are all green post-move.
+### Phase 10 — Monorepo flip (**runs second, straight after Phase 6**)
+Move `src/domain` + `src/ports` → `packages/shared/src`, what remains of `src/` →
+`packages/web/src`; point the alias at the real package. Pure move, no logic change. Also the
+moment the server can stop running on `tsx` — with `@cafe/shared` a real package the alias stops
+being an alias, and `build` can emit (Phases 0–1 as built).
+Done when: the server suite + server `tsc` are green post-move. The root build is red for the
+reason Phase 6 made it red; it is not this phase's to fix.
 
 ### Phase 11 — Docs
 STATUS divergences (§4 A–E, the PIN-semantics change, offline posture, the scaling note),
 close divergence `l`, README architecture + diagrams, `CLAUDE.md` stack/adapters,
 SPEC §15 rows, and the Appendix E guarantees restated as server-side invariants. Per the
-`CLAUDE.md` documentation rule.
+`CLAUDE.md` documentation rule. Also, post-2026-09-16: retire every doc statement that describes
+the prototype adapters as current (README's seam table and file tree, `CLAUDE.md`'s "Prototype
+transport" section and its `Transport`/`WalletProvider` non-negotiables, SPEC §15's wallet and
+token-only rows), and fold the settled rows of `UI-RECONCILIATION.md` into `STATUS.md` so there
+is one record rather than two.
 
 ---
 
 ## 6 · Acceptance
 
+> Two criteria were **struck on 2026-09-16** and are recorded here rather than deleted, so that
+> a reader who remembers them can see they were retired on purpose:
+> - ~~*The swap changes only the composition root* — `git diff` over `src/ui/` + `src/services/`
+>   is empty across Phases 0–10.~~ The maintainer revoked the promise this enforced. Replaced by
+>   the reconciliation register: **no backend-vs-UI conflict reaches the UI pass unrecorded.**
+> - ~~*`PostgresStore` is behaviourally identical to `IndexedDbStore`* — one conformance suite,
+>   two stores, both green.~~ There is no second store. The suite survives as `PostgresStore`'s
+>   own specification; what it no longer proves is a cross-store equivalence nobody needs.
+
 | Criterion | Proven by |
 |---|---|
-| The swap changes only the composition root | `git diff` over `src/ui/` + `src/services/` is empty across Phases 0–10 |
-| `PostgresStore` is behaviourally identical to `IndexedDbStore` | One conformance suite, two stores, both green |
+| Every backend-vs-UI conflict is written down before the UI pass | [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md), one row per conflict, each with a status |
+| The port is shaped for the server, not for the retired prototype | §4's six contract problems each resolved in `ports/DataStore.ts`, not worked around at the boundary |
 | The commit is genuinely atomic under concurrency | Two-till concurrent-commit test (Phase 2) |
 | Idempotent commit survives retries | Same-key retry returns the cached result, no second write |
 | No client can act above its tier | Authz test matrix (Phase 4) |
