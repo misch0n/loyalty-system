@@ -46,6 +46,15 @@ pass broke, not something Phase 6 caused.
 
 ## 1 · Decisions this pass is blocked on
 
+> **⚠ X2 and S1 have moved on since this table was written** — see
+> [`SESSION-NOTES.md`](SESSION-NOTES.md), which supersedes both rows. **X2** is now
+> *one classifier, three routing rules by scope* (session → global, connectivity → both,
+> action → local), not simply "adapter-level". **S1** is decided in principle — the PIN and the
+> 5-minute idle lock both go — but it is blocked on one unanswered question: whether the staff
+> device is a shared till or each person's own phone, because that decides whether anything needs
+> to replace the PIN for attribution.
+
+
 Four register rows are **Open** or **Confirm** and gate real work. Recommendations given; the
 maintainer decides. **UI-1 cannot start until X2 is answered** — everything else can proceed.
 
