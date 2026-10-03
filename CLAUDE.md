@@ -13,10 +13,14 @@ concrete subagent definitions live in `.claude/agents/`.
 > `@cafe/shared` and `@cafe/server`. The architecture sections below now describe what is
 > **actually built**; they were rewritten in Phase 11 and no longer need a warning.
 >
-> **The live initiative is [`docs/UI-PLAN.md`](docs/UI-PLAN.md)** — ten phases making `@cafe/web`
+> **The live initiative is [`docs/UI-PLAN.md`](docs/UI-PLAN.md)** — the phases making `@cafe/web`
 > compile against the API, specified by [`docs/UI-RECONCILIATION.md`](docs/UI-RECONCILIATION.md)
-> (27 rows of backend-vs-UI conflict, four of them still needing the maintainer). A fresh session
-> picks up the first unchecked box in UI-PLAN §2.
+> (35 rows of backend-vs-UI conflict). **The maintainer answered the open decisions on 2026-10-03**
+> — S1, X2, P6, P7, X5, X7 are all Settled and a new row, A7, was added — so nothing blocks the
+> plan; a fresh session picks up the first unchecked box in UI-PLAN §2. The headline decision: the
+> staff device is a **shared till**, so **the PIN and the idle lock are being removed** (a new
+> server + port phase, **UI-1b**, lands before UI-2). The branch is **tagged, not merged**, once
+> UI-1b is in (SCOPE-DECISIONS §6.6).
 >
 > **`@cafe/web` is red on purpose** — **14 TypeScript errors, 6 of 44 test files not loading**
 > after UI-0 (it was 39 errors and 9 of 47), every one traceable to a Phase 6 deletion and all of
@@ -29,12 +33,18 @@ concrete subagent definitions live in `.claude/agents/`.
 > admin **stat tiles** — the bullets below about them are history, not instructions, and the files
 > they name are gone. Two of the section's wrong bullets are still live code awaiting **UI-3**: the
 > **two-entry card menu** (C6 — becomes one entry, delete) and **auto-advancing to the scanner**
-> after a commit (S2 — becomes a return to the counter). UI-9 rewrites the section.
+> after a commit (S2 — becomes a return to the counter). **Superseded by S1/A7 (2026-10-03), code
+> still live until UI-1b/UI-3:** the **PIN**, `PinPad`, the **Unlock screen**, `AuthContext.unlock`,
+> the **5-minute idle lock**, "reset PIN", the PIN on Add profile, and **step-up PIN re-auth** on
+> program-config save / "Sign out all devices" (that becomes a plain confirmation). UI-9 rewrites
+> the section.
 >
 > **Scope is [`docs/SCOPE-DECISIONS.md`](docs/SCOPE-DECISIONS.md)** — the 123-feature triage
-> (2026-09-02, questions closed 2026-09-15) plus the two 2026-09-16 decisions: the backend leads
-> and the UI follows with the backend as ground truth, and the IndexedDB prototype is retired.
-> Where it and this file disagree, it wins; §5 lists every rule it overrode.
+> (2026-09-02, questions closed 2026-09-15) plus the later decisions in its §6: the two from
+> 2026-09-16 (the backend leads and the UI follows with the backend as ground truth; the IndexedDB
+> prototype is retired) and the 2026-10-03 batch (shared till and no PIN; plain-confirmation
+> step-up; service tests against the real server; tag, don't merge). Where it and this file
+> disagree, it wins; §5 lists every rule it overrode.
 
 **Completed initiatives + handoff (read if continuing across cleared-context sessions):**
 `docs/REWARDS-PLAN.md` (rewards-as-objects — Appendices C+D + multi-reward) and
@@ -69,9 +79,9 @@ A single-café digital loyalty system. Staff scan a customer's QR and commit loy
 - **Name and email are REQUIRED** (SCOPE-DECISIONS §2.1), and email is unique per active card. Token-only accounts are gone. The token is still the *identity* — never derived from PII, never carrying it — but a card cannot exist without a contact address, because an unrecoverable card was worse than a private one.
 - **Staff initiates the credit.** Customers can only *display*; only staff commit points/redemptions. This is the anti-fraud anchor.
 - **Redemption is atomic** (check balance + write in one step) — no double-spend.
-- **Every staff/admin action writes an audit entry.**
+- **Every staff/admin action writes an audit entry** — naming the **account that was signed in**. The staff device is a shared till with no "who's on shift" picker (S1, 2026-10-03), so audit rows, the counter's "your last hour" and both alert detectors are per account, not per person at the till.
 - **`domain/` is pure** — no I/O, no React, no browser APIs. It must be unit-testable in isolation.
-- **No mocked customer workflows.** Every flow runs against the real server. No simulated dual-pane, no in-browser bridge, no fake store standing in for real device interaction — the one deliberate exception is a fake `DataStore` in the SPA's *tests*, held to the shared conformance suite.
+- **No mocked customer workflows.** Every flow runs against the real server. No simulated dual-pane, no in-browser bridge, no fake store standing in for real device interaction. **There is no fake `DataStore` anywhere** — the SPA-tests exception was withdrawn on 2026-10-03 (P6). Screen and component tests stub at the **services** level (`vi.fn()` via `ServicesProvider`); service and `ApiStore` tests run against the real server and a test Postgres, and **fail, never skip**, without a database.
 
 ## Restraints / out of scope (do NOT build)
 - No money handling of any kind (prepurchase, gift cards, stored value, payments).
@@ -83,12 +93,12 @@ A single-café digital loyalty system. Staff scan a customer's QR and commit loy
 
 The SPA talks to the API over HTTP and nothing else. **`ApiStore` is the only `DataStore`**; there is no local database, no peer-to-peer channel and no device pairing — the server coordinates state centrally, which is what the pairing layer was standing in for.
 
-- **Sessions are cookies.** HttpOnly, `SameSite=Lax`, server-side rows, with the 5-minute idle lock enforced **server-side** (`last_seen_at`), not by a client timer. CSRF is a double-submit token on every mutating request.
+- **Sessions are cookies.** HttpOnly, `SameSite=Lax`, server-side rows. Lifetime is the TTL — 30 days "remember me", 12 hours otherwise (`auth/sessions.ts`) — enforced **server-side**, not by a client timer. CSRF is a double-submit token on every mutating request. *The 5-minute idle lock and the PIN are retired (S1, 2026-10-03) but still in the code until UI-1b; a remember-me hardening round is deferred.*
 - **The actor comes from the session, never the request body.** "Staff initiates the credit" is enforced, not trusted.
 - **Liveness is `GET /events`** — a one-way SSE stream carrying a `changed` signal scoped per customer and per till, with subjects derived from the session. It replaces the pairing layer's `dataVersion`.
 - **Deleted in Phase 6, do not restore:** `IndexedDbStore`, `adapters/sync/` (PeerJS pairing), `adapters/transport/`, `adapters/wallet/`, `EmailJsMailer`, `demoSeed`, the preset card tokens, the `VITE_TRANSPORT`/`VITE_DATASTORE`/`VITE_WALLET` flags, `isPrototype`, and the GitHub Pages workflow.
 
-Run it with `docker compose up` (`compose.dev.yml` for development, with mailpit). The `web` service sits behind a Compose profile until the SPA compiles again.
+Run it with `docker compose up` (`compose.dev.yml` for development, with mailpit). The `web` service sits behind a Compose profile until the SPA compiles again. The local devbox workflow (real image via `docker compose up -d --wait`, Vite proxying `/api`, opt-in `dev:local`) is in `README.md` → "Running it".
 
 ## Stack
 - **Three-package npm-workspaces monorepo** (root `package.json` `workspaces: ["packages/*"]`; the
@@ -103,6 +113,8 @@ Run it with `docker compose up` (`compose.dev.yml` for development, with mailpit
 - TypeScript throughout. The `packages/shared/src/domain/`, `packages/shared/src/ports/`, `packages/web/src/adapters/`, and `packages/web/src/services/` layers match `docs/SPEC.md §12`. The `packages/web/src/ui/` layout diverges (see STATUS.md divergences g, k) — record any further UI deviations there.
 
 ## UI
+> **⚠ Stale bullets are listed in the box at the top of this file** — including the PIN / `Unlock` / idle-lock / step-up bullets below, superseded by S1 and A7 (2026-10-03).
+
 - **Design system:** `packages/web/src/ui/theme/` — no monolith. Slices: `tokens.css` (design tokens: forest/sage/blush/cream/terra palette, Fraunces/DM Sans/DM Mono fonts, touch targets), `base.css` (reset, `.screen` shell, utilities, `bg-*` gradients, focus-visible ring, reduced-motion, `.card-hint`), `keyframes.css`. All imported once via `packages/web/src/ui/theme/index.css` in `main.tsx`. Do not restore the old `theme.css` / `styles.css` monoliths.
 - **Shared components:** `packages/web/src/ui/components/<Name>/` — one folder per component (`Name.tsx` + `Name.css` + `Name.test.tsx`). Components: Logo, Heading, Button, Field, CupStamps, LoyaltyCard, Qr, Overlay, Toast, PinPad, Slider, Sheet (+MenuRow +RecoveryLine), ContextBanner. (`WalletButton` went with the wallet seam in UI-0.) No business logic in components.
 - **Structure:** `packages/web/src/ui/app/` — `LogoGestures` (logo tap/long-press handlers; replaces the old Shell), `AuthContext`, `EntryResolver`, `routes.ts`, `session.ts`. `packages/web/src/ui/screens/<area>/<Screen>/` — folder-per-screen (`Screen.tsx` + `Screen.css` + `Screen.test.tsx`); screen-scoped parts live in `_parts/` beside the screen. `packages/web/src/ui/common/` — ServicesContext, QrDisplay, QrScanner, PrivacyNotice, usePager. (`PairingContext`, `PairDevices` and `storageSnapshot` went with the pairing layer in UI-0; UI-5 adds whatever owns the SSE connection.)

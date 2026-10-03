@@ -20,12 +20,18 @@ working rules for agents in [`CLAUDE.md`](CLAUDE.md); current build status in
 > **`@cafe/web` does not currently compile.** That is deliberate
 > ([`docs/SCOPE-DECISIONS.md`](docs/SCOPE-DECISIONS.md) §6): the backend was built first and the
 > UI is now being rewritten against it, tracked in [`docs/UI-PLAN.md`](docs/UI-PLAN.md) against the
-> 27 conflicts in [`docs/UI-RECONCILIATION.md`](docs/UI-RECONCILIATION.md). **There is no demoable
-> build until that lands**, and the live-demo link is gone with the Pages workflow.
+> 35 conflicts in [`docs/UI-RECONCILIATION.md`](docs/UI-RECONCILIATION.md), all of whose blocking
+> decisions the maintainer answered on 2026-10-03. **There is no demoable build until that lands**,
+> and the live-demo link is gone with the Pages workflow.
 >
 > **The feature table and screen descriptions below still describe the pre-migration SPA** — the
 > files exist in the tree and do not build. They are rewritten in UI-PLAN's UI-9. The
 > architecture section and diagram *have* been corrected and describe what is really there.
+>
+> **One decision changes the sign-in rows below:** the staff device is a shared till, so the
+> **PIN, the Unlock screen and the 5-minute idle lock are being removed**, attribution is the
+> signed-in account, and admin step-up becomes a plain confirmation (UI-PLAN's UI-1b and UI-3;
+> SCOPE-DECISIONS §6.3–§6.4). Rows that mention a PIN describe code that is going.
 
 ---
 
@@ -488,7 +494,34 @@ The bundle is [`compose.yml`](compose.yml) — see [`ops/README.md`](ops/README.
 up, health, backups and the restore drill. The old GitHub Pages deploy (`deploy.yml`, which built
 the static prototype with `VITE_*` secrets injected) was deleted in Phase 6 along with the
 prototype adapters it shipped; **there is no deployable frontend until the UI pass**, which is why
-the `web` Compose service sits behind a profile.
+the `web` Compose service sits behind a profile. The SPA and the API must be served from the **same
+site** (the session is a `SameSite=Lax` cookie), so a GitHub Pages–hosted SPA cannot talk to this
+backend — the nginx bundle serves both.
+
+---
+
+## Running it
+
+**The live backend on a devbox is the real runtime image:** `docker compose up -d --wait` (on macOS,
+Colima with a 2 CPU / 2 GB VM). The root `.env` (gitignored; start from [`.env.example`](.env.example))
+holds the usual bundle values plus `ALLOWED_ORIGINS=http://localhost:5173`,
+`APP_URL=http://localhost:5173`, and `MAIL_SMTP_URL=smtp://host.docker.internal:1025` to reach a
+mailpit running on the host. Cookies stay `Secure` (`NODE_ENV=production` in the image); Chrome and
+Firefox accept `Secure` cookies on `http://localhost`, Safari may not — use Chrome for local work.
+
+- **SPA dev server:** `npm run dev` (Vite) serves from `/` and proxies `/api` → `http://127.0.0.1:3000`,
+  stripping the prefix exactly like [`ops/nginx/default.conf`](ops/nginx/default.conf). Override the
+  target with `VITE_DEV_API_TARGET`. `vite preview` keeps the build base. (The SPA does not compile
+  yet — see the box at the top.)
+- **Backend hot reload, outside Docker:** the opt-in `npm run dev:local -w @cafe/server` and
+  `migrate:local` load `packages/server/.env` through `node --env-file`. The plain `dev` / `migrate`
+  scripts are unchanged, so CI, the images and remote sandboxes are unaffected.
+- **Gotcha:** `node --env-file` truncates `MAIL_FROM="Name" <addr>` at the closing quote. Single-quote
+  the whole value (noted in [`packages/server/.env.example`](packages/server/.env.example)).
+- **Check it:** [`ops/smoke.sh`](ops/smoke.sh) runs against the local bundle with no arguments.
+
+The bundle's own operations — first run, TLS, backups, the restore drill — are in
+[`ops/README.md`](ops/README.md).
 
 ---
 
@@ -506,6 +539,7 @@ flowchart LR
     O["Transport + WalletProvider"]:::cut --> P["Ports deleted — registration is<br/>a URL, wallet dropped"]:::cut
     G["localStorage to session cookie"]:::todo --> H["Identity that survives iOS ITP"]:::todo
     Q["services/ reshaped to the routes"]:::todo --> R["@cafe/web compiles again"]:::todo
+    S["PIN + idle lock<br/>(UI-1b)"]:::todo --> T["Retired — shared till;<br/>attribution is the signed-in account"]:::todo
 
     classDef done fill:#eef,stroke:#5b6cc0;
     classDef cut fill:#eee,stroke:#888,stroke-dasharray:3;

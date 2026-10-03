@@ -11,10 +11,13 @@
 > **All open questions (Q1–Q7) answered 2026-09-15 — see §4.**
 >
 > **§6 holds later maintainer decisions**, taken after the triage and equally authoritative. Two
-> so far, both from 2026-09-16 and both large: the backend is now built **before** the UI and
-> without regard for it, and the IndexedDB prototype is **retired**. Read §6 before §5 — it
-> changes what "the prototype keeps its current behaviour until the backend reaches each item"
-> means.
+> from 2026-09-16, both large: the backend is now built **before** the UI and without regard for
+> it, and the IndexedDB prototype is **retired**. Then the **2026-10-03** batch (§6.3–§6.7), the
+> first answers to the UI reconciliation register: the staff device is a **shared till** and the
+> PIN and idle lock go, admin step-up becomes a plain confirmation, the SPA's service tests run
+> against the real server rather than a fake store, and the branch is **tagged, not merged**. Read
+> §6 before §5 — it changes what "the prototype keeps its current behaviour until the backend
+> reaches each item" means.
 
 ---
 
@@ -163,6 +166,9 @@ all** — and it is no longer *needed*, because `BE-A-02` verifies a PIN against
 device has already identified, rather than searching all accounts for a match. The uniqueness
 constraint leaves the schema; `StaffService.assertPinUnique` goes with it.
 
+> **Moot from 2026-10-03:** the PIN itself is removed (§6.3). §3.5's "PIN … never in a URL, a log,
+> or an error" stands for the password; the PIN no longer exists to protect.
+
 ---
 
 ## 4 · Answered (was: open questions)
@@ -228,6 +234,11 @@ quietly contradicting. A Scribe pass owes each of these an edit:
 | `SPEC.md` §15 / `STATUS.md` | Optional-PII and token-only registration; wallet acceptance rows. | Rows retire. |
 | `STATUS.md` | Admin stats, breakdowns, export workflow as shipped features. | Collected, not surfaced. |
 | `INTEGRITY-PLAN.md` | Export workflow is the sanctioned route to cross-account activity. | No route at all — database access only. |
+| `CLAUDE.md` architecture *(2026-10-03)* | Sessions carry a 5-minute idle lock, enforced server-side. | **Retired** (§6.3). Sessions run to their TTL — 30 days remembered, 12 hours otherwise. Removal is UI-1b; `CLAUDE.md` annotates the bullet. |
+| `CLAUDE.md` non-negotiables *(2026-10-03)* | "Every staff/admin action writes an audit entry." | **Still true, with a stated limit** (§6.3): the entry names the *account* that was signed in, not the person at a shared till. `CLAUDE.md` now says so. |
+| `CLAUDE.md` non-negotiables *(2026-10-03)* | "No mocked customer workflows" carves out a fake `DataStore` in the SPA's tests, held to the conformance suite. | **Withdrawn** (§6.5). Screen tests stub services; service tests hit the real server. Amended in `CLAUDE.md`. |
+| `CLAUDE.md` UI *(2026-10-03)* | Staff/admin auth uses a quick PIN (`Unlock`, `PinPad`, `AuthContext.unlock`), the admin sheet has "reset PIN", Add profile takes a PIN, and program-config save / sign-out-all are step-up gated. | **Superseded** (§6.3, §6.4): no PIN anywhere; step-up is a plain confirmation. Flagged in the box at the top of `CLAUDE.md`; UI-9 rewrites the section. |
+| `STATUS.md` *(2026-10-03)* | Step-up PIN re-auth (divergence **j**, Known gaps) and the idle-lock / PIN acceptance rows as shipped. | Annotated as superseded; the rows retire when UI-1b and UI-3 land. |
 
 The prototype keeps its current behaviour until the backend build reaches each item; these
 edits land with the work, not before.
@@ -281,3 +292,81 @@ specification rather than as a cross-store contract. The prototype's *screens* g
 three to **one implementation each** — `PostgresStore`, `SmtpMailer`/`LogMailer`, and a
 server-cookie `IdentityStore`. The ports remain as the boundary; what goes is the second
 implementation behind each.
+
+### 6.3 · 2026-10-03 — the staff device is a shared till; the PIN and the idle lock go (register S1)
+
+Two decisions had been staged since 2026-09-17: retire the staff PIN, and settle what that does to
+attribution. The open question was whether the staff device is a shared till or each person's own
+phone. **It is a shared till.**
+
+**Decided.**
+- **No "who's on shift" picker.** It would mix *shift* identity with the signed-in account's
+  *privileges* — the two must not be mixed — and a picker cannot stop an employee picking another
+  employee's name. It would look like attribution without being any.
+- **Attribution is the signed-in account.** The guard is behavioural: staff and owner log out, or
+  use their own phones.
+- **No idle lockout, and the PIN is removed completely.** Gone: `POST /auth/unlock`, `IDLE_LOCK_MS`
+  and the idle-lock check in `auth/guards.ts`, the `pin` column, `setStaffPin` and PIN
+  verification, `BOOTSTRAP_ADMIN_PIN`, `PinPad`, the Unlock screen, `AuthContext.unlock`, "reset
+  PIN" in the admin account sheet, and PIN on Add profile. The reasoning staged on 2026-09-17
+  stands: a device already behind its own passcode, running a page people stay signed into, is
+  not meaningfully protected by a 4-digit code every member of staff knows — friction without
+  security. It can come back later if it is ever wanted.
+- **"Remember me" persists a login.** A rudimentary version now — the server already splits
+  `REMEMBERED_TTL_MS` (30 days) from `EPHEMERAL_TTL_MS` (12 hours) in `auth/sessions.ts`. A
+  **security-hardening round on remember-me comes later: deferred, not dropped.**
+
+**The consequence, stated plainly.** Audit rows, the counter's "your last hour", and both alert
+detectors (self-dealing, repeat-target) are **per account, not per person at the till.** On a
+shared till, whoever is signed in carries every transaction made under that session: a detector
+flags an *account*, so it can name someone who was not there and cannot tell two colleagues at the
+same till apart, and "your last hour" is the account's, not the person's. `CLAUDE.md`'s "every
+staff/admin action writes an audit entry" stays true — but the entry names the account that was
+signed in. This is accepted, with the behavioural guard above as the mitigation; the name-tap
+alternative in the staged notes is the picker rejected above.
+
+**Work.** Server **and** port: it touches `packages/server` and `packages/shared/src/ports/`
+(`DataStore` loses the PIN methods), and lands **before UI-2** so UI-2 does not rebuild PIN logic
+only to delete it. It is its own plan phase, **UI-1b** ([`UI-PLAN.md`](UI-PLAN.md)), done when the
+server and shared suites are green.
+
+### 6.4 · 2026-10-03 — admin step-up becomes a plain confirmation (register A7)
+
+The admin `StepUp` sheet (program-config save, "Sign out all devices") re-authenticates by PIN, but
+the server never enforced step-up — `PATCH /config` and `POST /auth/logout-all` only `requireAdmin`.
+The gate lived only in the browser. With the PIN gone it becomes a plain **"Are you sure?"
+confirmation** — no credential, and no claim to be a security boundary. Per-profile account actions
+were never gated and stay that way.
+
+### 6.5 · 2026-10-03 — no fake `DataStore`; the service tests run against the real server (register P6)
+
+The earlier recommendation — a fake in-memory `DataStore`, held to the conformance suite — is
+**reversed**. There is a proper backend. The SPA's service suites (and `ApiStore`) are tested
+against **the real server and a test Postgres**, with the server suite's discipline: they fail, they
+do not skip, without a database. Screen and component tests already stub at the **services** level
+(`vi.fn()` through `ServicesProvider`), so isolated UI testing never needed a fake store.
+
+This **withdraws the one exception** in `CLAUDE.md`'s "No mocked customer workflows" rule. Two work
+items fall out: a **dev seed** for the backend, kept until release (what the deleted `demoSeed`
+provided), and — because Node's `fetch` keeps no cookies — a **cookie jar** in the SPA-side
+integration tests.
+
+### 6.6 · 2026-10-03 — the branch is tagged, not merged
+
+`claude/backend-implementation-2kqb08` is **not being merged into `main` yet**. It is **tagged** when
+the backend is deemed complete enough and the UI rewire starts; the natural point is right after the
+PIN-removal phase (**UI-1b**) lands. This replaces the earlier framing of the merge as an
+outstanding decision. `main` still carries none of the server, the three-package layout or any
+decision document: a branch cut from it gets the pre-triage `CLAUDE.md` and no server, so new work
+is cut from this branch (or, once it exists, the tag). The tag's name is not yet chosen.
+
+### 6.7 · 2026-10-03 — smaller settlements, recorded in the register
+
+Four more register rows were answered the same day; each row carries its own text.
+- **X2 — the error surface.** One classifier in `ApiStore.request`; three routing rules by scope
+  (session → global only, connectivity → both, action → local only); background failures silent.
+- **P7 — `AuditService`.** The `audit.log` calls leave the SPA services; the client write path goes.
+- **X7 — config staleness.** Next-load is fine; a `program` push scope stays the cheap upgrade.
+- **X5 — the SPA's environment.** Base `/`; `VITE_API_BASE` stays. **Constraint recorded:** a
+  GitHub Pages–hosted SPA cannot talk to this backend, because the session cookie needs the SPA
+  and the API on the same site.

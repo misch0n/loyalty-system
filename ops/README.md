@@ -72,6 +72,10 @@ One thing it does not watch: editing `packages/shared` needs
 `npm run build -w @cafe/shared`, because `@cafe/shared` resolves through its
 `exports` map to `dist`.
 
+To run the **real runtime image** on a devbox instead (`docker compose up -d --wait`, with the
+root `.env` pointing `ALLOWED_ORIGINS` / `APP_URL` at a host Vite server and `MAIL_SMTP_URL` at a
+host mailpit), see [`../README.md`](../README.md) → "Running it".
+
 ---
 
 ## Health

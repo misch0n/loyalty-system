@@ -31,7 +31,11 @@
 >
 > **▶ Active initiative — the UI pass.** The backend is **complete**;
 > [`UI-PLAN.md`](UI-PLAN.md) is the live plan and [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md)
-> its specification. `@cafe/web` is red on purpose until UI-2 lands.
+> its specification. `@cafe/web` is red on purpose until UI-2 lands. **Every blocking decision was
+> answered on 2026-10-03** — notably that the staff device is a shared till and **the PIN and the
+> idle lock are being removed** by a new server + port phase, **UI-1b**, ahead of UI-2
+> ([`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) §6.3–§6.7). Until it lands, the PIN, `/auth/unlock`
+> and the idle lock described below are still real code.
 >
 > **▶ Completed initiative — the production backend.** [`BACKEND-PLAN.md`](BACKEND-PLAN.md) is the
 > live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose; **Phases 0–6 and 10 done**;
@@ -62,7 +66,33 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-09-16 (**UI pass — UI-0: delete what is already decided dead** (branch
+**Last updated:** 2026-10-03 (**Docs only — the maintainer's first answers to the UI reconciliation
+register** (branch `claude/backend-implementation-2kqb08`)). This pass changed docs only and ran no
+tests, so the counts are UI-0's, unchanged and not re-verified: **442 server**, **73 shared**, and
+`@cafe/web` at 14 errors with 6 of 44 files not loading. **Six register rows are
+Settled and one was added** ([`UI-RECONCILIATION.md`](UI-RECONCILIATION.md); the decisions in
+[`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) §6.3–§6.7). **S1:** the staff device is a **shared till**;
+there is no "who's on shift" picker; attribution is the signed-in account; **no idle lock and the PIN
+is removed completely** — `POST /auth/unlock`, `IDLE_LOCK_MS`, the `pin` column, `setStaffPin`,
+`BOOTSTRAP_ADMIN_PIN`, `PinPad`, the Unlock screen, `AuthContext.unlock`, "reset PIN" and the PIN on
+Add profile. "Remember me" persists a login (30 days / 12 hours, already in `auth/sessions.ts`); a
+hardening round on it is **deferred, not dropped**. The consequence: audit rows, "your last hour" and
+both detectors are **per account, not per person at the till**. It is a new plan phase, **UI-1b**
+(server + port, before UI-2), and **the branch is tagged, not merged, once it lands**. **A7 (new):**
+admin step-up, which the server never enforced, becomes a plain "Are you sure?" confirmation.
+**P6:** *no* fake `DataStore` — the earlier recommendation is reversed; service tests run against
+the real server and a test Postgres. **P7:** the `audit.log` calls leave the services. **X2:** one
+error classifier in `ApiStore.request`, routed by scope (session → global, connectivity → both,
+action → local). **X7:** next-load config staleness is fine. **X5:** base `/`, `VITE_API_BASE` stays;
+a GitHub Pages–hosted SPA cannot reach this backend (the session cookie needs the same site).
+**Devbox workflow** now documented in [`../README.md`](../README.md) → "Running it": the live backend
+is the real runtime image via `docker compose up -d --wait`, and `npm run dev` proxies `/api` to it.
+(`dev:local`, `migrate:local` and the Vite proxy landed in `436a2c7`; none of them changes a default
+invocation, so CI, the images and remote sandboxes are unaffected.)
+Divergences **j**, **p** and **q** and the PIN / idle-lock / step-up rows below are annotated as
+superseded; they retire when UI-1b and UI-3 land.
+
+**Prior:** 2026-09-16 (**UI pass — UI-0: delete what is already decided dead** (branch
 `claude/backend-implementation-2kqb08`)). First phase of [`UI-PLAN.md`](UI-PLAN.md), and pure
 deletion — no new behaviour, no new decisions; every item was **Settled** in
 [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md). **Deleted:** the pairing layer's remaining screens
@@ -624,6 +654,10 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
   a PII log scan → `ops/drill.sh`), and `web` (`continue-on-error`; red by decision, gates
   nothing). The old `deploy.yml` — test → build with the `VITE_*` secrets → publish to GitHub
   Pages — was deleted in Phase 6 with the prototype it deployed.
+- **Local devbox workflow:** the live backend is the real runtime image (`docker compose up -d --wait`,
+  root `.env` with `ALLOWED_ORIGINS` / `APP_URL` / `MAIL_SMTP_URL` set for a host Vite server and
+  mailpit); `npm run dev` proxies `/api` to it; `dev:local` / `migrate:local` are the opt-in
+  hot-reload path. See [`../README.md`](../README.md) → "Running it".
 - **Three** swappable seams: `DataStore`, `Mailer`, `IdentityStore`. `Transport` and
   `WalletProvider` were deleted in the triage (SCOPE-DECISIONS §1) along with every adapter behind
   them; UI-0 removed the last screens that read them.
@@ -638,7 +672,7 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 
 | Criterion | State | Where |
 |---|---|---|
-| Staff/admin login + role gating | ✅ | `services/StaffService.ts`, `ui/app/AuthContext.tsx`, `ui/screens/staff/Login/Login.tsx` — **username/password first** (seed: admin `admin`/`admin`, staff `staff`/`staff`); **PIN** (seed admin `4321`, staff `1234`, plus a third staff `priya`/`2468`) is the quick re-auth on a remembered idle device (`ui/screens/staff/Unlock/Unlock.tsx`); both roles land on the **counter** (`/staff`), admins open `/admin` from there; staff guard via `useStaffGuard` inside screens |
+| Staff/admin login + role gating *(the PIN half is **superseded by S1, 2026-10-03** — removed entirely by UI-1b/UI-3; "remember me" persists a login instead)* | ✅ | `services/StaffService.ts`, `ui/app/AuthContext.tsx`, `ui/screens/staff/Login/Login.tsx` — **username/password first** (seed: admin `admin`/`admin`, staff `staff`/`staff`); **PIN** (seed admin `4321`, staff `1234`, plus a third staff `priya`/`2468`) is the quick re-auth on a remembered idle device (`ui/screens/staff/Unlock/Unlock.tsx`); both roles land on the **counter** (`/staff`), admins open `/admin` from there; staff guard via `useStaffGuard` inside screens |
 | Self-service registration (primary path); no approval queue | ✅ | `ui/screens/customer/Register/Register.tsx`, `CustomerService.selfRegister`, `adapters/identity/LocalStorageIdentityStore.ts` |
 | Staff-initiated registration | ❌ **removed** — redundant with self-registration. Staff scanning an unregistered code now shows "ask the customer to join on their phone first" (no card-create button). `CustomerService.provisionFromToken` still exists service-side but is no longer wired in the UI |
 | No single-browser / dual-pane simulation | ✅ (LocalBridgeTransport removed) | `adapters/transport/` |
@@ -651,9 +685,9 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 | Recovery is **email-only** | ✅ | `ui/screens/customer/LostCard/LostCard.tsx` — the single recovery vector is the emailed single-use link (`RecoveryService`). Staff/name-based recovery removed (a name isn't distinguishing enough). LostCard now explains the **no-email consequence** (a card with no email can't be recovered); the registration caveat (`Register.tsx`) says the same up front |
 | Correction/reversal, logged | ✅ | `LoyaltyService.reverse` writes an offsetting `reversal` entry + `loyalty.reverse` audit row — the SPEC §6 correction primitive. The rewards-as-objects **post-commit undo** (`LoyaltyService.undo`/`DataStore.undoCommit`) is **retired** (Appendix E, Phase 1): the staff Scan now defers every write behind a **3-second pre-commit hold** instead, so a wrong transaction is cancelled before it's ever written rather than reversed after — see the Staff integrity & observability acceptance (E9) table below |
 | Deletion/opt-out — customer self-delete from card menu; staff-confirmed also available | ✅ | `CustomerService.selfDelete(token)` ← `ui/screens/customer/CardMenu/CardMenu.tsx`; `IndexedDbStore.softDeleteCustomer` |
-| Admin: account CRUD (**Add profile** staff/admin with name/username/password/PIN; per-profile popover = enable/disable, reset password, reset PIN, **delete** — un-gated) + "Sign out all devices"; config (step-up PIN re-auth on save), stats, audit viewer, alerts, activity export; admin is a **superset of staff** (counter/scan access, both views have Sign out) | ✅ | `ui/screens/admin/Admin/Admin.tsx`, `ui/screens/admin/_parts/AccountSheet/`; `StaffService.remove` → `DataStore.deleteStaff`; staff `name` shown in panel + activity. Per-profile activity history moved out of `AccountSheet` — reachable only via the audited Export workflow (Appendix E, Phase 3/4) |
+| Admin: account CRUD (**Add profile** staff/admin with name/username/password/PIN; per-profile popover = enable/disable, reset password, reset PIN, **delete** — un-gated) + "Sign out all devices"; config (step-up PIN re-auth on save), stats, audit viewer, alerts, activity export *(the PIN, "reset PIN" and the step-up gate are **superseded by S1/A7, 2026-10-03** — step-up becomes a plain "Are you sure?"; stats and activity export were already retired by UI-0)*; admin is a **superset of staff** (counter/scan access, both views have Sign out) | ✅ | `ui/screens/admin/Admin/Admin.tsx`, `ui/screens/admin/_parts/AccountSheet/`; `StaffService.remove` → `DataStore.deleteStaff`; staff `name` shown in panel + activity. Per-profile activity history moved out of `AccountSheet` — reachable only via the audited Export workflow (Appendix E, Phase 3/4) |
 | Staff/admin session never auto-displays customer card (entry routing) | ✅ | `ui/app/EntryResolver.tsx` — any active staff/admin (trusted or ephemeral)→**counter** `/staff` (admins reach `/admin` via the counter's "Go to admin" button); trusted+locked→`/staff/unlock`; remembered card→`/card/:token`; else→`/welcome` |
-| Inactivity lock (5 min) → PIN re-auth at `/staff/unlock` | ✅ | `ui/app/AuthContext.tsx`, `ui/screens/staff/Unlock/Unlock.tsx`, `StaffService.loginWithPin` |
+| Inactivity lock (5 min) → PIN re-auth at `/staff/unlock` — **superseded by S1 (2026-10-03): no idle lock, no PIN; the row retires when UI-1b lands.** Sessions will run to their TTL (30 days remembered / 12 hours) | ✅ | `ui/app/AuthContext.tsx`, `ui/screens/staff/Unlock/Unlock.tsx`, `StaffService.loginWithPin` |
 | Epoch-based "Sign out all devices" revocation | ✅ | `StaffService.revokeAllSessions`, `ProgramConfig.sessionEpoch` |
 | Suspicious-activity alerts — monitoring only | ✅ pruned to **two** attributed detectors (Appendix E, Phase 2): **self-dealing proximity** (same staff accrues then redeems on the same card within a window, repeatedly) and **repeat-target** (same customer credited repeatedly in a window); thresholds are admin-configurable; no role exemption | `domain/alerts.ts`, `LoyaltyService.getAlerts()`, `ui/screens/admin/_parts/Alert/Alert.tsx`, `ui/screens/admin/Admin/Admin.tsx` (Configure → "Activity alerts") |
 | WalletProvider seam; OS-detected wallet button inside enlarged-QR overlay; links to walletwallet.dev pre-generated passes | ❌ **removed** — the port and both adapters went in the triage (SCOPE-DECISIONS §1); UI-0 removed the button, `WalletButton` and `EnlargedQr`'s pass resolution. The web card is the only card |
@@ -950,8 +984,9 @@ includes co-located `packages/web/src/ui/**/*.test.tsx` via the extended `test.i
   detector-threshold fields), `Audit` (`log` + `list`; the `exportActivity` tests went with the
   export workflow in UI-0), plus the `Services` composition-root wiring. **None of these six suites
   currently load** — they build their graph on the deleted `IndexedDbStore` through
-  `tests/helpers/freshStore.ts`, and UI-2 rebuilds the harness around a fake `DataStore` held to
-  the conformance suite.
+  `tests/helpers/freshStore.ts`, and UI-2 replaces the harness — **not** with a fake `DataStore`
+  (register P6, reversed 2026-10-03) but by running them against the real server and a test
+  Postgres, failing rather than skipping without one.
 - **conformance —** `packages/server/src/testing/dataStoreConformance.ts` (moved from
   `tests/conformance/` in Phase 10), the
   **store-agnostic `DataStore` suite** (41 tests): customers and the tombstone,
@@ -1113,6 +1148,11 @@ unit tests cannot.
 - **Step-up PIN re-auth** gates program-config save and "Sign out all devices".
   Per-row staff mutations (create/reset-password/set-PIN/toggle-active) are not
   step-up gated — deliberate tuning decision, flagged here for future review.
+  **Superseded 2026-10-03 (register A7, S1):** the server never enforced the gate
+  (`PATCH /config` and `POST /auth/logout-all` only `requireAdmin`), and the PIN is being
+  removed, so both become a plain "Are you sure?" confirmation with no credential.
+- **Remember-me hardening is deferred, not dropped** (S1, 2026-10-03). A remembered till stays
+  signed in for 30 days with no idle rule; the security round on that has no phase yet.
 - **B4 (review prompt)** was dropped in the Ckyka rebuild — the old `ReviewPrompt`
   is gone and the new UI spec doesn't include it. Re-add to the customer card flow
   if the café still wants the post-redemption Google-review nudge.
@@ -1330,6 +1370,11 @@ j. **Step-up PIN re-auth scope (tuning).** Step-up gates program-config save and
    set-PIN/toggle-active) do not require step-up. Deliberate scope decision — flagged
    here for future tightening if the threat model requires it.
 
+   **Superseded 2026-10-03 (register A7).** Step-up was only ever a browser-side gate: the
+   server's `PATCH /config` and `POST /auth/logout-all` only `requireAdmin`. With the PIN
+   removed (S1) the gate becomes a plain "Are you sure?" confirmation — no credential. The
+   screen change is UI-3.
+
 l. **`commitCounterTransaction` atomicity is IDB-tx scope only (no row lock).**
    The prototype's single IndexedDB `readwrite` transaction over the six stores
    provides atomicity within one browser context, but IndexedDB has no row-level
@@ -1409,6 +1454,12 @@ p. **PIN sign-in stops being a global PIN lookup (BACKEND-PLAN §4-B, Phase 3).*
    route, and `packages/server/src/routes/guardrails.test.ts` fails if one
    appears. This is a genuine behaviour change, not a refactor.
 
+   **Superseded 2026-10-03 (register S1).** The question this divergence posed — what PIN
+   sign-in becomes — is answered by removing the PIN: the staff device is a shared till, there
+   is no idle lock to re-auth after, and UI-1b deletes `POST /auth/unlock` together with the
+   rest of the PIN machinery (`setStaffPin`, the `pin` column, PIN verification). What stays
+   true: attribution comes from the session, so it is the signed-in **account**.
+
 q. **The staff session moves server-side: real idle lock, real revocation
    (BACKEND-PLAN Phase 3).** The prototype keeps the staff session in
    `localStorage`/`sessionStorage` and reconciles it in `ui/app/session.ts`, so
@@ -1429,6 +1480,12 @@ q. **The staff session moves server-side: real idle lock, real revocation
    feature) and "sign out all devices" leaves them alone, being an action about
    staff terminals. The client-side timer in `AuthContext` stays as the immediate
    UI affordance; it is no longer what decides.
+
+   **Partly superseded 2026-10-03 (register S1, X1).** The idle lock is retired — UI-1b removes
+   `IDLE_LOCK_MS` and the idle check, and the client timer goes with it. Revocation is
+   unchanged, and so are the TTLs (`REMEMBERED_TTL_MS` 30 days, `EPHEMERAL_TTL_MS` 12 hours): a
+   session now lives until its TTL, sign-out, "sign out all devices", or its account being
+   disabled or deleted.
 
 r. **Four `DataStore` methods change shape at the HTTP boundary (BACKEND-PLAN
    §4-C/D/E, Phase 4).** The port is unchanged and every UI call site still

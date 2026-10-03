@@ -7,9 +7,11 @@
 > Phase 6 deletion. This plan makes it green again *against the API*, not against the store that
 > was deleted. **UI-0 is done: 14 errors and 6 non-loading files remain**, all of them UI-2's.
 >
-> **Input:** [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md) — 27 rows saying what the backend does,
+> **Input:** [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md) — 35 rows saying what the backend does,
 > what the UI does today, and the gap. That register is the specification; this file is the
-> sequence. A row is not "done" until its register entry says so.
+> sequence. A row is not "done" until its register entry says so. **Every decision this plan was
+> blocked on was answered on 2026-10-03** (§1), which added one phase — **UI-1b**, retiring the PIN
+> and the idle lock on the server — ahead of UI-2.
 >
 > **Ground truth is the backend.** Where a screen and the server disagree, the server wins and the
 > screen changes. That is the 2026-09-16 decision (SCOPE-DECISIONS §6) and it is why this pass
@@ -21,7 +23,8 @@
 
 **Resume protocol for a new session:**
 1. Work on branch **`claude/backend-implementation-2kqb08`** (or a `claude/ui-pass-*` branch cut
-   from it). Merge `origin/main` first.
+   from it). **It is not merged into `main` yet** — `main` has none of this work — and will be
+   **tagged** when UI-1b lands (SCOPE-DECISIONS §6.6).
 2. Read [`STATUS.md`](STATUS.md), [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md),
    [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md), then this file.
 3. Find the first **unchecked** box in §2 — that's the next task.
@@ -44,38 +47,31 @@ pass broke, not something Phase 6 caused.
 
 ---
 
-## 1 · Decisions this pass is blocked on
+## 1 · Decisions (all answered 2026-10-03 — nothing blocks this plan)
 
-> **⚠ X2 and S1 have moved on since this table was written** — see
-> [`SESSION-NOTES.md`](SESSION-NOTES.md), which supersedes both rows. **X2** is now
-> *one classifier, three routing rules by scope* (session → global, connectivity → both,
-> action → local), not simply "adapter-level". **S1** is decided in principle — the PIN and the
-> 5-minute idle lock both go — but it is blocked on one unanswered question: whether the staff
-> device is a shared till or each person's own phone, because that decides whether anything needs
-> to replace the PIN for attribution.
+Each is a register row with a dated resolution; the register has the detail, this table says only
+where the answer lands.
 
-
-Four register rows are **Open** or **Confirm** and gate real work. Recommendations given; the
-maintainer decides. **UI-1 cannot start until X2 is answered** — everything else can proceed.
-
-| Row | Question | Recommendation |
+| Row | Answer | Lands in |
 |---|---|---|
-| **X2** | Every call can now fail. Where does the error surface live — one adapter-level mechanism, or per-screen handling? | **Adapter-level.** `ApiStore.request` maps every failure to one typed union (`offline`, `locked`, `csrf_failed`, `rate_limited` + `retry-after`, `email_in_use`, `conflict`, `server`), and screens render from that. Per-screen handling means 20 screens each inventing a retry story. Staff-side copy is already fixed by SCOPE-DECISIONS §2.4. |
-| **P7** | `AuditService` can't write. Does it become a no-op the services keep calling, or do the `audit.log` calls leave the services? | **Remove the calls.** The server writes audit from the session; a client-side `audit.log` that does nothing is a line of code that lies. More files touched, but it stops the next reader believing the client audits anything. |
-| **P6** | Six service suites and three screen suites don't load. How do the services get tested again? | **A fake in-memory `DataStore`** in `packages/web/tests/helpers/`. It is the obvious answer and the shared conformance suite already defines what a `DataStore` must do, so the fake can be held to it. Do this *inside* UI-2, not before — the services change shape there, and a harness built for today's shape would be rebuilt. |
-| **S1** | A PIN no longer identifies anyone — a device with no session can't PIN in. That is a real capability loss for staff. | **Accept it, and change `/login`.** PIN becomes strictly the re-auth on a remembered terminal, never a first-class sign-in path. The alternative (a username field beside the PIN pad) is two fields on a device that was meant to be one-handed. Worth your explicit confirmation because staff will feel it. |
+| **S1** | Shared till; **the PIN and the idle lock are removed entirely**; attribution is the signed-in account; "remember me" persists a login (hardening deferred). | **UI-1b** (server + port), then UI-2 and UI-3 |
+| **X2** | One classifier in `ApiStore.request`; session → global, connectivity → both, action → local. | UI-1 (classifier + global), UI-4 (local) |
+| **A7** | Admin step-up becomes a plain "Are you sure?" — no credential. The server never enforced it. | UI-3, after UI-1b removes the PIN |
+| **P6** | **No fake `DataStore`.** Service tests run against the real server + a test Postgres. | UI-2 |
+| **P7** | The `audit.log` calls leave the services. | UI-2 |
+| **X7** | Next-load staleness is fine; a `program` push scope stays the cheap upgrade. | UI-5 |
+| **X5** | Base `/`, `VITE_API_BASE` stays. A Pages-hosted SPA cannot reach this backend. | UI-6 |
 
-Two more are **Confirm** but do not block — they can be answered when their phase arrives:
-**X7** (should a config change push to open cards, or is the next-read staleness fine — I'd widen
-it later only if a stale threshold actually bites) and **X5** (what the SPA's environment is, which
-UI-6 decides with the nginx serving story in front of it).
+**C3** and **A3** are still marked Confirm in the register — services rewritten against routes —
+and ride along in UI-2; neither blocks anything.
 
 ---
 
 ## 2 · Progress checklist
 
 - [x] **UI-0** — Delete what is already decided dead → **39 errors became 14** ✅ 2026-09-16
-- [ ] **UI-1** — `ApiStore.request` + the error surface (**blocked on X2**)
+- [ ] **UI-1** — `ApiStore.request` + the error surface
+- [ ] **UI-1b** — Retire the PIN and the idle lock (server + port) → **tag the branch**
 - [ ] **UI-2** — Services reshaped to the routes, and their tests rebuilt → **0 errors**
 - [ ] **UI-3** — Screens whose behaviour the backend changed
 - [ ] **UI-4** — Error and offline states on screen
@@ -85,7 +81,8 @@ UI-6 decides with the nginx serving story in front of it).
 - [ ] **UI-8** — Close the gates (CI + Compose stop excusing the SPA)
 - [ ] **UI-9** — Docs (the deferred BACKEND-PLAN Phase 11, plus `CLAUDE.md`)
 
-UI-0 is mechanical and large. UI-2 is the real work. UI-8 is the definition of "finished".
+UI-0 is mechanical and large. UI-2 is the real work. UI-8 is the definition of "finished". UI-1 and
+UI-1b touch different packages and can go in either order, but **both precede UI-2**.
 
 ---
 
@@ -125,32 +122,85 @@ gone; the rest of `e2e/` is UI-6's). Three judgement calls worth knowing:
   called out in each screen's header comment.
 
 ### UI-1 — `ApiStore.request` + the error surface
-**Blocked on X2.** Rows P8, X3, X2.
+Rows P8, X3, X2 (**Settled 2026-10-03**).
 
 Write the one method the whole SPA talks through: `credentials: 'include'`, the CSRF token echoed
-from the script-readable cookie, JSON in and out, and **every failure mapped to one typed union** —
-network-down, `401 locked`, `403 csrf_failed`, `429 rate_limited` (carrying `retry-after`),
-`409 email_in_use`, and an unclassified server error. No screen invents its own.
+from the script-readable cookie, JSON in and out, and **every failure mapped to one typed union**
+— `offline`, `locked`, `forbidden`, `rate_limited` (carrying `retry-after`), `email_in_use`,
+`conflict`, `server`. No screen parses a status code or invents its own.
+
+Then the **global handlers**, which are this phase's half of the routing rules (X2): a **session**
+failure (expired, signed out everywhere, account disabled or deleted) routes to sign-in from one
+place and no screen handles it; a **connectivity** failure raises the persistent global banner.
+The local halves — connectivity reported at the point of action, and action errors on the field or
+control — are UI-4's. Background failures (an SSE-triggered refetch) stay silent.
+
+**Verify, don't assert:** with the PIN and idle lock gone (S1), `locked` may no longer be a
+reachable failure. Check what the server can still return after UI-1b before keeping it in the
+union. Likewise settle which 403s the `forbidden` member covers — an earlier draft of this plan
+named `csrf_failed` instead.
 
 **Done when:** a test double drives every branch of that union, and `ApiStore` satisfies the shared
 conformance suite for the methods the port still has.
 
+### UI-1b — Retire the PIN and the idle lock (server + port)
+Row S1 (**Settled 2026-10-03**). Unlike every other phase here, this touches **`packages/server`
+and `packages/shared/src/ports/`**, not the SPA — and it lands **before UI-2** so UI-2 does not
+rebuild PIN logic only to delete it.
+
+The device is a shared till; there is no shift picker; attribution is the signed-in account
+(SCOPE-DECISIONS §6.3). Remove, from the server and the port:
+
+- `POST /auth/unlock` (`routes/auth.ts`), its tests, and its row in the authorization matrix.
+- `IDLE_LOCK_MS` and the idle-lock check — in `auth/guards.ts` and the `locked` / idle-expiry
+  outcome in `auth/sessions.ts`. `GET /events` stops refusing "idle-locked" callers because there
+  are none.
+- The `pin` column (a new forward-only migration; never edit one already applied), `setStaffPin`
+  and PIN verification in `PostgresStore`, the PIN failure counter, the set-PIN route
+  (`PATCH /staff/:id/pin`) and the `pin` field on create-account.
+- `BOOTSTRAP_ADMIN_PIN` — `env.ts`, `bootstrap.ts`, `migrate.ts`, both `.env.example` files, the
+  Compose files and `ops/` docs.
+- The PIN methods and fields on the `DataStore` port and the staff types.
+
+**Keep:** the session TTL split — `REMEMBERED_TTL_MS` (30 days) and `EPHEMERAL_TTL_MS` (12 hours) in
+`auth/sessions.ts`. "Remember me" is how a login persists; a test should show a remembered session
+surviving more than 5 minutes idle. **Deferred, not dropped:** a security-hardening round on
+remember-me, later.
+
+**State the consequence in the docs it touches:** audit rows, "your last hour" and both detectors
+are per account, not per person at the till.
+
+**Done when:** the **server suite is green** and **`@cafe/shared` is green**, both typechecks
+clean, no `grep` hit for `IDLE_LOCK_MS`, `setStaffPin`, `BOOTSTRAP_ADMIN_PIN` or `/auth/unlock`
+outside the migration history and the docs that record their removal. `@cafe/web` is not the gate
+here, but removing port methods that `StaffService` and `ApiStore` still reference may move its
+error count — record the new number in this file; UI-2 deletes the callers. **Then the branch is
+tagged** (SCOPE-DECISIONS §6.6).
+
 ### UI-2 — Services reshaped, tests rebuilt  ⟵ the real work
-The 14 remaining errors are all here. Rows C3, A3, P6, P7, S1.
+The 14 remaining errors are all here (UI-1b may have moved the count). Rows C3, A3, P6, P7, S1.
 
 - **`RecoveryService`** (C3) → `POST /recovery/request` then `POST /recovery/consume(email, code)`.
   It no longer mints codes or sends mail.
 - **`LoyaltyService.getAlerts`** (A3) → `GET /alerts`. Five store reads become one call. Note the
   server detects over **30 days**; the prototype read everything.
-- **`AuditService`** (P7) → per the decision above, the `audit.log` calls leave the services.
-- **`StaffService`** (S1) → `getStaffByPin` is gone; `passwordHash` becomes `password` (the server
-  hashes). `loginWithPin` becomes unlock-only.
+- **`AuditService`** (P7, Settled) → the `audit.log` calls leave the services and `AuditService`'s
+  client write path goes. No no-op shim.
+- **`StaffService`** (S1, Settled) → `getStaffByPin` is gone; `passwordHash` becomes `password` (the
+  server hashes). **PIN logic goes entirely** — `loginWithPin`, `setPin` and PIN validation — not
+  "unlock-only"; UI-1b has already removed the server side.
 - **`CustomerService`** → drop the `Transport` import and `nextCardToken`.
 - **`LoyaltyService`** → drop `RedeemResult` / `redeemReward`, the retired path.
-- **Test harness** (P6): a fake in-memory `DataStore` in `packages/web/tests/helpers/`, held to the
-  shared conformance suite, replacing `freshStore.ts`.
+- **Test harness** (P6, Settled — **no fake `DataStore`**): the service suites and `ApiStore` run
+  **against the real server and a test Postgres**, replacing `freshStore.ts`, with the server
+  suite's discipline — they **fail, not skip**, without a database. Node's `fetch` keeps no
+  cookies, so the harness needs a **cookie jar**. Screen and component tests are untouched: they
+  already stub at the services level with `vi.fn()` via `ServicesProvider` (e.g. `Card.test.tsx`).
+- **A dev seed for the backend** (what the deleted `demoSeed` provided), kept until release. The
+  decision did not assign it a phase; it sits here beside the harness.
 
-**Done when:** **0 TypeScript errors**, `tsc -b` passes, all 53 SPA test files load, and
+**Done when:** **0 TypeScript errors**, `tsc -b` passes, every SPA test file loads (6 of 44 fail to
+load after UI-0) with the service suites passing against a real server, and
 `npm run build -w @cafe/web` produces a bundle for the first time since Phase 6.
 
 ### UI-3 — Screens whose behaviour the backend changed
@@ -159,8 +209,15 @@ recovery), C2 (recovery becomes request → wait → type code → bound), C4 (d
 warning), C5 (deletion copy says the address frees up), C6 (card menu: one entry, delete), S2
 (after a commit, return to the counter), A4 (config bounds match the server's, with an error path),
 A5 (say plainly that the threshold is drinks-per-reward), A6 (surface the refusal to disable your
-own account), X1 (`AuthContext` reconciles against `GET /auth/session` at boot; its timer becomes a
-UI affordance only).
+own account), X1 (`AuthContext` reconciles against `GET /auth/session` at boot; with the idle lock
+gone its inactivity timer goes entirely).
+
+**The S1 and A7 screen work (2026-10-03)** — all deletion plus one downgrade, once UI-1b has taken
+the server half: the **Unlock screen** and its route, `PinPad`, `AuthContext.unlock`, the
+`EntryResolver` branch that sends a locked terminal to `/staff/unlock`, "reset PIN" in the admin
+account sheet, and the PIN field on Add profile. **Step-up (A7):** the `StepUp` and `ProgramEdit`
+sheets stop calling `useAuth().unlock(pin)`; program-config save and "Sign out all devices" become
+a plain "Are you sure?" confirmation, no credential. The server never enforced the old gate.
 
 ### UI-4 — Error and offline states on screen
 Row S3 and the screen half of X2. The staff matrix is already written (SCOPE-DECISIONS §2.4): no
@@ -168,16 +225,36 @@ card for that code, rewards already spent, over cap, server unreachable **with t
 transaction preserved**, camera denied, unreadable scan. The customer side needs the same
 treatment and has no prior art — it is the one place this pass designs rather than translates.
 
+This phase owns the **local halves** of X2's routing rules (UI-1 built the classifier and the
+global ones). A **connectivity** failure is reported again *at the point of action* — the global
+banner alone leaves staff unable to tell whether the points landed — and only the Scan screen can
+keep the staged transaction for retry. An **action** failure (`email_in_use`, `over_cap`,
+`already_spent`, a rate-limited form) shows on the field or control that needs fixing, **never** as
+a toast or banner; a `rate_limited` response disables the button and counts `retry-after` down.
+
 ### UI-5 — Liveness: the SSE subscriber
 Rows X6, X7. An `EventSource` on `GET /events`, owned by whatever replaces `PairingContext`, still
 exposing a `dataVersion` so `Card` and `Panel` refetch as they already do. Two things the prototype
 never had to handle: `reason: 'deleted'` (the card vanished under the customer) and `reason: 'card'`
 (the QR on screen is stale). Both need a designed response, not a refetch.
 
+**X7 is Settled: next-load staleness is fine.** Every card load reads the config fresh, so until
+this phase a card loads once per visit and after it also refetches on any change event for that
+customer — no `program` push scope. Widening to one stays the cheap upgrade if a stale threshold
+ever bites. A refetch that fails because an event fired stays **silent** (X2): nobody asked for it.
+
 ### UI-6 — Environment, serving, e2e
-Row X5. Rewrite `packages/web/.env.example` around what actually exists (`VITE_API_BASE`, and
-whatever else survives scrutiny), drop the GitHub Pages `base` from `vite.config.ts`, and point the
-Puppeteer suite at the nginx service from the Compose bundle instead of a Pages build.
+Row X5 (**Settled 2026-10-03**). Rewrite `packages/web/.env.example` around the variables that
+survive — `VITE_API_BASE` (stays; default `/api`, because the domain will change),
+`VITE_GOOGLE_PLACE_ID`, and `VITE_BASE` (the build base, defaulting to `/` once the Pages default
+goes) — drop the GitHub Pages `base` default from `vite.config.ts`, and point the Puppeteer suite at
+the nginx service from the Compose bundle instead of a Pages build. The SPA is served at the root;
+a future staff/admin split would be a route-level split under `/staff`, not a Vite `base` subpath.
+
+**⚠ A GitHub Pages–hosted SPA cannot talk to this backend.** The session design needs the SPA and
+the API on the same site (`SameSite=Lax` cookies and the same-origin check on mutating requests); an
+SPA on `*.github.io` calling an API elsewhere carries no session cookie, and Safari blocks
+third-party cookies outright. The deploy target is the nginx bundle, which serves both.
 
 ### UI-7 — Camera permission + home-screen install
 Row S5, and scope the triage added rather than the backend (SCOPE-DECISIONS §4.1). `manifest.json`,
@@ -194,7 +271,14 @@ Row X8, and the mechanical definition of finished: `continue-on-error` comes off
 BACKEND-PLAN's deferred Phase 11 plus this pass's own. `CLAUDE.md` is the big one: its UI section
 still describes the Prototype panel, the pairing flow, the wallet button and the two-entry card
 menu as live, behind a warning box saying they are going. Once UI-0 lands, that box is load-bearing
-for nothing — rewrite the section. Then README architecture, SPEC §15 rows, and STATUS divergences.
+for nothing — rewrite the section, including the PIN / Unlock / idle-lock / step-up bullets that S1
+and A7 superseded on 2026-10-03. Then README architecture, SPEC §15 rows, and STATUS divergences
+(**j**, **p** and **q** are annotated as superseded and retire here).
+
+### Deferred — not dropped
+- **Remember-me security hardening.** S1 ships a rudimentary "remember me" that persists a login
+  (30 days remembered, 12 hours otherwise). The maintainer wants a hardening round on it later; it
+  has no phase yet. Until then, a remembered till is signed in for 30 days with no idle rule.
 
 ---
 
@@ -206,6 +290,11 @@ for nothing — rewrite the section. Then README architecture, SPEC §15 rows, a
   means UI-2 reshapes services without dead callers confusing the picture. But it is the phase most
   likely to take something still wanted: check the register before deleting anything not listed.
 - **Don't rebuild on the old shape.** `tests/helpers/freshStore.ts` builds on `IndexedDbStore`.
-  Restoring it against a fake is tempting in UI-0 and wrong — the services change shape in UI-2.
-- **"Green" is not "works".** 0 errors and 53 loading test files still leaves a SPA nobody has
-  driven against a real server. UI-6's e2e against the Compose bundle is the first honest check.
+  Porting it to a fake store is wrong — the services change shape in UI-2, and P6 settled that
+  there is **no fake store**: service tests hit the real server.
+- **The SPA's service tests now need a database.** Like the server suite, they must fail rather
+  than skip without one, or a green run can mean nothing ran. CI's `web` job will need a Postgres
+  and a running server to run them against.
+- **"Green" is not "works".** 0 errors and every test file loading still leaves a SPA nobody has
+  driven against a real server through a browser. UI-6's e2e against the Compose bundle is the
+  first honest check.
