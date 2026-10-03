@@ -7,12 +7,15 @@
   "scripts": {
     "predev": "npm --prefix ../shared run build",
     "dev": "tsx watch src/index.ts",
+    "predev:local": "npm --prefix ../shared run build",
+    "dev:local": "tsx watch --env-file=.env src/index.ts",
     "start": "node dist/index.js",
     "prebuild": "npm --prefix ../shared run build",
     "build": "tsc -p tsconfig.build.json",
     "pretypecheck": "npm --prefix ../shared run build",
     "typecheck": "tsc -p tsconfig.json",
     "migrate": "node dist/migrate.js",
+    "migrate:local": "node --env-file=.env dist/migrate.js",
     "bootstrap": "node dist/bootstrap.js",
     "pretest": "npm --prefix ../shared run build",
     "test": "vitest run"
