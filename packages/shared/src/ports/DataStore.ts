@@ -30,10 +30,13 @@
  *   - `redeemReward` is **gone** — the pre-rework redeem path, replaced by
  *     `commitCounterTransaction` and refused by the schema.
  *
- * `listAllTransactions` and `exportAll` are still "fetch everything" (§4-E);
- * that one stays a route-boundary concern, because the same calls feed
- * in-process readers (the detectors, the stats derivation) that a silently
- * truncated read would make quietly wrong.
+ * `exportAll` is still "fetch everything" (§4-E); that stays a route-boundary
+ * concern.
+ *
+ * Two more left in UI-2 (`UI-RECONCILIATION.md` P9), for having no route a
+ * client could call: `getStaffByUsername` and `listAllTransactions` are now
+ * {@link TrustedStore} methods. The HTTP adapter had been answering both with a
+ * rejection, which is a port saying a client may do something it may not.
  */
 
 import type {
@@ -202,7 +205,6 @@ export interface DataStore {
 
   // ── staff & config ─────────────────────────────────────────────────────────
   createStaff(input: CreateStaffInput): Promise<StaffAccount>;
-  getStaffByUsername(username: string): Promise<StaffAccount | null>;
   setStaffActive(id: string, active: boolean): Promise<void>;
   /**
    * Set an account's password from the **plaintext**, which the store hashes.
@@ -236,7 +238,6 @@ export interface DataStore {
 
   // ── stats (basic counts only) ───────────────────────────────────────────────
   countActiveCustomers(): Promise<number>;
-  listAllTransactions(): Promise<LoyaltyTransaction[]>;
 
   // ── backup/restore (JSON export/import) ─────────────────────────────────────
   exportAll(): Promise<Snapshot>;
@@ -247,7 +248,7 @@ export interface DataStore {
  * `TrustedStore` — the capabilities a **client may not have**.
  *
  * Everything on {@link DataStore} is something a browser is allowed to ask for,
- * because a route stands in front of it deciding who may. These three are not:
+ * because a route stands in front of it deciding who may. These are not:
  * they are in-process calls whose integrity comes from the caller being the
  * server itself, and each one, exposed over HTTP, would hand a client the exact
  * thing the design withholds.
@@ -262,6 +263,15 @@ export interface DataStore {
  *     the address to a customer itself and never tells the caller whether it
  *     found one.
  *
+ *   - **`getStaffByUsername`** returns the account *with* its argon2id digest.
+ *     It is the sign-in lookup, and sign-in is `POST /auth/login`; a client
+ *     route to it would be an account-enumeration oracle that also leaks
+ *     hashes (UI-2, P9).
+ *   - **`listAllTransactions`** is the whole ledger, every customer, unbounded.
+ *     The detectors read it in-process, where a silently truncated read would
+ *     make them quietly wrong; over HTTP the ledger is served only ranged and
+ *     capped, by `GET /transactions` (§4-E, P9).
+ *
  * Splitting them out is the honest version of a rule the routes were already
  * enforcing by hand. Before Phase 6 they sat on `DataStore` with guardrail tests
  * greping for callers; now the type says it, and an adapter that speaks HTTP
@@ -270,6 +280,12 @@ export interface DataStore {
 export interface TrustedStore extends DataStore {
   /** Append an audit row. The caller is trusted to have derived the actor itself. */
   appendAudit(entry: AppendAuditInput): Promise<void>;
+
+  /** The account for a username, digest included — the sign-in lookup. */
+  getStaffByUsername(username: string): Promise<StaffAccount | null>;
+
+  /** Every ledger entry for every customer. In-process readers only. */
+  listAllTransactions(): Promise<LoyaltyTransaction[]>;
 
   /**
    * Issue a recovery code for a customer and return the **plaintext** — the only

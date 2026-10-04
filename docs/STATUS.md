@@ -17,27 +17,27 @@
 >    pairing layer, the transport and wallet adapters, `EmailJsMailer` and the Pages demo went in
 >    Phase 6 — **done, 2026-09-16**.
 >
-> **So everything below describes a prototype that has now been dismantled, not a shipping one.**
-> The adapters are gone; the screens that used them are still here and are UI-pass deletions.
-> `@cafe/web` (the SPA, physically moved to `packages/web/` in Phase 10) no longer builds, on
-> purpose: **6 of its 44 test files fail to load** — the six `tests/services/` suites, which run on
-> `IndexedDbStore` through `tests/helpers/freshStore.ts`. It was 9 of 47 until UI-0, which deleted
-> the screens behind three of them (`Card`, `EnlargedQr` and `Panel` now load and pass) along with
-> three suites whose subjects it removed. The file count had already dropped from 53 to 47 in
-> Phase 10, when the six pure-domain suites moved out into `@cafe/shared`
-> (`packages/shared/tests/`) and started passing green on their own — not because any of the 9
-> failures were fixed. The release gate for the rest of the backend run is the **`@cafe/shared` +
-> `@cafe/server` suites + their `tsc`**; a red `@cafe/web` is expected, not a regression to chase.
+> **So everything below describes a prototype that has been dismantled, not a shipping one — and
+> much of it is now stale.** The adapters are gone, and the screens that used them were deleted in
+> UI-0 and UI-2. `@cafe/web` (the SPA, physically moved to `packages/web/` in Phase 10) **was red on
+> purpose from Phase 6 until UI-2 (2026-10-04) and is not any more**: 0 TypeScript errors, **all 44
+> test files load and pass (310 tests)**, and `npm run build -w @cafe/web` produces a bundle. It was
+> 9 of 47 files not loading until UI-0, 6 of 44 until UI-2 (the six `tests/services/` suites that ran
+> on `IndexedDbStore`; UI-2 rebuilt them as `tests/live/*` against the real server). The release gate
+> is now **all three suites + their `tsc`** — `@cafe/shared`, `@cafe/server` and `@cafe/web` — though
+> CI's `web` job stays `continue-on-error` until UI-8. Green is not "works": some screens still
+> disagree with the backend (see UI-PLAN's UI-2 as-built, "Still open").
 >
 > **▶ Active initiative — the UI pass.** The backend is **complete**;
 > [`UI-PLAN.md`](UI-PLAN.md) is the live plan and [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md)
-> its specification. `@cafe/web` is red on purpose until UI-2 lands. **Every blocking decision was
-> answered on 2026-10-03** — notably that the staff device is a shared till and **the PIN and the
-> idle lock are being removed**. The server + port half, **UI-1b, landed 2026-10-04** (branch tagged
-> `backend-v1`; [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) §6.3–§6.7): the server and the shared
-> port no longer have a PIN, `/auth/unlock` or an idle lock, and older passages below that describe
-> them are history. The PIN, Unlock screen and idle-lock *UI* are still real SPA code until UI-2 and
-> UI-3.
+> its specification. **UI-0, UI-1, UI-1b and UI-2 are done; UI-3 is next.** **Every blocking decision
+> was answered on 2026-10-03** — notably that the staff device is a shared till and **the PIN and the
+> idle lock are removed**. The server + port half, **UI-1b, landed 2026-10-04** (branch tagged
+> `backend-v1`; [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) §6.3–§6.7), and the **SPA half landed in
+> UI-2 the same day**, pulled forward from UI-3: no PIN, `PinPad`, Unlock screen, idle timer or
+> step-up credential exists in the SPA or on the server any more (the server only still redacts a stray
+> `pin` from logs and strips one from `POST /staff`). Older passages below that describe them are
+> history.
 >
 > **▶ Completed initiative — the production backend.** [`BACKEND-PLAN.md`](BACKEND-PLAN.md) is the
 > live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose; **Phases 0–6 and 10 done**;
@@ -68,7 +68,79 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-10-04 (**UI pass — UI-1: `ApiStore.request` and the error surface**
+**Last updated:** 2026-10-04 (**UI pass — UI-2: services reshaped to the routes, tests rebuilt
+against the real server — `@cafe/web` compiles again** (branch `claude/backend-implementation-2kqb08`)).
+**`@cafe/web`: 15 → 0 TypeScript errors, `tsc -b` passes, `npm run build -w @cafe/web` produces a
+bundle for the first time since Phase 6.** **Verification (2026-10-04, Node 22):** `@cafe/shared`
+**73**, `@cafe/server` **439** (unchanged, green), `@cafe/web` **310 tests in 44 files, none failing
+to load** (was 257 passing in 40 of 46 loading files): **38 `ui` files** plus **6 `live` files — 64
+tests** (StaffService 20, CustomerService 14, LoyaltyService 12, ConfigAndAudit 8, RecoveryService 5,
+ApiStore 5).
+**Services reshaped (C3, A3, P7, S1).** No service writes an audit row or sends mail — the routes do
+both, from the session. `AuditService` is read-only (`list` → `GET /audit`, the session's own rows;
+`log` deleted, no shim). `ConfigService.update(patch)` takes no actor and never passes `sessionEpoch`
+(the server refuses it). `StaffService`: `login(username, password, remember)` → `POST /auth/login`
+(wrong password / disabled / unknown / rate-limited resolve `{ ok: false, reason }`, anything else
+throws `ApiError`), `logout()` → `POST /auth/logout`, `session()` → `GET /auth/session`,
+`revokeAllSessions()` → `POST /auth/logout-all` (ends the caller's own session too),
+`create(username, password, role, name?)`, `setActive`, `resetPassword`, `remove(actor, id)`; **all PIN
+logic is gone**. `RecoveryService(api)`: `request(email)` → `POST /recovery/request`,
+`consume(email, code)` → `POST /recovery/consume` (`{ token }` or `null`); it neither mints codes nor
+sends mail. `LoyaltyService(store, api)`: state reads via `GET /customers/:id/state` (the old
+client-side `buildState` read staff-only `GET /config`, which a customer's phone cannot);
+`getAlerts()` → `GET /alerts` (server window **30 days**), `dismissAlert(key)`; `accrue`,
+`redeem` / `RedeemResult` and `getStats` removed. `CustomerService(store)`: `issueCard`,
+`provisionFromToken`, `finalizeRegistration`, `nextCardToken`, the `Transport` import and the welcome
+mail removed (token-only shell cards went with SCOPE-DECISIONS §2.1). `services/types.ts` gained an
+`Api` interface (`request<T>(method, path, body?)`) that `ApiClient` satisfies — services name no
+adapter; `SYSTEM_ACTOR` is gone; `createServices(options?)` takes `ApiClientOptions` so the Node
+harness can inject a cookie-jar `fetch`.
+**Port edit (P9, divergence af).** `getStaffByUsername` and `listAllTransactions` moved from
+`DataStore` to `TrustedStore`; `server/src/detection.ts` takes a `TrustedStore`; `ApiStore`'s two
+rejecting stubs are gone; `tests/adapters/ApiStore.test.ts` asserts `ApiStore` has none of
+`TrustedStore`'s methods. Server suite stayed at 439.
+**Test harness (P6 — no fake store).** `packages/web/vitest.projects.ts` (a Vitest workspace, wired
+through `vite.config.ts` `test.workspace` so the e2e config is unaffected): project **`ui`** (jsdom,
+everything except `tests/live/**`) and project **`live`** (node, one fork).
+`tests/live/globalSetup.ts` **fails, never skips**, without a database (verified: exit 1 with a
+message); recreates the `public` schema of `TEST_DATABASE_URL` (default
+`postgres://cafe:cafe@localhost:5432/cafe_loyalty_test` — the server suite's database; workspaces run
+sequentially), runs the server's built `dist/migrate.js` with a bootstrap admin, starts an SMTP sink
+(`tests/live/smtpSink.ts`) behind a tiny JSON mailbox so tests can read recovery codes, and spawns
+`node dist/index.js` on a free port. `@cafe/web`'s `pretest` runs `npm --prefix ../server run build`
+so `dist/` is never stale. `tests/live/harness.ts`: a *device* is real `createServices` + a cookie
+jar (`packages/web/dev/jarFetch.ts`) + a random `x-forwarded-for` (per-IP rate limits do not cross
+tests). Deleted: `tests/helpers/freshStore.ts`, `tests/helpers/spyMailer.ts` and the six IndexedDB-era
+`tests/services/*.test.ts`. **UI-only run:** `npx vitest --project ui` (nothing needs to be running).
+**Node 22 is still required** — Node 25's built-in `localStorage` breaks jsdom.
+**Dev seed.** `npm run seed:dev -w @cafe/web` (`packages/web/dev/seed.ts`, via `vite-node`): signs in
+as an existing admin (`SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD`; `SEED_API_URL` default
+`http://127.0.0.1:3000`, `SEED_APP_URL` default `http://localhost:5173`), creates a `barista` staff
+account and three cards (mid-progress, with a reward, empty) through the real routes, prints the
+card links; idempotent; verified against the devbox Compose image.
+**Screens pulled forward from UI-3 (S1/A7)** — removing the PIN service methods left them nothing to
+call. **Deleted:** the Unlock screen and `/staff/unlock`, `PinPad` (+ test), `AuthContext.unlock`, the
+`'locked'` status, the 5-minute idle timer (`INACTIVITY_MS`, `isIdle`, `lastActivity`, `recordActivity`;
+`session.ts` `reconcile(session, serverEpoch)` is now revoked → anon, else active, and legacy blobs
+with `lastActivity` still parse), the `EntryResolver` / `useStaffGuard` locked branches, "Reset PIN" in
+`AccountSheet`, the PIN field on Add profile, and **`RecoverConsume`** with `ROUTES.recoverWithCode`
+and `recoverPath` (C2 — the server mails a six-character code, so there is no link to land from;
+`/recover` still redirects to `/lost`). **A7:** `StepUp` became `ConfirmSheet`
+(`admin/_parts/ConfirmSheet/`) — a plain "Sign out all devices?" with Cancel / "Sign out all"; `ProgramEdit`
+lost its PIN pad, its own Save is the confirmation. After "Sign out all devices" the admin's device
+signs out and goes to `/login` (the server ended that session too); `AuthContext.logout()` also calls
+`POST /auth/logout` (best effort). **CI:** the `web` job has a Postgres service + `TEST_DATABASE_URL`
+and real Typecheck / Tests / Build steps; still `continue-on-error` until UI-8 (not re-verified on a
+runner). **What the `live` suite proved about the server:** sign-out-all ends the caller's own
+session; deleting an account ends its sessions; a till cannot consume a recovery code (`403
+staff_device`); staff cannot delete a customer (`404`); the server clamps `repeatCount` 1 → 2.
+**Known gaps this leaves (UI-3 / UI-4):** no recovery code-entry screen (`LostCard` requests a code
+nothing can accept — an interim gap); `Register` still treats name/email as optional and does not
+handle `email_in_use`; X1's boot reconcile against `GET /auth/session`; error states are not on
+screen. Register rows done: C3, A3, P6, P7, P9, S1, A7, P3; partly: C2, X1 — see
+[`UI-RECONCILIATION.md`](UI-RECONCILIATION.md).
+
+**Prior:** 2026-10-04 (**UI pass — UI-1: `ApiStore.request` and the error surface**
 (branch `claude/backend-implementation-2kqb08`)). The SPA's one way to the server now exists.
 **New:** `packages/web/src/adapters/http/ApiClient.ts` — `request()` with `credentials: 'include'`,
 the `cafe_csrf` cookie echoed as `x-csrf-token` on every mutating request, JSON in and out, 204 →
@@ -703,28 +775,34 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
   `packages/server/src/testing/dataStoreConformance.ts` (moved from `tests/conformance/` in
   Phase 10) is exercised by `PostgresStore.test.ts` — its only consumer since Phase 6 deleted
   `IndexedDbStore`, the suite's former second adapter; the `@cafe/conformance` alias is gone.
-- **`@cafe/web` is red on purpose** (Phase 6; the counts moved in Phase 10 without any new
-  failure, UI-0 cut them down, UI-1 added two suites): **6 of 46 test files fail to load, 40 pass
-  (257 tests)**, and **15 `tsc` errors** remain, all in `services/` or `tests/` — 14 are Phase 6
-  deletions and 1 is the `StaffService` `setStaffPin` caller left by UI-1b; UI-2 resolves all of
-  them. Before UI-0 it was 9 of 47 with
-  39 errors.
-  **`@cafe/shared` is green independently — 73 tests** (the six domain suites, moved out
-  of the SPA's run in Phase 10). **`@cafe/server`: 390 tests** pass, `tsc` green, `dist/` emits and
-  runs on plain `node`, all against a **real** Postgres at `TEST_DATABASE_URL` (default
-  `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`; the run **aborts** in `globalSetup` if
-  none is reachable — **a skip is not a pass**). The release gate is `@cafe/shared` +
-  `@cafe/server`; a red `@cafe/web` is expected until the UI pass. *(Counts are Phase 10's;
-  Phase 8 took the server suite to **442**; UI-1b took it to **439** — see "Last updated".)*
+- **`@cafe/web` compiles and its suite is green (UI-2, 2026-10-04)** — it was red on purpose from
+  Phase 6 until then (9 of 47 test files not loading and 39 `tsc` errors before UI-0; 6 of 44 and 15
+  before UI-2). Now: **0 `tsc` errors, 44 test files, 310 tests, all loading and passing**, and
+  `npm run build -w @cafe/web` produces a bundle. Two Vitest projects (`packages/web/vitest.projects.ts`):
+  **`ui`** — 38 jsdom files, no server needed (`npx vitest --project ui`) — and **`live`** — 6 node
+  files, 64 tests, run against the real server and a test Postgres (`tests/live/`). **`npm test -w
+  @cafe/web` therefore needs Postgres, fails rather than skips without one, and needs Node 22.**
+  **`@cafe/shared` — 73 tests**, green independently (the six domain suites, moved out of the SPA's
+  run in Phase 10). **`@cafe/server`: 439 tests** pass (390 at Phase 10, 442 after Phase 8, 439 after
+  UI-1b), `tsc` green, `dist/` emits and runs on plain `node`, all against a **real** Postgres at
+  `TEST_DATABASE_URL` (default `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`, shared with
+  the `live` project — workspaces run sequentially; the run **aborts** in `globalSetup` if none is
+  reachable — **a skip is not a pass**). The release gate is all three suites + their `tsc`; CI's
+  `web` job is still `continue-on-error` until UI-8.
+- **Dev seed:** `npm run seed:dev -w @cafe/web` creates a `barista` staff account and three cards
+  against a running backend (see "Last updated" for the variables).
 - **Puppeteer e2e suite** (`packages/web/e2e/`, run with `npm run e2e`) drives the built app in
-  headless Chrome: welcome, register→card, staff PIN, and the reference bug-list regressions. It
+  headless Chrome: welcome, register→card, staff sign-in, and the reference bug-list regressions. It
   still builds against the deleted GitHub Pages target and **does not run** — UI-6 repoints it at
-  the Compose bundle's nginx. UI-0 deleted `prototype.e2e.ts` with the panel it drove.
+  the Compose bundle's nginx. UI-0 deleted `prototype.e2e.ts` with the panel it drove. A PIN-keypad
+  helper in `e2e/support.ts` (and a mention in `e2e/README.md`) is dead since UI-2 removed `PinPad`;
+  UI-6 deletes it.
 - CI: `.github/workflows/ci.yml` (Phase 9) — four jobs. `contract` (`@cafe/shared`), `server`
   (the release gate against a Postgres service container, plus a check that the suite still
   **refuses** to run without one), `bundle` (Compose up from an empty volume → `ops/smoke.sh` →
-  a PII log scan → `ops/drill.sh`), and `web` (`continue-on-error`; red by decision, gates
-  nothing). The old `deploy.yml` — test → build with the `VITE_*` secrets → publish to GitHub
+  a PII log scan → `ops/drill.sh`), and `web` (`continue-on-error` until UI-8, gates nothing; since
+  UI-2 it has a Postgres service + `TEST_DATABASE_URL` and real Typecheck / Tests / Build steps).
+  The old `deploy.yml` — test → build with the `VITE_*` secrets → publish to GitHub
   Pages — was deleted in Phase 6 with the prototype it deployed.
 - **Local devbox workflow:** the live backend is the real runtime image (`docker compose up -d --wait`,
   root `.env` with `ALLOWED_ORIGINS` / `APP_URL` / `MAIL_SMTP_URL` set for a host Vite server and
@@ -744,7 +822,7 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 
 | Criterion | State | Where |
 |---|---|---|
-| Staff/admin login + role gating *(the PIN half is **superseded by S1, 2026-10-03** — removed entirely by UI-1b/UI-3; "remember me" persists a login instead)* | ✅ | `services/StaffService.ts`, `ui/app/AuthContext.tsx`, `ui/screens/staff/Login/Login.tsx` — **username/password first** (seed: admin `admin`/`admin`, staff `staff`/`staff`); **PIN** (seed admin `4321`, staff `1234`, plus a third staff `priya`/`2468`) is the quick re-auth on a remembered idle device (`ui/screens/staff/Unlock/Unlock.tsx`); both roles land on the **counter** (`/staff`), admins open `/admin` from there; staff guard via `useStaffGuard` inside screens |
+| Staff/admin login + role gating *(the PIN half is **superseded by S1, 2026-10-03** and **gone from the SPA and the server as of UI-2, 2026-10-04**; "remember me" persists a login instead)* | ✅ | `services/StaffService.ts` (`login` → `POST /auth/login`, `logout`, `session`), `ui/app/AuthContext.tsx`, `ui/screens/staff/Login/Login.tsx` — **username/password only** (dev accounts come from the server's bootstrap admin and `npm run seed:dev -w @cafe/web`; the prototype's `admin/admin` seed is gone with `demoSeed`); a remembered device stays signed in for 30 days, until sign-out; both roles land on the **counter** (`/staff`), admins open `/admin` from there; staff guard via `useStaffGuard` inside screens |
 | Self-service registration (primary path); no approval queue | ✅ | `ui/screens/customer/Register/Register.tsx`, `CustomerService.selfRegister`, `adapters/identity/LocalStorageIdentityStore.ts` |
 | Staff-initiated registration | ❌ **removed** — redundant with self-registration. Staff scanning an unregistered code now shows "ask the customer to join on their phone first" (no card-create button). `CustomerService.provisionFromToken` still exists service-side but is no longer wired in the UI |
 | No single-browser / dual-pane simulation | ✅ (LocalBridgeTransport removed) | `adapters/transport/` |
@@ -753,21 +831,21 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 | Accrual respects cap; append-only ledger; derived balance | ✅ now via the **unified commit** (rewards-as-objects rework) — one atomic `commit` accrues, mints rewards on threshold-crossing, and redeems N, capped at `maxPointsPerTransaction` (`over_cap` reject). Balance settles to `0..threshold−1`; the "N free" count = unspent `Reward` objects (not a derived boolean). See the **Rewards-as-objects acceptance (C9/D10)** table + formats subsection below. | `services/LoyaltyService.ts` (`commit`), `adapters/storage/IndexedDbStore.ts` (`commitCounterTransaction`), `domain/loyalty.ts` + `domain/rewards.ts` |
 | Reward-available email on threshold crossing (best-effort) | ✅ | `LoyaltyService.commit` → `Mailer` (exactly one email per commit, only when the commit minted ≥1 reward) |
 | Atomic redemption (no double-spend) | ✅ now a **commit-time, idempotent, subset redeem** — every `redeemRewardId` is re-validated (`not_owner`/`already_spent`/`reward_invalid` → `rejected[]`, valid ones still redeem); a 2nd commit with the same `idempotencyKey` returns the cached result with no writes (prototype atomicity = single IDB-tx scope; the production store adds a real `SELECT … FOR UPDATE` row lock — see divergence **l**) | `adapters/storage/IndexedDbStore.ts` and `packages/server/src/PostgresStore.ts` (`commitCounterTransaction`), held to one shared contract by `tests/conformance/dataStoreConformance.ts` |
-| Self-service recovery via single-use expiring link (EmailJS) | ✅ impl; needs live verification | `services/RecoveryService.ts`, `ui/screens/customer/LostCard/LostCard.tsx`, `ui/screens/customer/RecoverConsume/RecoverConsume.tsx`, `adapters/email/EmailJsMailer.ts` |
+| Self-service recovery via single-use expiring link (EmailJS) — **now a typed six-character code** (SCOPE-DECISIONS §2.3, divergence **x**) | ⚠️ **partial** — server and `RecoveryService` done (`request` → `POST /recovery/request`, `consume(email, code)` → `POST /recovery/consume`, tested live); the SPA's `RecoverConsume` link landing, `ROUTES.recoverWithCode`/`recoverPath` and `EmailJsMailer` are deleted; **the code-entry screen is UI-3 (C2)**, so `LostCard` requests a code nothing on screen can accept | `services/RecoveryService.ts`, `ui/screens/customer/LostCard/LostCard.tsx`, `packages/server/src/recovery/`, `routes/recovery.ts` |
 | Recovery is **email-only** | ✅ | `ui/screens/customer/LostCard/LostCard.tsx` — the single recovery vector is the emailed single-use link (`RecoveryService`). Staff/name-based recovery removed (a name isn't distinguishing enough). LostCard now explains the **no-email consequence** (a card with no email can't be recovered); the registration caveat (`Register.tsx`) says the same up front |
 | Correction/reversal, logged | ✅ | `LoyaltyService.reverse` writes an offsetting `reversal` entry + `loyalty.reverse` audit row — the SPEC §6 correction primitive. The rewards-as-objects **post-commit undo** (`LoyaltyService.undo`/`DataStore.undoCommit`) is **retired** (Appendix E, Phase 1): the staff Scan now defers every write behind a **3-second pre-commit hold** instead, so a wrong transaction is cancelled before it's ever written rather than reversed after — see the Staff integrity & observability acceptance (E9) table below |
 | Deletion/opt-out — customer self-delete from card menu; staff-confirmed also available | ✅ | `CustomerService.selfDelete(token)` ← `ui/screens/customer/CardMenu/CardMenu.tsx`; `IndexedDbStore.softDeleteCustomer` |
-| Admin: account CRUD (**Add profile** staff/admin with name/username/password/PIN; per-profile popover = enable/disable, reset password, reset PIN, **delete** — un-gated) + "Sign out all devices"; config (step-up PIN re-auth on save), stats, audit viewer, alerts, activity export *(the PIN, "reset PIN" and the step-up gate are **superseded by S1/A7, 2026-10-03** — step-up becomes a plain "Are you sure?"; stats and activity export were already retired by UI-0)*; admin is a **superset of staff** (counter/scan access, both views have Sign out) | ✅ | `ui/screens/admin/Admin/Admin.tsx`, `ui/screens/admin/_parts/AccountSheet/`; `StaffService.remove` → `DataStore.deleteStaff`; staff `name` shown in panel + activity. Per-profile activity history moved out of `AccountSheet` — reachable only via the audited Export workflow (Appendix E, Phase 3/4) |
-| Staff/admin session never auto-displays customer card (entry routing) | ✅ | `ui/app/EntryResolver.tsx` — any active staff/admin (trusted or ephemeral)→**counter** `/staff` (admins reach `/admin` via the counter's "Go to admin" button); trusted+locked→`/staff/unlock`; remembered card→`/card/:token`; else→`/welcome` |
-| Inactivity lock (5 min) → PIN re-auth at `/staff/unlock` — **superseded by S1 (2026-10-03): no idle lock, no PIN. The server half landed in UI-1b (2026-10-04): sessions run to their TTL (30 days remembered / 12 hours). The row's SPA code survives until UI-2 / UI-3, and the row retires with it.** | ✅ (SPA code only; the server no longer has `/auth/unlock`) | `ui/app/AuthContext.tsx`, `ui/screens/staff/Unlock/Unlock.tsx`, `StaffService.loginWithPin` |
-| Epoch-based "Sign out all devices" revocation | ✅ | `StaffService.revokeAllSessions`, `ProgramConfig.sessionEpoch` |
+| Admin: account CRUD (**Add profile** staff/admin with name/username/password; per-profile popover = enable/disable, reset password, **delete** — un-gated) + "Sign out all devices"; config (the Save is its own confirmation), alerts *(the PIN, "reset PIN" and the step-up credential were **removed by S1/A7 in UI-2, 2026-10-04** — `StepUp` is now `ConfirmSheet`, a plain "Sign out all devices?"; stats and activity export were retired by UI-0; still UI-3: A4 config bounds, A6 the disable-self refusal on screen)*; admin is a **superset of staff** (counter/scan access, both views have Sign out) | ✅ | `ui/screens/admin/Admin/Admin.tsx`, `ui/screens/admin/_parts/AccountSheet/`; `StaffService.remove` → `DataStore.deleteStaff`; staff `name` shown in panel + activity. Per-profile activity history moved out of `AccountSheet` — reachable only via the audited Export workflow (Appendix E, Phase 3/4) |
+| Staff/admin session never auto-displays customer card (entry routing) | ✅ | `ui/app/EntryResolver.tsx` — any active staff/admin (trusted or ephemeral)→**counter** `/staff` (admins reach `/admin` via the counter's "Go to admin" button); the locked branch and `/staff/unlock` are gone (UI-2); remembered card→`/card/:token`; else→`/welcome` |
+| Inactivity lock (5 min) → PIN re-auth at `/staff/unlock` — **superseded by S1 (2026-10-03): no idle lock, no PIN. Removed from the server in UI-1b and from the SPA in UI-2 (2026-10-04): sessions run to their TTL (30 days remembered / 12 hours).** | ❌ **removed** (by decision S1) — the row retires with UI-9 | was: `ui/screens/staff/Unlock/Unlock.tsx`, `StaffService.loginWithPin`, `AuthContext.unlock` — all deleted |
+| Epoch-based "Sign out all devices" revocation | ✅ — `StaffService.revokeAllSessions` is `POST /auth/logout-all`; it ends the caller's own session too, so the admin's device signs out and goes to `/login` (proved in the `live` suite) | `StaffService.revokeAllSessions`, `ProgramConfig.sessionEpoch` (server-owned: `PATCH /config` refuses it) |
 | Suspicious-activity alerts — monitoring only | ✅ pruned to **two** attributed detectors (Appendix E, Phase 2): **self-dealing proximity** (same staff accrues then redeems on the same card within a window, repeatedly) and **repeat-target** (same customer credited repeatedly in a window); thresholds are admin-configurable; no role exemption | `domain/alerts.ts`, `LoyaltyService.getAlerts()`, `ui/screens/admin/_parts/Alert/Alert.tsx`, `ui/screens/admin/Admin/Admin.tsx` (Configure → "Activity alerts") |
 | WalletProvider seam; OS-detected wallet button inside enlarged-QR overlay; links to walletwallet.dev pre-generated passes | ❌ **removed** — the port and both adapters went in the triage (SCOPE-DECISIONS §1); UI-0 removed the button, `WalletButton` and `EnlargedQr`'s pass resolution. The web card is the only card |
 | Storage behind `DataStore`; Email behind `Mailer`; Identity behind `IdentityStore` — **three** ports, not five | ✅ | `packages/shared/src/ports/`, `packages/web/src/adapters/`, `services/Services.ts`. `Transport` and `WalletProvider` are deleted; the "swap = no UI/service change" promise was revoked on 2026-09-16 (SCOPE-DECISIONS §6) |
 | Two-device demo over PeerJS + TURN (real cross-device, not simulated) | ❌ **removed** — the `Transport` port and PeerJS went in Phase 6; devices meet on the server |
 | Device pairing — one till hosts many customers; live DataStore sync across all devices | ❌ **removed** — `adapters/sync/` went in Phase 6 and UI-0 deleted the last screens (`PairingContext`, `PairDevices`, `/pair`, `storageSnapshot`). The server coordinates state centrally and `GET /events` (SSE) carries liveness; the client subscriber is UI-5. Historical shape: | ~~`adapters/sync/`, `ui/common/PairingContext.tsx`, `ui/common/PairDevices.tsx` — all devices host by default; scanning a till's QR makes the scanning device a customer (**no device is auto-routed to staff** — every joiner lands on `/welcome`); a paired client also exposes the till's id (`joinedHostId`) so it can show the **host's QR** and the network can grow from any device; pairing is a reversible overlay — join **snapshots** the device's storage and starts fresh, unpair (voluntary **or** host-forced, with a "till disconnected" toast) **restores** it; unpair signals all peers and each resumes hosting |
 | Domain unit-tested; file tree matches SPEC §12 | ✅ (new UI layout diverges from SPEC §12 — see divergences g, k) | `packages/shared/tests/`, `packages/web/tests/`, domain + services match |
-| Adapters/transports/services unit-tested (regression cover) | ✅ | `packages/web/tests/adapters/*`, `packages/web/tests/services/*`, `packages/web/tests/qr/*`, `packages/shared/tests/alerts.test.ts` |
+| Adapters/services tested (regression cover) | ✅ — services and `ApiStore` run **against the real server and a test Postgres** (the `live` Vitest project; no fake store, P6), adapters' request/route mapping against a `fetch` double | `packages/web/tests/live/*` (64 tests), `packages/web/tests/adapters/*`, `packages/web/tests/qr/*`, `packages/shared/tests/alerts.test.ts` |
 | Co-located component/screen tests (Vitest, jsdom) | ✅ | `packages/web/src/ui/components/**/*.test.tsx`, `packages/web/src/ui/screens/**/*.test.tsx` — included via `vite.config.ts` `test.include` |
 | Browser-level end-to-end smoke | ⚠️ **not running** — the suite still builds against the deleted Pages target; UI-6 repoints it at the Compose bundle | `packages/web/e2e/*.e2e.ts` (Puppeteer, headless Chrome) via `npm run e2e` — welcome/card/staff/regression (`prototype.e2e.ts` deleted in UI-0 with the panel it drove) |
 | **B1** Device persistence — remember/forget exactly one card; no auto-save on view; registration toggle | ✅ | `ui/screens/customer/Card/Card.tsx`, `ui/screens/customer/Register/Register.tsx` |
@@ -952,15 +1030,16 @@ actions).
 
 ## What is real vs. stubbed (prototype intentionally)
 
-- **Auth** is mocked: names, PINs and passwords are stored and compared as plain
-  strings; seed accounts `admin/admin` (name "Manager") and `staff/staff` (name
-  "Sam") with PINs `4321` / `1234`. Production → hashed server-side. Sign-in is
-  **username/password first** (`Login`); a remembered ("Remember this device")
-  terminal re-auths with the PIN (`Unlock`) after a 5-minute idle lock; a
+- **Auth** is real, and server-side: argon2id credentials, cookie sessions, CSRF, rate limits
+  (BACKEND-PLAN Phases 3–4). *(This bullet used to say auth was mocked, with plain-string
+  passwords and PINs and seed accounts `admin/admin` / `staff/staff` — that was the IndexedDB
+  prototype; none of it exists.)* Sign-in is **username/password only** (`Login` →
+  `StaffService.login` → `POST /auth/login`); there is no PIN and no idle lock (S1). A
+  remembered ("Remember this device") session lasts 30 days, otherwise 12 hours; a
   non-remembered device prefills the last username. `AuthContext`
-  (`ui/app/AuthContext.tsx`) manages the active session: "remember this device"
-  flag, idle lock, epoch-based revocation, and the remembered `lastUsername`.
-  PIN/password are never logged.
+  (`ui/app/AuthContext.tsx`) holds the client's view of the session: the "remember this device"
+  flag, epoch-based revocation, and the remembered `lastUsername`; the server decides. Passwords
+  are never logged.
 - **Prototype / developer panel** — **deleted in UI-0**, along with its hidden trigger and the
   `isPrototype` gate: with one store, one mail sender and one identity mechanism there is nothing
   left for it to switch. The rest of this bullet is the historical record.
@@ -1031,11 +1110,14 @@ actions).
 
 Three separate suites since Phase 10 split the repo into packages — there is no longer a single
 `npm test`. `npm test -w @cafe/shared` runs **73 tests** (green, independent of the SPA).
-`npm test -w @cafe/web` runs **6 of 46 test files failing to load, 40 passing (257 tests)** (it was
-9 of 47 / 189 before UI-0, and 6 of 44 / 180 before UI-1) —
-includes co-located `packages/web/src/ui/**/*.test.tsx` via the extended `test.include` in
-`vite.config.ts`; red for exactly the Phase 6 reasons (below). `npm test -w @cafe/server` runs
-**390 server tests** against a real Postgres.
+`npm test -w @cafe/web` runs **310 tests in 44 files, none failing to load** (UI-2, 2026-10-04; it was
+257 passing in 40 of 46 loading files before UI-2, 180 in 38 of 44 before UI-1, and 189 in 38 of
+47 before UI-0) as two Vitest projects defined in `packages/web/vitest.projects.ts`: **`ui`** — 38
+jsdom files, including the co-located `packages/web/src/ui/**/*.test.tsx` — and **`live`** — 6 node
+files in `packages/web/tests/live/`, 64 tests, run against the real server and a test Postgres. The
+`live` project **needs a database and fails, never skips, without one**; its `pretest` rebuilds the
+server's `dist/`. Under Node 25 the `ui` project breaks (built-in `localStorage` shadows jsdom's) —
+use Node 22. `npm test -w @cafe/server` runs **439 server tests** against a real Postgres.
 
 - **`@cafe/shared` — `packages/shared/tests/`** — `loyalty`, `rewards` (rewards-as-objects pure
   logic: `mintFold` mint-on-cross + multi-mint, `unspentRewards`, `cardProgress`,
@@ -1046,20 +1128,19 @@ includes co-located `packages/web/src/ui/**/*.test.tsx` via the extended `test.i
   outlier-share, oversized multi-add removed, Appendix E Phase 2). These six suites moved out of
   the SPA's test run in Phase 10 — they are the contract's own tests and stay green whatever state
   `@cafe/web` is in.
-- **`@cafe/web` — `packages/web/tests/services/`** — `Customer` (incl. `selfRegister`, `provisionFromToken`,
-  `nextCardToken`, `selfDelete`), `Loyalty` (incl. reward-notification path,
-  `getAlerts()` over attributed events + configurable thresholds, and the
-  rewards-as-objects unified commit: `commit` mint-on-cross, `over_cap`/
-  `customer_not_found` short-circuit, idempotent retry, subset-redeem,
-  one-email-per-mint, `getStats` counts `reward.redeemed` audit events, plus
-  `reverse` — `undo` removed, Appendix E Phase 1), `Recovery`, `Staff` (incl.
-  `loginWithPin`, `setPin`, `revokeAllSessions`), `Config` (incl. the four
-  detector-threshold fields), `Audit` (`log` + `list`; the `exportActivity` tests went with the
-  export workflow in UI-0), plus the `Services` composition-root wiring. **None of these six suites
-  currently load** — they build their graph on the deleted `IndexedDbStore` through
-  `tests/helpers/freshStore.ts`, and UI-2 replaces the harness — **not** with a fake `DataStore`
-  (register P6, reversed 2026-10-03) but by running them against the real server and a test
-  Postgres, failing rather than skipping without one.
+- **`@cafe/web` — `packages/web/tests/live/`** (the `live` project; UI-2 rebuilt the six
+  IndexedDB-era `tests/services/` suites here, **not** on a fake `DataStore` — register P6 — but
+  against a real `node dist/index.js` and a test Postgres; `globalSetup.ts` fails without a database,
+  `harness.ts` makes a *device* of real `createServices` + a cookie jar + a random
+  `x-forwarded-for`): `StaffService` (20), `CustomerService` (14), `LoyaltyService` (12),
+  `ConfigAndAudit` (8), `RecoveryService` (5, reading the code from an SMTP sink), `ApiStore` (5) —
+  **64 tests**. The old per-service unit suites' subjects that no longer exist
+  (`provisionFromToken`, `nextCardToken`, `loginWithPin`, `setPin`, `getStats`, `AuditService.log`)
+  have no tests because they have no code. The `Services` composition-root wiring test is in the
+  `ui` project. Beyond the services, the `live` suite showed the server's documented behaviour end to
+  end: sign-out-all ends the caller's own session; deleting an account ends its sessions; a till
+  cannot consume a recovery code (`403 staff_device`); staff cannot delete a customer (`404`); the
+  server clamps `repeatCount` 1 → 2.
 - **conformance —** `packages/server/src/testing/dataStoreConformance.ts` (moved from
   `tests/conformance/` in Phase 10), the
   **store-agnostic `DataStore` suite** (41 tests): customers and the tombstone,
@@ -1071,7 +1152,9 @@ includes co-located `packages/web/src/ui/**/*.test.tsx` via the extended `test.i
   `IndexedDbStore` counterpart was deleted in Phase 6, so the suite is reframed in its own header
   as `PostgresStore`'s specification rather than a cross-store contract; the missing second harness
   is explained rather than merely missing.
-- **`@cafe/web` adapters/** — `ApiStore` (every method rejects as a stub), `NoopMailer`,
+- **`@cafe/web` adapters/** — `ApiClient` (`tests/adapters/ApiClient.test.ts`), `ApiStore` (every
+  method's route and body pinned against a `fetch` double in `tests/adapters/ApiStore.test.ts`, which
+  also asserts `ApiStore` has none of `TrustedStore`'s methods), `NoopMailer`,
   `LocalStorageIdentityStore`.
 - **Deleted in Phase 6, listed here because they used to be this section's bulk:** the
   `IndexedDbStore` suite (the seed, the short-code backfill, the v5 clean-reset upgrade, the
@@ -1083,14 +1166,15 @@ includes co-located `packages/web/src/ui/**/*.test.tsx` via the extended `test.i
   the tests went with them — **this is not missing coverage, it is a removed feature.** What
   the store suites proved about the *port* survives in the conformance suite above.
 - **`@cafe/web` ui/app/** — `session` (`packages/web/tests/ui/app/session.test.ts`): the pure session
-  decision logic from `AuthContext` — `parseSession` validation, `reconcile`
-  (epoch revocation, idle→locked for trusted vs anon for ephemeral), `isIdle`
-  boundary. `LogoGestures` (`packages/web/src/ui/app/LogoGestures.test.tsx`).
+  decision logic from `AuthContext` — `parseSession` validation (a legacy blob carrying
+  `lastActivity` still parses) and `reconcile(session, serverEpoch)` (revoked → anon, else active; the
+  idle→locked branch and `isIdle` went in UI-2). `ConnectionWatch`
+  (`src/ui/app/ConnectionWatch.test.tsx`). `LogoGestures` (`packages/web/src/ui/app/LogoGestures.test.tsx`).
 - **ui/components/** — co-located tests for each shared component: Logo, Heading,
   Button, Field, CupStamps, Sheet, Qr, Overlay, Toast, PinPad, LoyaltyCard,
-  Slider, ContextBanner.
+  Slider, ContextBanner. (`PinPad` and its test went in UI-2.)
 - **ui/screens/** — co-located tests for each screen: Welcome, Register, LostCard,
-  RecoverConsume, Card, CardMenu (customer); Login, Unlock, Panel ("Your last
+  Card, CardMenu (customer; `RecoverConsume` went in UI-2); Login (`Unlock` went in UI-2), Panel ("Your last
   hour" actor+time scoping), Scan + TopBar, ScanView, CustChip, StateLabel
   _parts (incl. the 3-second pre-commit hold: cancel writes nothing, timeout/
   "Commit now" writes once, `over_cap` drop-back) (staff); Admin (incl. the
@@ -1100,7 +1184,8 @@ includes co-located `packages/web/src/ui/**/*.test.tsx` via the extended `test.i
   `scan` with html5-qrcode mocked), **config/** (`env` mapping incl. `googlePlaceId`, and
   `links.ts` URL building). The `wallet/passes` suite went with the wallet seam in Phase 6.
 
-**Server layer** (`npm test -w @cafe/server`, 390 tests, **needs a real Postgres** at
+**Server layer** (`npm test -w @cafe/server`, 439 tests — the list below is the Phase 10 inventory
+and still names the idle lock and PIN unlock that UI-1b removed; **needs a real Postgres** at
 `TEST_DATABASE_URL` — the run aborts in `globalSetup` without one, because a suite that skips
 itself green proves nothing): `env` (boot-time validation, incl. `COOKIE_SECURE` refusing to be
 false in production), `logging` (PII redaction, including the 404 path that slipped past the
@@ -1150,6 +1235,12 @@ unit tests cannot.
 - Ledger is append-only; model corrections as `reversal` entries.
 - Never put PII in the QR, logs, or audit `details`. Never log a PIN.
 - Only `services/Services.ts` names concrete adapters.
+- **Services speak routes, not stores (UI-2).** A service writes no audit row and sends no mail —
+  the route does both, from the session. Routes the `DataStore` port does not carry (`/auth/*`,
+  `/recovery/*`, `/alerts`) go through the `Api` interface in `services/types.ts`
+  (`request<T>(method, path, body?)`, satisfied by `ApiClient`), never a second `fetch`. Failures
+  are `ApiError`s from `services/errors.ts`; expected refusals (`{ ok: false, reason }`, `null`) are
+  values. Service tests go in `tests/live/` and hit the real server; screen tests stub services.
 - New adapter? Implement the full port and wire it solely in the composition root.
 - `packages/web/src/config/links.ts` (`appUrl`) is the single place that builds absolute URLs
   for QR payloads and emailed links. Do not hard-code `window.location` elsewhere.
@@ -1178,7 +1269,8 @@ unit tests cannot.
   `packages/web/src/ui/components/`. Shared prototype/pairing scaffolding in
   `packages/web/src/ui/common/`.
 - **`AuthContext`** (`packages/web/src/ui/app/AuthContext.tsx`) manages the staff/admin session:
-  trusted vs. ephemeral device, inactivity lock, epoch revocation. Replaces the old
+  the "remember this device" flag and epoch revocation (the inactivity lock and PIN unlock went in
+  UI-2; the server decides when a session ends). Replaces the old
   `SessionContext`. Staff/admin guards use `useAuth` inside each screen — no
   `RequireAuth` wrapper component.
 - **Navigation:** no home dashboard for customers. Recognized customer → `/card/:token`
@@ -1221,9 +1313,16 @@ unit tests cannot.
 - **Step-up PIN re-auth** gates program-config save and "Sign out all devices".
   Per-row staff mutations (create/reset-password/set-PIN/toggle-active) are not
   step-up gated — deliberate tuning decision, flagged here for future review.
-  **Superseded 2026-10-03 (register A7, S1):** the server never enforced the gate
-  (`PATCH /config` and `POST /auth/logout-all` only `requireAdmin`), and the PIN is gone from the
-  server (UI-1b, 2026-10-04), so in UI-3 both become a plain "Are you sure?" confirmation with no credential.
+  **Superseded 2026-10-03 (register A7, S1) and done in UI-2 (2026-10-04):** the server never enforced
+  the gate (`PATCH /config` and `POST /auth/logout-all` only `requireAdmin`), and the PIN is gone from
+  the server (UI-1b) and the SPA (UI-2) — both are now a plain confirmation with no credential
+  (`ConfirmSheet`; `ProgramEdit`'s Save). Per-row staff mutations are still un-gated, and "set PIN"
+  no longer exists.
+- **Known SPA gaps after UI-2 (screens, UI-3 / UI-4):** no recovery **code-entry** screen — `LostCard`
+  requests a code and nothing on screen can accept it (C2); `Register` still treats name and email as
+  optional and does not handle `409 email_in_use` (C1); `AuthContext` does not reconcile against
+  `GET /auth/session` at boot (X1); no error or offline state is on screen (S3, X2's local halves);
+  `Card` and `Panel` load once per visit until UI-5's SSE subscriber; `e2e/` does not run (UI-6).
 - **Remember-me hardening is deferred, not dropped** (S1, 2026-10-03). A remembered till stays
   signed in for 30 days with no idle rule (true on the server since UI-1b, 2026-10-04); the
   security round on that has no phase yet.
@@ -1446,8 +1545,8 @@ j. **Step-up PIN re-auth scope (tuning).** Step-up gates program-config save and
 
    **Superseded 2026-10-03 (register A7).** Step-up was only ever a browser-side gate: the
    server's `PATCH /config` and `POST /auth/logout-all` only `requireAdmin`. With the PIN
-   removed (S1) the gate becomes a plain "Are you sure?" confirmation — no credential. The
-   screen change is UI-3.
+   removed (S1) the gate becomes a plain "Are you sure?" confirmation — no credential. **Done
+   in UI-2 (2026-10-04)**, pulled forward from UI-3: `StepUp` is `ConfirmSheet`. Retires in UI-9.
 
 l. **`commitCounterTransaction` atomicity is IDB-tx scope only (no row lock).**
    The prototype's single IndexedDB `readwrite` transaction over the six stores
@@ -1535,7 +1634,8 @@ p. **PIN sign-in stops being a global PIN lookup (BACKEND-PLAN §4-B, Phase 3).*
    `pin_hash` column via migration `002_retire_pin.sql`, PIN verification, the PIN rate limiter).
    What stays true: attribution comes from the session, so it is the signed-in **account** —
    audit rows, "your last hour" and both detectors are per account, not per person at the till.
-   Only the SPA's PIN code remains, for UI-2 / UI-3.
+   The SPA's PIN code went in UI-2 (2026-10-04): `StaffService` PIN logic, `PinPad`, the Unlock screen,
+   `AuthContext.unlock`, "Reset PIN" and the PIN on Add profile. Nothing of it is left.
 
 q. **The staff session moves server-side: real idle lock, real revocation
    (BACKEND-PLAN Phase 3).** The prototype keeps the staff session in
@@ -1556,12 +1656,13 @@ q. **The staff session moves server-side: real idle lock, real revocation
    out (a fortnightly customer must still be recognised — that recognition is the
    feature) and "sign out all devices" leaves them alone, being an action about
    staff terminals. The client-side timer in `AuthContext` stays as the immediate
-   UI affordance; it is no longer what decides.
+   UI affordance; it is no longer what decides. *(The timer is gone from the SPA as of UI-2.)*
 
    **Partly superseded 2026-10-03 (register S1, X1) — server half done 2026-10-04 (UI-1b).** The
    idle lock is retired — UI-1b removed `IDLE_LOCK_MS`, `SessionState` and the `locked` state, and
    `GET /auth/session` answers `'active' | 'anon'`; the client timer in `AuthContext` goes in
-   UI-3. Revocation is unchanged, and so are the TTLs (`REMEMBERED_TTL_MS` 30 days,
+   UI-3 *(done early, in UI-2, except the boot reconcile against `GET /auth/session`, which is still
+   UI-3)*. Revocation is unchanged, and so are the TTLs (`REMEMBERED_TTL_MS` 30 days,
    `EPHEMERAL_TTL_MS` 12 hours): a session now lives until its TTL, sign-out, "sign out all
    devices", or its account being disabled or deleted. `last_seen_at` is still written but is
    bookkeeping only.
@@ -1764,6 +1865,28 @@ ae. **Cross-device liveness is an SSE channel, and a stream hears only its own
    **in-process and single-instance**, like `AttemptLimiter` and for the same
    reason — a second `api` container would need `LISTEN`/`NOTIFY` rather than a
    `Map`. The client subscriber is UI-pass work (register row X6).
+
+af. **`getStaffByUsername` and `listAllTransactions` are server-only (register P9, UI-2,
+   2026-10-04).** Neither has a route — sign-in is `POST /auth/login`, and a username lookup over
+   HTTP would enumerate accounts; the ledger is served only ranged and capped
+   (`GET /transactions?from&to`, at most 366 days and 1000 rows). UI-1 left `ApiStore` rejecting
+   both; UI-2 removed their SPA callers and then **moved both from `DataStore` to `TrustedStore`**
+   (`packages/shared/src/ports/DataStore.ts`), the same line divergence **ac** drew for
+   `appendAudit` and the recovery trio. `PostgresStore` and `packages/server/src/detection.ts` (now
+   typed against `TrustedStore`) are the only users; `ApiStore` carries no stub, and
+   `tests/adapters/ApiStore.test.ts` asserts it has none of `TrustedStore`'s methods. Server suite
+   unchanged at 439. The client port is now exactly what a browser may call.
+
+ag. **The SPA's service tests are not unit tests (register P6, UI-2, 2026-10-04).** There is no
+   fake `DataStore` anywhere. The six service suites and `ApiStore` run in the `live` Vitest project
+   against a real `node dist/index.js` and a test Postgres, so a green `npm test -w @cafe/web`
+   means a real server answered. Consequences: the suite needs a database and **fails, not skips,**
+   without one; `@cafe/web`'s `pretest` rebuilds the server's `dist/`; the `live` project shares
+   `TEST_DATABASE_URL` with the server suite and recreates its `public` schema, so the two must run
+   sequentially (workspaces do); the SPA reaches the server package only through `dist/` entry points
+   and env vars, so the SMTP sink the recovery tests read codes from is a restatement of the
+   server's testing sink — the packages share only `@cafe/shared`. Screen and component tests are
+   unchanged: they stub at the services level (`vi.fn()` via `ServicesProvider`).
 
 ## Pointers
 

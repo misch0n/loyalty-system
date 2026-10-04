@@ -13,12 +13,12 @@ name: CI
 #      which is exactly what this repo used to do. The `database gate` step below
 #      proves that failure mode is still wired up.
 #
-#   2. `@cafe/web` IS RED ON PURPOSE AND MUST NOT GATE ANYTHING. The maintainer
-#      retired the IndexedDB prototype before the UI was adjusted to the backend
-#      (SCOPE-DECISIONS §6), so the SPA knowingly does not compile until the UI
-#      pass. Its job is `continue-on-error` and reports the state rather than
-#      judging it. The `web` image is not built here for the same reason — see
-#      `packages/web/Dockerfile`.
+#   2. `@cafe/web` DOES NOT GATE ANYTHING YET. The maintainer retired the
+#      IndexedDB prototype before the UI was adjusted to the backend
+#      (SCOPE-DECISIONS §6). UI-2 made it compile and test green again — its
+#      service suites against the real server and a Postgres of its own — but
+#      the job stays `continue-on-error` until UI-8 closes the gate, and the
+#      `web` image is still not built here (`packages/web/Dockerfile`).
 #
 #   3. THE BUNDLE IS TESTED AS AN ARTIFACT, NOT AS A CONFIG FILE. `docker compose
 #      build` proving the image compiles says nothing about whether the system it
@@ -207,20 +207,38 @@ jobs:
         if: always()
         run: docker compose down --volumes --remove-orphans
 
-  # Informational, and deliberately not a gate.
+  # Informational until UI-8, and expected green since UI-2.
   #
-  # `@cafe/web` does not compile: Phase 6 retired the IndexedDB prototype and
-  # left the screens that used it standing, which the maintainer chose on
-  # 2026-09-16 so the backend could be built without the UI constraining it. The
-  # UI pass is what turns this green.
-  #
-  # It runs anyway because the SHAPE of the red matters. Phase 10 pinned it at
-  # nine failing test files, each traceable to a Phase 6 deletion; a tenth would
-  # be something else, and the UI pass should not be the thing that discovers it.
+  # Phase 6 retired the IndexedDB prototype and left the screens that used it
+  # standing; UI-2 reshaped the services to the routes and the SPA compiles,
+  # tests and builds again. The `live` test project drives the real server
+  # (`dist/`, built by the package's `pretest`) against a Postgres of its own,
+  # with the server suite's discipline: no database, no green tick
+  # (`packages/web/tests/live/globalSetup.ts`). UI-8 makes this job a gate.
   web:
-    name: web (known red — informational)
+    name: web (informational until UI-8)
     runs-on: ubuntu-latest
     continue-on-error: true
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cafe
+          POSTGRES_PASSWORD: cafe
+          POSTGRES_DB: cafe_loyalty_test
+          POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -q -U cafe -d cafe_loyalty_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      TEST_DATABASE_URL: postgres://cafe:cafe@localhost:5432/cafe_loyalty_test
+
     steps:
       - uses: actions/checkout@v4
 
@@ -238,11 +256,12 @@ jobs:
       - name: Build the contract the SPA imports
         run: npm run build --workspace @cafe/shared
 
-      # Step-level too, or the typecheck's failure would stop the job before the
-      # test run — and the test run is the half that reports the shape of the red.
-      - name: Typecheck (expected to fail until the UI pass)
-        continue-on-error: true
+      - name: Typecheck
         run: npm run typecheck --workspace @cafe/web
 
-      - name: 'Unit tests (expected: 9 failing files, all Phase 6 deletions)'
+      # Both projects: `ui` (jsdom, services stubbed) and `live` (the real server).
+      - name: Tests
         run: npm test --workspace @cafe/web
+
+      - name: Build
+        run: npm run build --workspace @cafe/web

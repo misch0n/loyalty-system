@@ -2,12 +2,11 @@
  * Entry resolution (UX-SPEC §2).
  *
  * On mount, decide where to send the visitor and render a redirect:
- *   trusted staff device + session 'active'  → /staff
- *   trusted staff device + 'locked'          → /staff/unlock
+ *   signed-in staff/admin                    → /staff
  *   device has a remembered card (identity)  → /card/:token
  *   otherwise                                → /welcome
  *
- * Staff identity/timeout comes from useAuth(); the remembered card comes from
+ * Staff identity comes from useAuth(); the remembered card comes from
  * services.identity.get() (token only — never PII). A minimal loading state is
  * shown while auth boot and the identity read settle.
  */
@@ -25,19 +24,16 @@ import { ROUTES, cardPath } from './routes';
  */
 export function useEntryTarget(): string | null {
   const services = useServices();
-  const { status, trusted, ready } = useAuth();
+  const { status, ready } = useAuth();
 
   // null = not yet read; '' = read, no remembered card; string = the token.
   const [cardToken, setCardToken] = useState<string | null>(null);
 
-  // An ACTIVE staff/admin session routes to its panel — whether the device is a
-  // trusted terminal or just an ephemeral (this-session) sign-in — so a signed-in
-  // staffer is never dropped onto the customer card. Only a *locked* state is
-  // trusted-only (ephemeral sessions don't lock; they end). Gate on `ready` so we
-  // don't act on the pre-boot 'anon' default.
+  // An ACTIVE staff/admin session routes to its panel — remembered or not — so a
+  // signed-in staffer is never dropped onto the customer card. Gate on `ready` so
+  // we don't act on the pre-boot 'anon' default.
   const staffTarget = ready && status === 'active';
-  const staffLocked = ready && trusted && status === 'locked';
-  const needCard = ready && !staffTarget && !staffLocked;
+  const needCard = ready && !staffTarget;
 
   useEffect(() => {
     if (!needCard) return;
@@ -60,7 +56,6 @@ export function useEntryTarget(): string | null {
   // Both staff and admins land on the counter; admins reach the admin panel via
   // the "Go to admin" button there.
   if (staffTarget) return ROUTES.staff;
-  if (staffLocked) return ROUTES.staffUnlock;
 
   // Still resolving the remembered card.
   if (cardToken === null) return null;

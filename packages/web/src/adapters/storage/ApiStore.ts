@@ -18,11 +18,11 @@
  *   - `listAudit`'s `actorId`/`actorIds` — `GET /audit` replaces them with the
  *     session's own (§4-F), so sending them would only suggest they work.
  *
- * Two port methods have **no route**, and reject rather than pretend:
- * `getStaffByUsername` (sign-in is `POST /auth/login`; a username lookup over
- * HTTP would be an account-enumeration oracle) and `listAllTransactions` (the
- * ledger is only served ranged and capped, `GET /transactions?from&to`). Who
- * stops calling them is UI-2's call (`UI-RECONCILIATION.md` P9).
+ * Two methods that used to be on the port and had no route —
+ * `getStaffByUsername` and `listAllTransactions` — moved to `TrustedStore` in
+ * UI-2 (`UI-RECONCILIATION.md` P9): sign-in is `POST /auth/login`, and the
+ * ledger is only served ranged and capped. There is nothing left here that
+ * rejects without a request.
  *
  * ## Absence is a value, not a failure
  *
@@ -71,12 +71,6 @@ export class ApiStore implements DataStore {
       if (isApiError(err) && err.failure.kind === 'not_found') return null;
       throw err;
     }
-  }
-
-  private unrouted(method: string, instead: string): Promise<never> {
-    return Promise.reject(
-      new Error(`ApiStore.${method} has no route on the API — ${instead} (UI-RECONCILIATION P9).`),
-    );
   }
 
   // ── customers ───────────────────────────────────────────────────────────────
@@ -166,9 +160,6 @@ export class ApiStore implements DataStore {
       name: input.name,
     });
   }
-  getStaffByUsername(_username: string): Promise<StaffAccount | null> {
-    return this.unrouted('getStaffByUsername', 'sign in with POST /auth/login');
-  }
   setStaffActive(id: string, active: boolean): Promise<void> {
     return this.api.request('PATCH', `/staff/${seg(id)}`, { active });
   }
@@ -204,9 +195,6 @@ export class ApiStore implements DataStore {
   // ── stats & backup ──────────────────────────────────────────────────────────
   countActiveCustomers(): Promise<number> {
     return this.api.request('GET', '/stats/active-customers');
-  }
-  listAllTransactions(): Promise<LoyaltyTransaction[]> {
-    return this.unrouted('listAllTransactions', 'the ledger is served ranged, GET /transactions?from&to');
   }
   exportAll(): Promise<Snapshot> {
     return this.api.request('GET', '/export');

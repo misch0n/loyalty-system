@@ -1,50 +1,34 @@
 /**
- * LoyaltyService — accrual, redemption and reversal against the append-only
- * ledger. Balance and reward-availability are derived by the domain, never
- * stored. Staff initiate every credit; redemption is atomic in the store.
+ * LoyaltyService — the counter commit, the derived card state, corrections, and
+ * the admin's suspicious-activity alerts.
+ *
+ * The ledger is append-only and the state is derived — on the server now, which
+ * answers `GET /customers/:id/state` with the same `domain/` derivation the
+ * prototype ran in the browser. Staff initiate every credit; the commit is
+ * atomic and idempotent in the store; and the route writes the audit rows and
+ * sends the reward-available mail itself, so a retried commit can do neither
+ * twice. Nothing here writes an audit row or sends mail.
  */
 
-import type { Customer, CustomerState, LoyaltyTransaction, ProgramConfig } from '@cafe/shared/domain/models';
-import type {
-  CommitResult,
-  CounterTransaction,
-  DataStore,
-  RedeemResult,
-} from '@cafe/shared/ports/DataStore';
-import type { Mailer } from '@cafe/shared/ports/Mailer';
-import { balance, clampAccrual, progress, rewardAvailable } from '@cafe/shared/domain/loyalty';
-import {
-  deriveAlerts,
-  alertKey,
-  DEFAULT_THRESHOLDS,
-  type Alert,
-  type AlertThresholds,
-  type AttributedEvent,
-} from '@cafe/shared/domain/alerts';
-import { appUrl } from '../config/links';
-import type { AuditService } from './AuditService';
-import type { Actor } from './types';
+import type { CustomerState, LoyaltyTransaction } from '@cafe/shared/domain/models';
+import type { CommitResult, CounterTransaction, DataStore } from '@cafe/shared/ports/DataStore';
+import type { Alert } from '@cafe/shared/domain/alerts';
+import type { Actor, Api } from './types';
 
 /**
- * Re-exported from the domain so existing `services/`/`ui/` imports
+ * Re-exported from the domain so `services/`/`ui/` imports
  * (`import type { CustomerState } from '.../LoyaltyService'`) keep working while
- * the canonical definition lives in `domain/models.ts` (so the `DataStore` port
- * can reference it without a layer inversion). See REWARDS-PLAN §3.4.
+ * the canonical definition lives in `domain/models.ts`.
  */
 export type { CustomerState } from '@cafe/shared/domain/models';
 
-/**
- * Re-exported so UI/screens consume the unified-commit result shape from the
- * service layer (never reaching into `ports/`), mirroring the `CustomerState`
- * re-export above.
- */
+/** Re-exported so screens consume the commit result from the service layer. */
 export type { CommitResult } from '@cafe/shared/ports/DataStore';
 
 /**
- * What the counter submits for the unified commit (rewards-as-objects,
- * REWARDS-PLAN §3.3). The service stamps the `staffId` from the actor; the
- * caller supplies the customer, the points to add, the reward ids to redeem,
- * the dedup key, and the scan source.
+ * What the counter submits for the unified commit (REWARDS-PLAN §3.3): the
+ * customer, the points to add, the reward ids to redeem, the dedup key, and the
+ * scan source.
  */
 export interface CommitInput {
   customerId: string;
@@ -61,195 +45,63 @@ export interface CommitInput {
 export class LoyaltyService {
   constructor(
     private readonly store: DataStore,
-    private readonly audit: AuditService,
-    /** Optional: when present, reward-available notifications are emailed. */
-    private readonly mailer?: Mailer,
+    private readonly api: Api,
   ) {}
 
-  /** Resolve full derived state for a customer (by token, for staff scan). */
+  /**
+   * The card's state, by token. Resolving the token is also what binds a
+   * customer's own device to the card (a till is exempt), so this is the read
+   * the card screen opens with.
+   */
   async getStateByToken(token: string): Promise<CustomerState | null> {
     const customer = await this.store.getCustomerByToken(token);
-    if (!customer) return null;
-    return this.buildState(customer);
+    return customer ? this.store.getCustomerState(customer.id) : null;
   }
 
   async getStateById(customerId: string): Promise<CustomerState | null> {
     const customer = await this.store.getCustomerById(customerId);
-    if (!customer) return null;
-    return this.buildState(customer);
+    return customer ? this.store.getCustomerState(customer.id) : null;
   }
 
-  /** Resolve a customer by their human-shareable short code (camera-fail entry). */
+  /** Resolve a customer by their human-shareable short code (camera-fail entry, staff). */
   async getStateByShortCode(shortCode: string): Promise<CustomerState | null> {
     const customer = await this.store.getCustomerByShortCode(shortCode);
-    if (!customer) return null;
-    return this.buildState(customer);
+    return customer ? this.store.getCustomerState(customer.id) : null;
   }
 
-  private async buildState(customer: Customer): Promise<CustomerState> {
-    const [config, transactions] = await Promise.all([
-      this.store.getConfig(),
-      this.store.listTransactions(customer.id),
-    ]);
-    const current = balance(transactions);
-    return {
-      customer,
-      config,
-      transactions,
-      balance: current,
-      rewardAvailable: rewardAvailable(current, config),
-      progress: progress(current, config),
-    };
+  /** Full derived read-model (settled balance + unspent rewards) for a customer. */
+  getState(customerId: string): Promise<CustomerState> {
+    return this.store.getCustomerState(customerId);
   }
 
   /**
-   * Basic counts for the admin stats screen (no segmentation in v1).
-   *
-   * In the rewards-as-objects model a redemption is a `reward.redeemed` event,
-   * not a ledger entry, so `rewardsRedeemed` counts the `loyalty.redeem` audit
-   * rows the commit writes (one per reward spent) — NOT the ledger (which no
-   * longer carries `redemption` rows). `pointsIssued` still sums the `accrual`
-   * ledger entries.
+   * The suspicious-activity findings for the admin view (Appendix E) —
+   * `GET /alerts`, derived server-side from the audit rows the routes wrote.
+   * Two detectors, thresholds from the program config, dismissed alerts already
+   * filtered out. The server looks back **30 days**; the prototype read
+   * everything it had.
    */
-  async getStats(): Promise<{
-    activeCustomers: number;
-    pointsIssued: number;
-    rewardsRedeemed: number;
-  }> {
-    const [activeCustomers, transactions, redeemEvents] = await Promise.all([
-      this.store.countActiveCustomers(),
-      this.store.listAllTransactions(),
-      this.store.listAudit({ action: 'loyalty.redeem' }),
-    ]);
-    let pointsIssued = 0;
-    for (const tx of transactions) {
-      if (tx.type === 'accrual') pointsIssued += tx.points;
-    }
-    return { activeCustomers, pointsIssued, rewardsRedeemed: redeemEvents.length };
+  getAlerts(): Promise<Alert[]> {
+    return this.api.request('GET', '/alerts');
   }
 
   /**
-   * Derive the suspicious-activity alerts for the admin view (Appendix E).
-   * Two detectors only: self-dealing proximity and repeat-target. Thresholds
-   * come from the program config (admin-tunable in Configure) and fall back to
-   * `DEFAULT_THRESHOLDS`; pass `thresholds` to override any field.
-   *
-   * Repeat-target reads the ledger. Self-dealing reads the attributed
-   * `loyalty.accrue` / `loyalty.redeem` AUDIT rows — the ledger no longer
-   * carries a `redemption` type, so pairing there would match nothing.
-   * Admins are not exempt. Monitoring only — never blocks.
+   * Acknowledge an alert so it stops surfacing: its stable key joins the
+   * config's dismissed list (`PATCH /config`, audited by the route).
+   * Idempotent — re-dismissing the same key writes nothing.
    */
-  async getAlerts(thresholds?: Partial<AlertThresholds>): Promise<Alert[]> {
-    const [transactions, config, staff, accrued, redeemed] = await Promise.all([
-      this.store.listAllTransactions(),
-      this.store.getConfig(),
-      this.store.listStaff(),
-      this.store.listAudit({ action: 'loyalty.accrue' }),
-      this.store.listAudit({ action: 'loyalty.redeem' }),
-    ]);
-    const resolved: AlertThresholds = {
-      ...DEFAULT_THRESHOLDS,
-      ...pickThresholds(config),
-      ...thresholds,
-    };
-    const events: AttributedEvent[] = [];
-    for (const row of accrued) {
-      if (row.targetId) {
-        events.push({ staffId: row.actorId, customerId: row.targetId, at: row.timestamp, kind: 'accrue' });
-      }
-    }
-    for (const row of redeemed) {
-      if (row.targetId) {
-        events.push({ staffId: row.actorId, customerId: row.targetId, at: row.timestamp, kind: 'redeem' });
-      }
-    }
-    const staffNames: Record<string, string> = {};
-    for (const member of staff) staffNames[member.id] = member.username;
-    const dismissed = new Set(config.dismissedAlerts ?? []);
-    return deriveAlerts(transactions, events, resolved, staffNames).filter(
-      (a) => !dismissed.has(alertKey(a)),
-    );
-  }
-
-  /**
-   * Acknowledge/dismiss a suspicious-activity alert so it stops surfacing.
-   * Records the alert's stable key on the program config and audits the action.
-   * Idempotent — re-dismissing the same key is a no-op.
-   */
-  async dismissAlert(actor: Actor, key: string): Promise<void> {
+  async dismissAlert(key: string): Promise<void> {
     const config = await this.store.getConfig();
     const current = config.dismissedAlerts ?? [];
     if (current.includes(key)) return;
     await this.store.updateConfig({ dismissedAlerts: [...current, key] });
-    await this.audit.log(actor, 'config.update', undefined, 'alert.dismiss');
-  }
-
-  /** Add points (clamped to the per-transaction cap). Staff-initiated. */
-  async accrue(
-    actor: Actor,
-    customerId: string,
-    requestedPoints: number,
-    note?: string,
-  ): Promise<LoyaltyTransaction> {
-    const config = await this.store.getConfig();
-    const points = clampAccrual(requestedPoints, config);
-    const before = balance(await this.store.listTransactions(customerId));
-    const tx = await this.store.appendTransaction({
-      customerId,
-      type: 'accrual',
-      points,
-      staffId: actor.id,
-      note,
-    });
-    await this.audit.log(actor, 'loyalty.accrue', customerId, `+${points}`);
-
-    // Notify on the threshold crossing only (no repeat once already available).
-    // Awaited but self-contained: notifyRewardAvailable never throws, so a failed
-    // send cannot break the accrual.
-    if (!rewardAvailable(before, config) && rewardAvailable(before + points, config)) {
-      await this.notifyRewardAvailable(customerId);
-    }
-    return tx;
-  }
-
-  /** Best-effort reward-available email. Never blocks or fails an accrual. */
-  private async notifyRewardAvailable(customerId: string): Promise<void> {
-    if (!this.mailer) return;
-    try {
-      const [customer, config] = await Promise.all([
-        this.store.getCustomerById(customerId),
-        this.store.getConfig(),
-      ]);
-      if (!customer || customer.status !== 'active' || !customer.email) return;
-      const link = appUrl(`/status/${customer.token}`);
-      await this.mailer.send({
-        to: customer.email,
-        kind: 'reward-available',
-        params: {
-          reward: config.rewardDescription,
-          card_link: link,
-          subject: `Your ${config.rewardDescription} is ready`,
-          message: `You've earned a reward: ${config.rewardDescription}. Show your card on your next visit to redeem it.\n\nView your card: ${link}`,
-        },
-      });
-    } catch {
-      // Transactional email is a best-effort side channel. Swallow failures and
-      // do NOT log — an error could carry the recipient address (PII).
-    }
-  }
-
-  /** Redeem one reward. Delegates the atomic check+write to the store. */
-  async redeem(actor: Actor, customerId: string): Promise<RedeemResult> {
-    const result = await this.store.redeemReward(customerId, actor.id);
-    if (result.ok) {
-      await this.audit.log(actor, 'loyalty.redeem', customerId);
-    }
-    return result;
   }
 
   /**
-   * Reverse a recent accrual or redemption (wrong customer / fat-finger). Writes
-   * a `reversal` entry that negates the original — never a destructive edit.
+   * Reverse a recent accrual (wrong customer / fat-finger) with a `reversal`
+   * entry that negates it — never a destructive edit. The checks here are
+   * advisory, for a sentence instead of a refusal code; the route repeats them
+   * and derives the reversed points itself.
    */
   async reverse(
     actor: Actor,
@@ -264,73 +116,32 @@ export class LoyaltyService {
     if (transactions.some((t) => t.reversesTransactionId === transactionId)) {
       throw new Error('That entry has already been reversed.');
     }
-
-    const tx = await this.store.appendTransaction({
+    return this.store.appendTransaction({
       customerId,
       type: 'reversal',
       points: -original.points,
+      // The port's field; the route takes the actor from the session instead.
       staffId: actor.id,
       note,
       reversesTransactionId: transactionId,
     });
-    await this.audit.log(actor, 'loyalty.reverse', customerId, transactionId);
-    return tx;
   }
-
-  // ── rewards-as-objects (unified commit, REWARDS-PLAN §3.3) ──────────────────
 
   /**
    * The single counter mutation: accrue points, mint a reward per threshold
-   * crossing, and redeem 0..N existing rewards — one atomic, idempotent store
-   * call. On success this writes the audit trail (the store does not): one
-   * `loyalty.accrue` row when points were added and one `loyalty.redeem` row per
-   * reward actually spent, each tagged with the scan `source`. A single
-   * best-effort reward-available notification is sent if the commit minted any
-   * reward. On `over_cap` / `customer_not_found` nothing is written.
+   * crossing, and redeem 0..N existing rewards — one atomic, idempotent call.
+   * `over_cap` and `customer_not_found` come back as values; nothing is written.
    */
-  async commit(actor: Actor, input: CommitInput): Promise<CommitResult> {
+  commit(actor: Actor, input: CommitInput): Promise<CommitResult> {
     const txn: CounterTransaction = {
       customerId: input.customerId,
       pointsDelta: input.pointsDelta,
       redeemRewardIds: input.redeemRewardIds,
+      // The port's field; the route takes the actor from the session instead.
       staffId: actor.id,
       idempotencyKey: input.idempotencyKey,
       source: input.source,
     };
-    const result = await this.store.commitCounterTransaction(txn);
-    if (!result.ok) return result;
-
-    // Audit (the store writes none): accrual once, redemption once per reward
-    // spent. `source` is recorded but drives nothing beyond analytics.
-    if (input.pointsDelta > 0) {
-      await this.audit.log(actor, 'loyalty.accrue', input.customerId, `+${input.pointsDelta} ${input.source}`);
-    }
-    for (const _ of result.redeemed) {
-      await this.audit.log(actor, 'loyalty.redeem', input.customerId, input.source);
-    }
-
-    // One reward-available email per commit, only when a reward was minted.
-    if (result.minted.length > 0) {
-      await this.notifyRewardAvailable(input.customerId);
-    }
-    return result;
+    return this.store.commitCounterTransaction(txn);
   }
-
-  /** Full derived read-model (settled balance + unspent rewards) for a customer. */
-  async getState(customerId: string): Promise<CustomerState> {
-    return this.store.getCustomerState(customerId);
-  }
-}
-
-/**
- * The detector-threshold slice of the program config, with unset fields left out
- * so they fall through to `DEFAULT_THRESHOLDS`.
- */
-function pickThresholds(config: ProgramConfig): Partial<AlertThresholds> {
-  const out: Partial<AlertThresholds> = {};
-  if (config.selfDealWindowSec != null) out.selfDealWindowSec = config.selfDealWindowSec;
-  if (config.selfDealCount != null) out.selfDealCount = config.selfDealCount;
-  if (config.repeatCount != null) out.repeatCount = config.repeatCount;
-  if (config.repeatWindowMin != null) out.repeatWindowMin = config.repeatWindowMin;
-  return out;
 }

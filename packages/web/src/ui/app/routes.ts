@@ -12,17 +12,17 @@ export const ROUTES = {
   register: '/register',
   /** Lost-card recovery entry (§4.3). */
   lost: '/lost',
-  /** Recovery landing; `:code` is the magic-link param (§5). */
+  /**
+   * The old magic-link landing, kept as a redirect to `lost`. Recovery is a
+   * typed code now (SCOPE-DECISIONS §2.3) — there is no link to land from.
+   */
   recover: '/recover',
-  recoverWithCode: '/recover/:code',
   /** Customer card hub; `:token` is the opaque card token (§4.4). */
   card: '/card/:token',
   /** Self-resolving card: redirects to `/card/:token` from IdentityStore. */
   cardSelf: '/card',
-  /** Staff/admin PIN sign-in, reached via logo long-press (§4.7, §6). */
+  /** Staff/admin sign-in, reached via logo long-press (§4.7, §6). */
   login: '/login',
-  /** PIN re-auth for a locked trusted device (§6). */
-  staffUnlock: '/staff/unlock',
   /** Staff idle landing (§4.8). */
   staff: '/staff',
   /** Staff scan workflow (§4.9). */
@@ -51,11 +51,6 @@ export const SCAN_PAYLOADS = {
 /** Concrete card path for a token (§4.4). */
 export function cardPath(token: string): string {
   return `/card/${encodeURIComponent(token)}`;
-}
-
-/** Concrete recovery path for a magic-link code (§5). */
-export function recoverPath(code: string): string {
-  return `/recover/${encodeURIComponent(code)}`;
 }
 
 /** Concrete admin subroute path, e.g. `adminPath('staff')` → `/admin/staff`. */

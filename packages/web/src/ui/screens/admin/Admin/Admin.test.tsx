@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { Services } from '../../../../services/Services';
 import type { Actor } from '../../../../services/types';
 import { ServicesProvider } from '../../../common/ServicesContext';
@@ -70,8 +70,8 @@ function fakeServices(role: 'admin' | 'staff'): Services {
     staff: {
       list: vi.fn().mockResolvedValue(staffList),
       currentSessionEpoch: vi.fn().mockResolvedValue(1),
-      loginWithPin: vi.fn().mockResolvedValue({ ok: true, actor }),
-      setPin: vi.fn().mockResolvedValue(undefined),
+      logout: vi.fn().mockResolvedValue(undefined),
+      create: vi.fn().mockResolvedValue({ ...actor, active: true, createdAt: '' }),
       revokeAllSessions: vi.fn().mockResolvedValue(2),
     },
   } as unknown as Services;
@@ -86,7 +86,6 @@ function seedSession(role: 'admin' | 'staff') {
       username: actor.username,
       role: actor.role,
       epoch: 1,
-      lastActivity: Date.now(),
     }),
   );
 }
@@ -108,7 +107,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-async function mountAdmin(role: 'admin' | 'staff') {
+async function mountAdmin(role: 'admin' | 'staff'): Promise<Services> {
   seedSession(role);
   const services = fakeServices(role);
   await act(async () => {
@@ -118,7 +117,10 @@ async function mountAdmin(role: 'admin' | 'staff') {
           <AuthProvider>
             <LogoGesturesProvider value={{}}>
               <ToastProvider>
-                <Admin />
+                <Routes>
+                  <Route path="/admin" element={<Admin />} />
+                  <Route path="/login" element={<p className="at-login">sign-in</p>} />
+                </Routes>
               </ToastProvider>
             </LogoGesturesProvider>
           </AuthProvider>
@@ -131,6 +133,11 @@ async function mountAdmin(role: 'admin' | 'staff') {
     await Promise.resolve();
     await Promise.resolve();
   });
+  return services;
+}
+
+function buttonNamed(text: string): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll('button')).find((b) => b.textContent === text);
 }
 
 describe('Admin screen', () => {
@@ -161,7 +168,7 @@ describe('Admin screen', () => {
     expect(container.querySelector('.stat')).toBeNull();
   });
 
-  it('Configure → a program "Change" opens the value+PIN edit sheet', async () => {
+  it('Configure → a program "Change" opens the value edit sheet, with no PIN', async () => {
     await mountAdmin('admin');
     // The program rows live behind the Configure popover now.
     const configure = Array.from(container.querySelectorAll('button')).find(
@@ -179,7 +186,69 @@ describe('Admin screen', () => {
       change!.click();
     });
     expect(container.querySelector('.sheet')).not.toBeNull();
-    expect(container.querySelector('.pin-dots')).not.toBeNull();
+    expect(container.querySelector('.progedit input')).not.toBeNull();
+    // A7: the sheet's own Save confirms; nothing asks for a credential.
+    expect(container.querySelector('.pin-dots')).toBeNull();
+    expect(container.querySelector('.keypad')).toBeNull();
+  });
+
+  it('"Sign out all devices" asks plainly, then signs this device out with the rest', async () => {
+    const services = await mountAdmin('admin');
+    await act(async () => {
+      buttonNamed('Sign out all devices')!.click();
+    });
+    // A plain "are you sure?" — no PIN pad (A7).
+    expect(container.querySelector('.confirm-title')?.textContent).toBe('Sign out all devices?');
+    expect(container.querySelector('.keypad')).toBeNull();
+    expect(services.staff.revokeAllSessions).not.toHaveBeenCalled();
+
+    await act(async () => {
+      buttonNamed('Sign out all')!.click();
+    });
+    expect(services.staff.revokeAllSessions).toHaveBeenCalledWith();
+    // The server ended this session too, so the screen goes to sign-in.
+    expect(container.querySelector('.at-login')).not.toBeNull();
+    expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
+  });
+
+  it('"Sign out all devices" can be cancelled without calling the server', async () => {
+    const services = await mountAdmin('admin');
+    await act(async () => {
+      buttonNamed('Sign out all devices')!.click();
+    });
+    await act(async () => {
+      buttonNamed('Cancel')!.click();
+    });
+    expect(container.querySelector('.confirm-title')).toBeNull();
+    expect(services.staff.revokeAllSessions).not.toHaveBeenCalled();
+  });
+
+  it('Add profile asks for name, username, password and role — no PIN', async () => {
+    const services = await mountAdmin('admin');
+    await act(async () => {
+      buttonNamed('Add profile')!.click();
+    });
+    const labels = Array.from(container.querySelectorAll('.admin-create label')).map(
+      (l) => l.textContent ?? '',
+    );
+    expect(labels.some((l) => l.includes('PIN'))).toBe(false);
+    expect(container.querySelector('.admin-create')?.textContent).not.toContain('PIN');
+
+    const inputs = container.querySelectorAll<HTMLInputElement>('.admin-create input');
+    const type = (input: HTMLInputElement, value: string) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    await act(async () => {
+      type(inputs[0]!, 'Maria');
+      type(inputs[1]!, 'maria');
+      type(inputs[2]!, 'a-long-password');
+    });
+    await act(async () => {
+      buttonNamed('Create account')!.click();
+    });
+    expect(services.staff.create).toHaveBeenCalledWith('maria', 'a-long-password', 'staff', 'Maria');
   });
 
   it('an account popover offers management actions but no activity history', async () => {
@@ -201,6 +270,8 @@ describe('Admin screen', () => {
 
     // Management actions are present…
     expect(container.textContent).toContain('Delete profile');
+    // …with no PIN to reset (S1)…
+    expect(container.textContent).not.toContain('Reset PIN');
     // …but reading one person's history is an investigation, not a glance:
     // it lives behind the export workflow only.
     expect(container.querySelector('.acct-feed')).toBeNull();

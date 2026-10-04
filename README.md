@@ -17,26 +17,29 @@ working rules for agents in [`CLAUDE.md`](CLAUDE.md); current build status in
 > **browser-storage prototype was deleted** in Phase 6 — no IndexedDB, no PeerJS device pairing,
 > no wallet passes, no GitHub Pages demo.
 >
-> **`@cafe/web` does not currently compile.** That is deliberate
-> ([`docs/SCOPE-DECISIONS.md`](docs/SCOPE-DECISIONS.md) §6): the backend was built first and the
-> UI is now being rewritten against it, tracked in [`docs/UI-PLAN.md`](docs/UI-PLAN.md) against the
-> 35 conflicts in [`docs/UI-RECONCILIATION.md`](docs/UI-RECONCILIATION.md), all of whose blocking
-> decisions the maintainer answered on 2026-10-03. **There is no demoable build until that lands**,
-> and the live-demo link is gone with the Pages workflow.
+> **`@cafe/web` compiles and builds again (UI-2, 2026-10-04)** — it was deliberately red from
+> Phase 6 until then ([`docs/SCOPE-DECISIONS.md`](docs/SCOPE-DECISIONS.md) §6: the backend was built
+> first and the UI is being rewritten against it). It now has 0 TypeScript errors, 310 tests in 44
+> files all passing, and `npm run build -w @cafe/web` produces a bundle. The rewrite continues in
+> [`docs/UI-PLAN.md`](docs/UI-PLAN.md) (UI-3 next) against the 35 conflicts in
+> [`docs/UI-RECONCILIATION.md`](docs/UI-RECONCILIATION.md). **Green is not "works":** some screens
+> still disagree with the backend (registration still treats name and email as optional, there is
+> no recovery code-entry screen yet), so **there is no demoable build until the screen phases
+> land**, and the live-demo link is gone with the Pages workflow.
 >
-> **The feature table and screen descriptions below still describe the pre-migration SPA** — the
-> files exist in the tree and do not build. They are rewritten in UI-PLAN's UI-9. The
+> **The feature table and screen descriptions below still describe the pre-migration SPA** —
+> several rows no longer match the tree. They are rewritten in UI-PLAN's UI-9. The
 > architecture section and diagram *have* been corrected and describe what is really there.
 >
 > **One decision changes the sign-in rows below:** the staff device is a shared till, so the
 > **PIN, the Unlock screen and the 5-minute idle lock are removed**, attribution is the
-> signed-in account, and admin step-up becomes a plain confirmation (SCOPE-DECISIONS §6.3–§6.4).
-> **The server and port half landed in UI-1b (2026-10-04, tag `backend-v1`):** no `/auth/unlock`, no
-> idle lock, no PIN column, no `BOOTSTRAP_ADMIN_PIN`; a session ends only at its TTL (30 days
-> remembered, 12 hours otherwise), on account disable/delete, or on "Sign out all devices". Audit
-> rows, "your last hour" and both detectors are **per account, not per person at the till**. The SPA
-> half (Unlock, `PinPad`, `AuthContext.unlock`, step-up) goes in UI-2 and UI-3, so rows that mention
-> a PIN describe SPA code that is going and a server that no longer has it.
+> signed-in account, and admin step-up is a plain confirmation (SCOPE-DECISIONS §6.3–§6.4).
+> **The server and port half landed in UI-1b (2026-10-04, tag `backend-v1`)** and **the SPA half in
+> UI-2 (2026-10-04)**: no `/auth/unlock`, no idle lock, no PIN column, no `BOOTSTRAP_ADMIN_PIN`, no
+> `PinPad`, Unlock screen, `AuthContext.unlock` or step-up credential; a session ends only at its
+> TTL (30 days remembered, 12 hours otherwise), on account disable/delete, or on "Sign out all
+> devices". Audit rows, "your last hour" and both detectors are **per account, not per person at the
+> till**. Feature-table rows that still mention a PIN are history.
 
 ---
 
@@ -81,7 +84,7 @@ pre-commit-hold models.
 
 | Area | Capabilities |
 |---|---|
-| **Auth — staff/admin sign-in + session** | Accounts carry **name + username + password + PIN**. The first sign-in on a device is **username/password** (seed: `admin / admin`, `staff / staff`); on success the visitor routes to their role home (admin → `/admin`, staff → `/staff`). "Remember this device" creates a trusted terminal; a 5-minute inactivity lock then re-auths with the quick **PIN** (seed: admin `4321` / staff `1234`) at `/staff/unlock` rather than the full form. A non-remembered device prefills the last username. Admin can revoke all sessions via epoch-based sign-out. `StaffService.login` / `loginWithPin` / `setPin` / `revokeAllSessions`; `AuthContext.loginWithPassword` / `unlock` (`src/ui/app/AuthContext.tsx`). |
+| **Auth — staff/admin sign-in + session** | Accounts carry **name + username + password** — no PIN, no idle lock (S1; the shared till is signed in as an account, and audit is per account). Sign-in is **username/password** (`POST /auth/login`; dev accounts are the bootstrap admin plus `npm run seed:dev -w @cafe/web`); on success the visitor routes to their role home (admin → `/admin`, staff → `/staff`). "Remember this device" keeps the login for 30 days, until sign-out (12 hours otherwise). A non-remembered device prefills the last username. Admin can end every session with "Sign out all devices" (`POST /auth/logout-all`, a plain confirmation; it ends the admin's own session too). `StaffService.login` / `logout` / `session` / `revokeAllSessions`; `AuthContext.loginWithPassword` / `logout` (`src/ui/app/AuthContext.tsx`). |
 | **Self-service registration** | PRIMARY path: customer visits `/register`, creates their own card in one step — remembered on the browser via `IdentityStore`. No approval queue, no staff involvement. Recovery tier disclosed at registration (email → self-recovery link; name-only → staff best-effort; neither → not recoverable). |
 | **Staff-initiated registration** | SECONDARY path: staff start a card over real PeerJS; customer joins on their own device. Duplicate details **warn before** a second card is created. |
 | **Auto-provision on scan** | Scanning an unknown-but-valid token creates a token-only card on the staff device so accrual can proceed immediately. Staff still initiates the credit. |
@@ -92,8 +95,8 @@ pre-commit-hold models.
 | **Correction / reversal** | Reverse a recent accrual via an offsetting `reversal` entry — logged, never silent (`LoyaltyService.reverse`). There is no post-commit undo: the staff counter's 3-second pre-commit hold (above) catches operator errors *before* anything is written instead. |
 | **Self-delete / opt-out** | `CustomerService.selfDelete(token)` — GDPR erasure initiated from the customer's card "⋯" menu. Staff-confirmed `deleteCustomer(actor, id)` also still exists. |
 | **Suspicious-activity alerts** | Pure domain module `packages/shared/src/domain/alerts.ts` evaluates exactly two attributed detectors — **self-dealing** (same staff accrues then redeems on the same card repeatedly within a window) and **repeat-target** (same customer credited repeatedly within a window) — against thresholds on `ProgramConfig` (admin-configurable). `LoyaltyService.getAlerts()` surfaces results. Monitoring only — no automatic blocking; no role exemption. |
-| **Admin — staff** | List / create / disable / re-enable / reset password / set PIN / "Sign out all devices" (epoch revocation). |
-| **Admin — program** | Edit threshold, reward text, points-per-purchase, per-transaction cap, inactivity days, and the four alert-detector thresholds. Save requires step-up PIN re-auth. |
+| **Admin — staff** | List / create / disable / re-enable / reset password / delete / "Sign out all devices" (epoch revocation). |
+| **Admin — program** | Edit threshold, reward text, points-per-purchase, per-transaction cap, inactivity days, and the four alert-detector thresholds. Saving is its own confirmation (no credential — the server never enforced step-up). |
 | **Admin — stats** | "This week" counts: active customers, points issued, rewards redeemed (counted from `reward.redeemed` events, surfaced as `loyalty.redeem` audit rows — not the ledger). `StatDetail` popover shows total + chart only (no per-action feed). (Coffees-today approximated by accrual audit event count — see divergences.) |
 | **Admin — activity export** | The append-only audit log is not casually browsable — cross-account/historical activity is reached only through a reason-gated export: a blank-by-default filter (time range · action(s) · account(s) incl. admins), disabled until a reason is typed, produces a downloaded JSON file, and is itself an audited `audit.export` row. Past exports are listed and re-runnable. `AuditService.exportActivity`, `ui/screens/admin/_parts/Export/`. |
 | **Admin — alerts** | Suspicious-activity alerts surfaced from `LoyaltyService.getAlerts()`. |
@@ -354,8 +357,10 @@ plus the config to make it real, not a rewrite. `@cafe/shared` holds the pure co
 
 > ⚠ **The `web/src/ui/` entries below are stale in both directions.** UI-0 (2026-09-16) actually
 > deleted the Prototype panel + `DevTrigger`, `PairingContext`, `PairDevices`, `storageSnapshot`,
-> the wallet button, the admin Export sheet and the admin stat tiles — those lines describe files
-> that no longer exist. What remains of the `ui/` subtree is still slated for change (UI-3 onward).
+> the wallet button, the admin Export sheet and the admin stat tiles, and UI-2 (2026-10-04) deleted
+> `PinPad`, the Unlock screen, `RecoverConsume` and `StepUp` (now `ConfirmSheet`) — lines for files
+> that no longer exist have been corrected where noticed, and the rest of the `ui/` subtree is still
+> slated for change (UI-3 onward).
 > The adapters, ports and seam table above are **correct as of Phase 11**; a full rewrite of this
 > subtree is UI-PLAN UI-9's job.
 
@@ -376,7 +381,8 @@ packages/
 │   │       ├── DataStore.ts       # commitCounterTransaction / listRewards / getCustomerState,
 │   │       │                      #   listAudit(AuditFilter: actions[]/actorIds[]/from/to).
 │   │       │                      #   No PIN methods (setStaffPin removed in UI-1b). Split by trust: TrustedStore holds appendAudit +
-│   │       │                      #   the recovery-code pair, which only the server may call
+│   │       │                      #   the recovery-code pair + getStaffByUsername + listAllTransactions (UI-2, P9) —
+│   │       │                      #   only the server may call them; ApiStore has none
 │   │       ├── Mailer.ts          # email abstraction (NoopMailer only client-side; routes send)
 │   │       └── IdentityStore.ts   # browser identity — superseded by the server session cookie
 │   └── tests/                  # Vitest: the six domain suites (moved out of the SPA in Phase 10;
@@ -404,19 +410,19 @@ packages/
     │   │   │   └── NoopMailer.ts   # the routes are the only sender
     │   │   └── identity/
     │   │       └── LocalStorageIdentityStore.ts   # superseded by the session cookie (UI-PLAN UI-3)
-    │   ├── services/              # orchestrate domain + ports
-    │   │   ├── CustomerService.ts      # selfRegister, provisionFromToken, selfDelete(token), reissue…
-    │   │   ├── LoyaltyService.ts       # commit (accrue+mint+redeem), getState, reverse, getAlerts()
-    │   │   ├── StaffService.ts         # loginWithPin, setPin (dead — UI-2 deletes), revokeAllSessions, currentSessionEpoch
-    │   │   ├── ConfigService.ts        # incl. alert-detector thresholds
-    │   │   ├── AuditService.ts         # list, exportActivity (reason-gated, writes audit.export)
-    │   │   ├── RecoveryService.ts      # self-service recovery (single-use expiring codes)
-    │   │   └── Services.ts             # ← composition root; wires adapters → services.wallet (WalletProvider)
-    │   │                               #   services.sync (SyncKit); exposes reset() (prototype-only)
+    │   ├── services/              # orchestrate domain + ports; speak routes (no service writes audit or sends mail)
+    │   │   ├── CustomerService.ts      # selfRegister, checkDuplicates, find, correct, reissue, deleteCustomer, selfDelete(token)
+    │   │   ├── LoyaltyService.ts       # commit (accrue+mint+redeem), getState (GET /customers/:id/state), reverse,
+    │   │   │                           #   getAlerts() (GET /alerts), dismissAlert
+    │   │   ├── StaffService.ts         # login/logout/session (POST /auth/login|logout, GET /auth/session),
+    │   │   │                           #   create, setActive, resetPassword, remove, revokeAllSessions, currentSessionEpoch
+    │   │   ├── ConfigService.ts        # update(patch) — incl. alert-detector thresholds; server clamps
+    │   │   ├── AuditService.ts         # read-only: list → GET /audit (the session's own rows)
+    │   │   ├── RecoveryService.ts      # request(email), consume(email, code) — the server mints and mails
+    │   │   ├── types.ts                # the Api interface (request<T>) that ApiClient satisfies
+    │   │   ├── errors.ts               # re-exports ApiError so screens never import from adapters/
+    │   │   └── Services.ts             # ← composition root; createServices(options?) wires ApiClient → ApiStore + services
     │   ├── qr/                    # encode (cardPayload = card-page URL, tokenFromCardScan, registrationPayload) + scan
-    │   ├── wallet/
-    │   │   └── passes.ts          # PRESET_CARD_TOKENS, PASS_SERIALS, passSerialForToken, walletPassUrl,
-    │   │                          #   detectWalletKind — walletwallet.dev integration (prototype)
     │   └── ui/
     │       ├── theme/             # design system slices (no monolith)
     │       │   ├── tokens.css     #   design tokens: forest/sage/blush/cream/terra palette,
@@ -429,33 +435,32 @@ packages/
     │       │   │                  #   each: <Name>.tsx + <Name>.css + <Name>.test.tsx
     │       │   ├── Logo/          # cup+sunburst mark + lockup
     │       │   ├── Heading/       # Eyebrow / Title / Sub
-    │       │   ├── Button/        # Button + WalletButton
+    │       │   ├── Button/        # Button
     │       │   ├── Field/         # text input; Consent toggle
     │       │   ├── CupStamps/     # stamp progress row
     │       │   ├── LoyaltyCard/   # centerpiece card (centerpiece; "Gold" pill is decorative v1)
     │       │   ├── Qr/            # real QR on cream tile
     │       │   ├── Overlay/       # enlarged-QR overlay
     │       │   ├── Toast/         # toast notifications
-    │       │   ├── PinPad/        # numeric PIN pad
     │       │   ├── Slider/        # PointsSlider
     │       │   ├── Sheet/         # bottom sheet + MenuRow + RecoveryLine
     │       │   └── ContextBanner/ # pairing / session context strip
-    │       ├── app/               # LogoGestures, AuthContext (PIN session + inactivity lock),
-    │       │                      #   EntryResolver (entry routing), routes.ts, session.ts
+    │       ├── app/               # LogoGestures, AuthContext (login/logout, epoch revocation — no PIN, no idle lock),
+    │       │                      #   EntryResolver (entry routing), ConnectionWatch (X2 global handlers), routes.ts, session.ts
     │       ├── screens/           # folder-per-screen: <Screen>.tsx + <Screen>.css + <Screen>.test.tsx
-    │       │   ├── customer/      # Welcome/ (+ Find us), Register/, LostCard/, RecoverConsume/,
-    │       │   │                  #   Card/ (hub), EnlargedQr/ (QR + wallet button), CardMenu/
-    │       │   ├── staff/         # Login/, Unlock/ (PIN re-auth), Panel/ ("Your last hour"), Scan/
+    │       │   ├── customer/      # Welcome/ (+ Find us), Register/, LostCard/ (requests a code; the code-entry
+    │       │   │                  #   screen is UI-3), Card/ (hub), EnlargedQr/ (QR), CardMenu/
+    │       │   ├── staff/         # Login/, Panel/ ("Your last hour"), Scan/
     │       │   │                  #   (3s pre-commit hold: stage → countdown → Cancel/Commit now)
     │       │   │                  #   _parts/: TopBar/ ScanView/ CustChip/ StateLabel/
-    │       │   ├── admin/         # Admin/ (tabbed); _parts/: Stat/ StatDetail/ FeedRow/ Alert/ StepUp/
-    │       │   │                  #   AccountSheet/ ProgramEdit/ Export/ (reason-gated JSON activity export)
-    │       │   └── proto/         # ProtoPanel/ (hidden top-left DevTrigger, build-flag gated)
-    │       └── common/            # ServicesContext, PairingContext/usePairing, QrDisplay, QrScanner,
-    │                              #   PrivacyNotice, PairDevices
-    ├── tests/                     # Vitest: service, adapter, qr, wallet, config, ui/app/session
-    ├── e2e/                       # Puppeteer smoke suite (headless Chrome, drives built app)
-    ├── index.html, public/, vite.config.ts, vitest.e2e.config.ts, tsconfig*.json
+    │       │   ├── admin/         # Admin/ (tabbed); _parts/: Stat/ FeedRow/ Alert/ AlertDetail/ ConfirmSheet/
+    │       │   │                  #   AccountSheet/ ProgramEdit/
+    │       └── common/            # ServicesContext, QrDisplay, QrScanner, PrivacyNotice
+    ├── dev/                       # jarFetch.ts (cookie-jar fetch for Node), seed.ts (npm run seed:dev)
+    ├── tests/                     # Vitest: live/ (service + ApiStore suites against the real server),
+    │                              #   adapters, qr, config, ui/app/session, services/Services.test.ts
+    ├── e2e/                       # Puppeteer smoke suite (headless Chrome; does not run — UI-6)
+    ├── index.html, public/, vite.config.ts, vitest.projects.ts (ui + live projects), vitest.e2e.config.ts, tsconfig*.json
     └── .env.example               # documents required build-time secrets (stale post-Phase 6 — see STATUS.md)
 .github/workflows/ci.yml       # contract · server (+Postgres service) · bundle (compose) · web
 ops/                           # backup.sh, restore.sh, smoke.sh, drill.sh, nginx/, README.md
@@ -493,7 +498,7 @@ is no idle-locked state any more); three streams per session.
 | `contract` | `@cafe/shared` typechecks and its 73 domain tests pass — no database, no SPA |
 | `server` | the release gate against a **Postgres service container**, then a check that the suite still *refuses to run* without one (a skip is not a pass) |
 | `bundle` | `docker compose` up **from an empty volume** → [`ops/smoke.sh`](ops/smoke.sh) over HTTP → the container logs scanned for credentials and PII → [`ops/drill.sh`](ops/drill.sh), the backup/restore drill |
-| `web` | informational only (`continue-on-error`): the SPA is red by decision until the UI pass, and must not gate anything |
+| `web` | informational only (`continue-on-error` until UI-8): a Postgres service + `TEST_DATABASE_URL`, then SPA Typecheck / Tests (the `ui` and `live` projects) / Build. Must not gate anything yet |
 
 ### Deployment
 The bundle is [`compose.yml`](compose.yml) — see [`ops/README.md`](ops/README.md) for bringing it
@@ -517,8 +522,18 @@ Firefox accept `Secure` cookies on `http://localhost`, Safari may not — use Ch
 
 - **SPA dev server:** `npm run dev` (Vite) serves from `/` and proxies `/api` → `http://127.0.0.1:3000`,
   stripping the prefix exactly like [`ops/nginx/default.conf`](ops/nginx/default.conf). Override the
-  target with `VITE_DEV_API_TARGET`. `vite preview` keeps the build base. (The SPA does not compile
-  yet — see the box at the top.)
+  target with `VITE_DEV_API_TARGET`. `vite preview` keeps the build base. (The SPA compiles and
+  builds since UI-2 but several screens still disagree with the backend — see the box at the top.)
+- **Dev seed:** `npm run seed:dev -w @cafe/web` signs in to the running backend as an existing admin
+  (`SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD`; `SEED_API_URL` defaults to `http://127.0.0.1:3000`,
+  `SEED_APP_URL` to `http://localhost:5173`), creates a `barista` staff account and three cards —
+  one mid-progress, one with a reward, one empty — and prints their card links. Idempotent.
+- **SPA tests:** use **Node 22** (Node 25's built-in `localStorage` breaks jsdom).
+  `npx vitest --project ui` (from `packages/web`) runs the screen and component tests with nothing
+  running; `npm test -w @cafe/web` also runs the `live` project — the service and `ApiStore` suites
+  against a real server it spawns from the server's built `dist/` and a test Postgres at
+  `TEST_DATABASE_URL` (default `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`). Without a
+  database it **fails, never skips**.
 - **Backend hot reload, outside Docker:** the opt-in `npm run dev:local -w @cafe/server` and
   `migrate:local` load `packages/server/.env` through `node --env-file`. The plain `dev` / `migrate`
   scripts are unchanged, so CI, the images and remote sandboxes are unaffected.
@@ -544,9 +559,10 @@ flowchart LR
     M["Drop the pairing layer"]:::done --> N["Server coordinates state;<br/>liveness is GET /events"]:::done
     O["Transport + WalletProvider"]:::cut --> P["Ports deleted — registration is<br/>a URL, wallet dropped"]:::cut
     G["localStorage to session cookie"]:::todo --> H["Identity that survives iOS ITP"]:::todo
-    Q["services/ reshaped to the routes"]:::todo --> R["@cafe/web compiles again"]:::todo
+    Q["services/ reshaped to the routes<br/>(UI-2, 2026-10-04)"]:::done --> R["@cafe/web compiles, tests green,<br/>bundle builds"]:::done
     S["PIN + idle lock"]:::cut --> T["Retired on the server (UI-1b, tag backend-v1) —<br/>shared till; attribution is the signed-in account"]:::done
-    T --> U["SPA half: Unlock, PinPad,<br/>step-up (UI-2 / UI-3)"]:::todo
+    T --> U["SPA half: Unlock, PinPad,<br/>step-up deleted (UI-2)"]:::done
+    R --> V["Screens match the backend<br/>(UI-3 onward)"]:::todo
 
     classDef done fill:#eef,stroke:#5b6cc0;
     classDef cut fill:#eee,stroke:#888,stroke-dasharray:3;

@@ -2,14 +2,13 @@
  * Staff/admin sign-in (Ckyka view 08). Reached by the logo long-press —
  * discovery obfuscation, not access control; the password is the control.
  *
- * This is the FIRST sign-in on a device: username + password. (A PIN is asked
- * for later, only on a *remembered* device that has gone idle — see Unlock.)
- * "Remember this device" makes it a trusted café terminal: subsequent visits
- * re-auth with the quick PIN instead of the full form. A non-remembered device
- * prefills the last username so a returning shift just re-enters their password.
+ * Username + password, the only sign-in — there is no PIN (S1). "Remember this
+ * device" keeps the login for 30 days instead of 12 hours, with no idle lock: the
+ * till is shared and stays signed in. A non-remembered device prefills the last
+ * username so a returning shift just re-enters their password.
  *
- * On success we route by role (admin → admin, staff → counter) and record
- * activity. UI → services only (via `useAuth`); never touches adapters.
+ * On success both roles land on the counter. UI → services only (via `useAuth`);
+ * never touches adapters.
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -24,7 +23,7 @@ import './Login.css';
 
 export function Login(): JSX.Element {
   const navigate = useNavigate();
-  const { loginWithPassword, recordActivity, lastUsername } = useAuth();
+  const { loginWithPassword, lastUsername } = useAuth();
 
   const [username, setUsername] = useState(lastUsername ?? '');
   const [password, setPassword] = useState('');
@@ -47,7 +46,6 @@ export function Login(): JSX.Element {
         setError(result.reason ?? "That didn't match. Try again.");
         return;
       }
-      recordActivity();
       // Both roles land on the counter; admins open the admin panel from there.
       navigate(ROUTES.staff, { replace: true });
     } catch {
@@ -123,7 +121,7 @@ export function Login(): JSX.Element {
 
         <div className="spacer" />
         <Sub className="staff-login__note">
-          On a remembered device we’ll ask for your PIN after 5 minutes of inactivity.
+          A remembered device stays signed in for 30 days, until you sign out.
         </Sub>
       </div>
     </div>

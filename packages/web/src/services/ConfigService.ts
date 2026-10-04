@@ -1,31 +1,32 @@
 /**
- * ConfigService — read the program config; admin edits it (logged).
+ * ConfigService — read the program config; admin edits it.
+ *
+ * `PATCH /config` clamps and audits server-side (`config/clamp.ts`); the
+ * arithmetic here is presentation — it keeps a spinner's value sensible before
+ * it is sent — and the server's answer is the config that was actually saved.
  */
 
 import type { ProgramConfig } from '@cafe/shared/domain/models';
 import type { DataStore } from '@cafe/shared/ports/DataStore';
-import type { AuditService } from './AuditService';
-import type { Actor } from './types';
 
 export class ConfigService {
-  constructor(
-    private readonly store: DataStore,
-    private readonly audit: AuditService,
-  ) {}
+  constructor(private readonly store: DataStore) {}
 
   get(): Promise<ProgramConfig> {
     return this.store.getConfig();
   }
 
-  async update(actor: Actor, patch: Partial<ProgramConfig>): Promise<ProgramConfig> {
-    const sanitized = sanitizeConfig(patch);
-    const config = await this.store.updateConfig(sanitized);
-    await this.audit.log(actor, 'config.update', undefined, Object.keys(sanitized).join(','));
-    return config;
+  update(patch: Partial<ProgramConfig>): Promise<ProgramConfig> {
+    return this.store.updateConfig(sanitizeConfig(patch));
   }
 }
 
-/** Keep config values sane (positive integers, non-empty reward text). */
+/**
+ * Keep config values sane (positive integers, non-empty reward text).
+ *
+ * `sessionEpoch` is not passed through: the server refuses it by name, because
+ * revocation is `POST /auth/logout-all` (`StaffService.revokeAllSessions`).
+ */
 function sanitizeConfig(patch: Partial<ProgramConfig>): Partial<ProgramConfig> {
   const out: Partial<ProgramConfig> = {};
   if (patch.pointsPerReward !== undefined)
@@ -36,8 +37,6 @@ function sanitizeConfig(patch: Partial<ProgramConfig>): Partial<ProgramConfig> {
     out.maxPointsPerTransaction = Math.max(1, Math.floor(patch.maxPointsPerTransaction));
   if (patch.cardInactivityDays !== undefined)
     out.cardInactivityDays = Math.max(0, Math.floor(patch.cardInactivityDays));
-  if (patch.sessionEpoch !== undefined)
-    out.sessionEpoch = Math.max(0, Math.floor(patch.sessionEpoch));
   if (patch.rewardDescription !== undefined)
     out.rewardDescription = patch.rewardDescription.trim() || 'Free regular coffee';
   // Detector thresholds (Appendix E). All are positive whole numbers; a count of

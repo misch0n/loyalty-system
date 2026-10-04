@@ -24,7 +24,7 @@ import { deriveAlerts, DEFAULT_THRESHOLDS } from '@cafe/shared/domain/alerts';
 import type { Alert, AlertThresholds, AttributedEvent } from '@cafe/shared/domain/alerts';
 import { alertKey } from '@cafe/shared/domain/alerts';
 import type { AuditLogEntry, ProgramConfig } from '@cafe/shared/domain/models';
-import type { DataStore } from '@cafe/shared/ports/DataStore';
+import type { TrustedStore } from '@cafe/shared/ports/DataStore';
 
 /**
  * How far back detection looks.
@@ -63,7 +63,7 @@ function toEvents(rows: AuditLogEntry[], kind: AttributedEvent['kind']): Attribu
  * findings do not change shape when the store behind them does.
  */
 export async function deriveServerAlerts(
-  store: DataStore,
+  store: TrustedStore,
   now: () => number = Date.now,
 ): Promise<Alert[]> {
   const from = new Date(now() - DETECTION_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();

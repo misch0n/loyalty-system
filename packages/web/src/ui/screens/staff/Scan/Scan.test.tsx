@@ -120,7 +120,6 @@ function seedSession() {
       username: STAFFER.username,
       role: STAFFER.role,
       epoch: 1,
-      lastActivity: Date.now(),
     }),
   );
 }

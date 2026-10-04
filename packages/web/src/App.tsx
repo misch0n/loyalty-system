@@ -23,10 +23,8 @@ import { ROUTES } from './ui/app/routes';
 import { Welcome } from './ui/screens/customer/Welcome/Welcome';
 import { Register } from './ui/screens/customer/Register/Register';
 import { LostCard } from './ui/screens/customer/LostCard/LostCard';
-import { RecoverConsume } from './ui/screens/customer/RecoverConsume/RecoverConsume';
 import { Card } from './ui/screens/customer/Card/Card';
 import { Login } from './ui/screens/staff/Login/Login';
-import { Unlock } from './ui/screens/staff/Unlock/Unlock';
 import { Panel } from './ui/screens/staff/Panel/Panel';
 import { Scan } from './ui/screens/staff/Scan/Scan';
 import { Admin } from './ui/screens/admin/Admin/Admin';
@@ -55,14 +53,12 @@ export function App() {
         <Route path={ROUTES.welcome} element={<Welcome />} />
         <Route path={ROUTES.register} element={<Register />} />
         <Route path={ROUTES.lost} element={<LostCard />} />
-        <Route path={ROUTES.recoverWithCode} element={<RecoverConsume />} />
         <Route path={ROUTES.recover} element={<Navigate to={ROUTES.lost} replace />} />
         <Route path={ROUTES.card} element={<Card />} />
         <Route path={ROUTES.cardSelf} element={<Card />} />
 
         {/* Staff / admin (guards live inside the screens) */}
         <Route path={ROUTES.login} element={<Login />} />
-        <Route path={ROUTES.staffUnlock} element={<Unlock />} />
         <Route path={ROUTES.staff} element={<Panel />} />
         <Route path={ROUTES.staffScan} element={<Scan />} />
         <Route path={ROUTES.admin} element={<Admin />} />

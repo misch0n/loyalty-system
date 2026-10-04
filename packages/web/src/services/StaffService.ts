@@ -1,96 +1,104 @@
 /**
- * StaffService — mock auth + admin staff management.
+ * StaffService — staff sign-in and admin account management, over the API.
  *
- * Auth is MOCKED in the prototype: passwords are compared as plain strings (the
- * seed accounts are admin/admin and staff/staff). Production replaces this with
- * hashed passwords verified server-side — the call sites do not change.
+ * Sign-in is `POST /auth/login`: the plaintext goes over TLS, the server checks
+ * it against an argon2id digest and answers with an HttpOnly session cookie. The
+ * browser never sees a credential it did not type, and never a hash
+ * (BACKEND-PLAN §4-A). "Remember me" picks the session's lifetime — 30 days
+ * rather than 12 hours — and nothing else.
  *
- * First sign-in is by username/password (`login`). The PIN (`loginWithPin`) is
- * the quick re-auth used when a remembered device unlocks after an idle lock.
- * Admins manage PINs via `create(..., pin, name)` and `setPin`. PINs are 4–8
- * digits, unique among active accounts, and are NEVER logged (they are
- * credentials). Accounts also carry a display `name` used for attribution/UI.
+ * **There is no PIN.** The staff device is a shared till (SCOPE-DECISIONS §6.3,
+ * register S1): a login lasts until its TTL, there is no idle lock to unlock,
+ * and staff carry a username and a password. Attribution is the signed-in
+ * *account* — the routes take the actor from the session and write the audit
+ * rows themselves, so nothing here logs anything.
+ *
+ * The admin methods' refusals that a person can act on come back as an `Error`
+ * with a sentence in it, as they always have; anything else is the `ApiError`
+ * the client threw (`services/errors.ts`).
  */
 
 import type { StaffAccount, StaffRole } from '@cafe/shared/domain/models';
 import type { DataStore } from '@cafe/shared/ports/DataStore';
-import type { AuditService } from './AuditService';
-import type { Actor } from './types';
+import { isApiError } from './errors';
+import type { Actor, Api } from './types';
 
 export interface LoginResult {
   ok: boolean;
   actor?: Actor;
+  /** The session epoch the login was issued under (on success). */
+  epoch?: number;
   reason?: string;
 }
+
+/** `GET /auth/session` — what the server says this device is signed in as. */
+export type StaffSession =
+  | { status: 'active'; actor: Actor; epoch: number; remembered: boolean }
+  | { status: 'anon'; epoch: number };
+
+/** The refusals worth a sentence, by the code the server answers with. */
+const REFUSALS: Record<string, string> = {
+  username_taken: 'That username is already taken.',
+  cannot_delete_self: 'You can’t delete the account you’re signed in with.',
+  cannot_disable_self: 'You can’t disable the account you’re signed in with.',
+};
 
 export class StaffService {
   constructor(
     private readonly store: DataStore,
-    private readonly audit: AuditService,
+    private readonly api: Api,
   ) {}
 
-  /** Mock login. Returns an Actor on success; logs success/failure to audit. */
-  async login(username: string, password: string): Promise<LoginResult> {
-    const account = await this.store.getStaffByUsername(username.trim());
-    if (!account || !account.active || account.passwordHash !== password) {
-      // A disabled or departed employee must not get in. Never log the username
-      // as PII-adjacent detail — record only the attempted id if known.
-      await this.audit.log(
-        { id: account?.id ?? 'unknown', role: 'system' },
-        'staff.login.failed',
-        account?.id,
-      );
-      return { ok: false, reason: 'Wrong username or password, or the account is disabled.' };
+  /**
+   * Sign in. A wrong password — or a disabled account, or no such account; the
+   * server will not say which — resolves `{ ok: false }` rather than throwing,
+   * because it is the answer to the question, not a failure to ask it. So is
+   * being rate-limited. Anything else (offline, the server down) throws.
+   */
+  async login(username: string, password: string, remember = false): Promise<LoginResult> {
+    try {
+      const session = await this.api.request<{ actor: Actor; epoch: number }>('POST', '/auth/login', {
+        username: username.trim(),
+        password,
+        remember,
+      });
+      return { ok: true, actor: session.actor, epoch: session.epoch };
+    } catch (err) {
+      if (!isApiError(err)) throw err;
+      const { failure } = err;
+      if (failure.kind === 'rejected' && failure.code === 'invalid_credentials') {
+        return { ok: false, reason: 'Wrong username or password, or the account is disabled.' };
+      }
+      if (failure.kind === 'rate_limited') {
+        return { ok: false, reason: tooManyAttempts(failure.retryAfterSec) };
+      }
+      throw err;
     }
-    const actor: Actor = {
-      id: account.id,
-      username: account.username,
-      name: account.name,
-      role: account.role,
-    };
-    await this.audit.log(actor, 'staff.login', account.id);
-    return { ok: true, actor };
   }
 
-  /**
-   * PIN sign-in (§6). Resolves the active staff account whose PIN matches and
-   * returns its Actor (username = the staff NAME used for attribution). The
-   * long-press only reveals the screen; the PIN is the actual access control.
-   */
-  async loginWithPin(pin: string): Promise<LoginResult> {
-    const account = await this.store.getStaffByPin(pin.trim());
-    if (!account || !account.active) {
-      // Never log the PIN (a credential) or any account detail beyond the id.
-      await this.audit.log({ id: 'unknown', role: 'system' }, 'staff.login.failed');
-      return { ok: false, reason: 'Wrong PIN, or the account is disabled.' };
-    }
-    const actor: Actor = {
-      id: account.id,
-      username: account.username,
-      name: account.name,
-      role: account.role,
-    };
-    await this.audit.log(actor, 'staff.login', account.id);
-    return { ok: true, actor };
+  /** Sign this device out. Succeeds with no session at all. */
+  async logout(): Promise<void> {
+    await this.api.request('POST', '/auth/logout');
   }
 
-  /**
-   * Admin "sign out all devices": bump the program's session epoch so every
-   * device with an older stored epoch is forced to re-authenticate. Append-only
-   * in spirit — the epoch only ever moves forward (config-backed, not a counter
-   * the UI mutates). Returns the new epoch.
-   */
-  async revokeAllSessions(actor: Actor): Promise<number> {
-    const epoch = Date.now();
-    await this.store.updateConfig({ sessionEpoch: epoch });
-    await this.audit.log(actor, 'config.update', undefined, 'sessionEpoch');
-    return epoch;
+  /** What the session cookie on this device resolves to, if anything. */
+  session(): Promise<StaffSession> {
+    return this.api.request('GET', '/auth/session');
   }
 
   /** The current session epoch (0 when no revocation has ever occurred). */
   async currentSessionEpoch(): Promise<number> {
-    const config = await this.store.getConfig();
-    return config.sessionEpoch ?? 0;
+    return (await this.session()).epoch;
+  }
+
+  /**
+   * Admin "sign out all devices": the server deletes every staff session and
+   * bumps the epoch in one transaction — **this device's session included**.
+   * Resolves the new epoch.
+   */
+  async revokeAllSessions(): Promise<number> {
+    const { epoch } = await this.api.request<{ epoch: number }>('POST', '/auth/logout-all');
+    return epoch;
   }
 
   list(): Promise<StaffAccount[]> {
@@ -98,46 +106,34 @@ export class StaffService {
   }
 
   async create(
-    actor: Actor,
     username: string,
     password: string,
     role: StaffRole,
-    pin?: string,
     name?: string,
   ): Promise<StaffAccount> {
     const trimmed = username.trim();
     if (!trimmed) throw new Error('Username is required.');
     if (!password) throw new Error('Password is required.');
-    const cleanName = name?.trim() || undefined;
-    const existing = await this.store.getStaffByUsername(trimmed);
-    if (existing) throw new Error('That username is already taken.');
-    let cleanPin: string | undefined;
-    if (pin !== undefined && pin !== '') {
-      cleanPin = this.validatePin(pin);
-      await this.assertPinUnique(cleanPin);
-    }
-    const account = await this.store.createStaff({
-      username: trimmed,
-      name: cleanName,
-      passwordHash: password, // mock: plain in prototype, hashed in production
-      role,
-      pin: cleanPin,
-    });
-    await this.audit.log(actor, 'staff.create', account.id, role);
-    return account;
+    return explained(
+      this.store.createStaff({
+        username: trimmed,
+        name: name?.trim() || undefined,
+        password,
+        role,
+      }),
+    );
   }
 
-  async setActive(actor: Actor, id: string, active: boolean): Promise<void> {
-    await this.store.setStaffActive(id, active);
-    await this.audit.log(actor, active ? 'staff.enable' : 'staff.disable', id);
+  setActive(id: string, active: boolean): Promise<void> {
+    return explained(this.store.setStaffActive(id, active));
   }
 
   /**
-   * Permanently remove an account. Guards against removing the last admin and
-   * against an admin deleting their own account (which would lock them out).
+   * Permanently remove an account. The server refuses deleting your own; the
+   * last-admin check is the client's, for a sentence instead of a round trip.
    */
   async remove(actor: Actor, id: string): Promise<void> {
-    if (actor.id === id) throw new Error('You can’t delete the account you’re signed in with.');
+    if (actor.id === id) throw new Error(REFUSALS.cannot_delete_self);
     const all = await this.store.listStaff();
     const target = all.find((a) => a.id === id);
     if (!target) throw new Error('Account not found.');
@@ -147,44 +143,30 @@ export class StaffService {
         throw new Error('Can’t delete the last admin account.');
       }
     }
-    await this.store.deleteStaff(id);
-    await this.audit.log(actor, 'staff.delete', id);
+    await explained(this.store.deleteStaff(id));
   }
 
-  async resetPassword(actor: Actor, id: string, newPassword: string): Promise<void> {
+  async resetPassword(id: string, newPassword: string): Promise<void> {
     if (!newPassword) throw new Error('New password is required.');
-    await this.store.setStaffPassword(id, newPassword);
-    await this.audit.log(actor, 'staff.resetPassword', id);
+    await explained(this.store.setStaffPassword(id, newPassword));
   }
+}
 
-  /**
-   * Set/replace a staff member's sign-in PIN (§6). Validates 4–8 digits and
-   * enforces uniqueness among OTHER active accounts (sign-in resolves by PIN).
-   * The PIN value is a credential — it is NEVER logged (audit detail is 'pin').
-   */
-  async setPin(actor: Actor, id: string, pin: string): Promise<void> {
-    const cleanPin = this.validatePin(pin);
-    await this.assertPinUnique(cleanPin, id);
-    await this.store.setStaffPin(id, cleanPin);
-    await this.audit.log(actor, 'staff.resetPassword', id, 'pin');
-  }
-
-  /** Trim + validate a PIN is 4–8 digits. Throws on bad input; returns the clean PIN. */
-  private validatePin(pin: string): string {
-    const trimmed = pin.trim();
-    if (!trimmed) throw new Error('PIN is required.');
-    if (!/^\d{4,8}$/.test(trimmed)) throw new Error('PIN must be 4–8 digits.');
-    return trimmed;
-  }
-
-  /**
-   * Ensure no OTHER active account already uses this PIN (`exceptId` is the
-   * account being updated, so re-saving its own PIN doesn't collide).
-   */
-  private async assertPinUnique(pin: string, exceptId?: string): Promise<void> {
-    const owner = await this.store.getStaffByPin(pin);
-    if (owner && owner.id !== exceptId) {
-      throw new Error('That PIN is already in use. Choose a different one.');
+/** Swap a refusal the admin can act on for its sentence; pass anything else through. */
+async function explained<T>(call: Promise<T>): Promise<T> {
+  try {
+    return await call;
+  } catch (err) {
+    if (isApiError(err) && err.failure.kind === 'conflict') {
+      const sentence = REFUSALS[err.failure.code];
+      if (sentence) throw new Error(sentence);
     }
+    throw err;
   }
+}
+
+function tooManyAttempts(retryAfterSec: number | null): string {
+  if (retryAfterSec === null) return 'Too many sign-in attempts. Try again later.';
+  const minutes = Math.max(1, Math.ceil(retryAfterSec / 60));
+  return `Too many sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`;
 }

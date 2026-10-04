@@ -18,7 +18,7 @@ export interface FeedRowProps {
   icon: ReactNode;
   /** Primary text; pass a `<span>` inside for the muted secondary part. */
   text: ReactNode;
-  /** Trailing mono caption (e.g. "2m" or "reset PIN"). */
+  /** Trailing mono caption (e.g. "2m" or "reset password"). */
   time: ReactNode;
 }
 

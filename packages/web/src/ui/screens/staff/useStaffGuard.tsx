@@ -5,7 +5,6 @@
  * Both the staff panel and the scan workflow share the same gate:
  *   - not ready yet            → a loading element (don't act on the pre-boot
  *                                'anon' default)
- *   - locked trusted device    → redirect to the PIN unlock screen
  *   - anonymous / no actor      → redirect to the staff sign-in screen
  *   - active with an actor      → `actor` is returned and the screen renders
  *
@@ -37,10 +36,6 @@ export function useStaffGuard(): StaffGuardResult {
         </div>
       ),
     };
-  }
-
-  if (status === 'locked') {
-    return { actor: null, redirect: <Navigate to={ROUTES.staffUnlock} replace /> };
   }
 
   if (status === 'anon' || !actor) {

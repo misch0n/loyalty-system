@@ -1,20 +1,17 @@
 /**
- * ProgramEdit — in-app sheet to change a numeric program setting + confirm by PIN.
+ * ProgramEdit — in-app sheet to change a numeric program setting.
  *
- * Replaces the old flow (StepUp PIN → `window.prompt` for the value), which broke
- * on mobile Safari where `prompt()` is suppressed — so "enter PIN, nothing
- * happens". Here the value is a normal Field and the PIN re-auth runs in-app via
- * `useAuth().unlock` (verifies the same admin). On success it calls `onConfirm`.
+ * Replaces the old flow (`window.prompt` for the value), which broke on mobile
+ * Safari where `prompt()` is suppressed. The value is a normal Field and the
+ * sheet's own Save is the confirmation: it used to ask for the PIN as well, and
+ * register A7 (2026-10-03) dropped that with the PIN — the server never
+ * enforced it. On Save it calls `onConfirm`.
  */
 import { useEffect, useState } from 'react';
 import { Button } from '../../../../components/Button/Button';
 import { Field } from '../../../../components/Field/Field';
-import { PinPad } from '../../../../components/PinPad/PinPad';
 import { Sheet } from '../../../../components/Sheet/Sheet';
-import { useAuth } from '../../../../app/AuthContext';
 import './ProgramEdit.css';
-
-const PIN_LENGTH = 4;
 
 export interface ProgramEditProps {
   open: boolean;
@@ -26,7 +23,7 @@ export interface ProgramEditProps {
   current: number;
   /** Smallest allowed value (default 1). */
   min?: number;
-  /** Called with the validated new value after the PIN verifies. */
+  /** Called with the validated new value on Save. */
   onConfirm: (value: number) => void | Promise<void>;
 }
 
@@ -39,17 +36,14 @@ export function ProgramEdit({
   min = 1,
   onConfirm,
 }: ProgramEditProps) {
-  const { unlock } = useAuth();
   const [value, setValue] = useState('');
-  const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Pre-fill the current value and clear the PIN whenever the sheet opens.
+  // Pre-fill the current value whenever the sheet opens.
   useEffect(() => {
     if (open) {
       setValue(String(current));
-      setPin('');
       setError(null);
       setBusy(false);
     }
@@ -64,19 +58,8 @@ export function ProgramEdit({
       setError(`Enter a whole number of at least ${min}.`);
       return;
     }
-    if (pin.length < PIN_LENGTH) {
-      setError('Enter your 4-digit PIN to confirm.');
-      return;
-    }
     setBusy(true);
     setError(null);
-    const result = await unlock(pin);
-    if (!result.ok) {
-      setError(result.reason ?? 'That PIN didn’t match. Try again.');
-      setPin('');
-      setBusy(false);
-      return;
-    }
     try {
       await onConfirm(parsed);
     } finally {
@@ -101,8 +84,6 @@ export function ProgramEdit({
           }}
           disabled={busy}
         />
-        <p className="progedit-msg">Re-enter your PIN to confirm.</p>
-        <PinPad value={pin} onChange={setPin} length={PIN_LENGTH} disabled={busy} />
         {error && (
           <p className="progedit-error" role="alert">
             {error}

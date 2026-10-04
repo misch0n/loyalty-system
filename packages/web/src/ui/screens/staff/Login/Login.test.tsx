@@ -89,12 +89,12 @@ async function signIn(username: string, password: string) {
 
 describe('Staff Login', () => {
   it('renders the lockup + title + username/password form (no PIN pad)', async () => {
-    await mount(makeServices(vi.fn().mockResolvedValue({ ok: true, actor: STAFF })));
+    await mount(makeServices(vi.fn().mockResolvedValue({ ok: true, actor: STAFF, epoch: 1 })));
     expect(container.querySelector('.staff-login .mark')).not.toBeNull();
     expect(container.textContent).toContain('Staff sign-in');
     expect(container.querySelector('input[autocomplete="username"]')).not.toBeNull();
     expect(container.querySelector('input[autocomplete="current-password"]')).not.toBeNull();
-    // PIN is only for unlock now — no keypad on the sign-in screen.
+    // There is no PIN anywhere (S1) — no keypad on the sign-in screen.
     expect(container.querySelector('.keypad')).toBeNull();
   });
 
@@ -102,7 +102,7 @@ describe('Staff Login', () => {
     const login = vi
       .fn()
       .mockResolvedValueOnce({ ok: false, reason: 'Wrong username or password.' })
-      .mockResolvedValueOnce({ ok: true, actor: STAFF });
+      .mockResolvedValueOnce({ ok: true, actor: STAFF, epoch: 1 });
     await mount(makeServices(login));
 
     await signIn('sam', 'nope');
@@ -114,13 +114,17 @@ describe('Staff Login', () => {
   });
 
   it('correct staff credentials route to the counter', async () => {
-    await mount(makeServices(vi.fn().mockResolvedValue({ ok: true, actor: STAFF })));
+    const services = makeServices(vi.fn().mockResolvedValue({ ok: true, actor: STAFF, epoch: 1 }));
+    await mount(services);
     await signIn('sam', 'staff');
     expect(container.textContent).toContain('STAFF PANEL HOME');
+    // The login answer carries the epoch — no second request that could fail
+    // after the session cookie was set.
+    expect(services.staff.currentSessionEpoch).not.toHaveBeenCalled();
   });
 
   it('an admin signing in routes to the counter (admin panel reached from there)', async () => {
-    await mount(makeServices(vi.fn().mockResolvedValue({ ok: true, actor: ADMIN })));
+    await mount(makeServices(vi.fn().mockResolvedValue({ ok: true, actor: ADMIN, epoch: 1 })));
     await signIn('admin', 'admin');
     expect(container.textContent).toContain('STAFF PANEL HOME');
   });

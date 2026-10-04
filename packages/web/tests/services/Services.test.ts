@@ -4,7 +4,7 @@
  * It used to boot the whole prototype graph — IndexedDB, PeerJS, a wallet
  * provider — and then prove an action was visible end to end through it. Phase 6
  * deleted all three adapters, and the one store left is `ApiStore`, which needs
- * a running server (the service suites get one in UI-2). So what is worth
+ * a running server — the service suites have one, in `tests/live/`. So what is worth
  * pinning here is the *wiring*, and in particular the choices that are easy to
  * get quietly wrong.
  */

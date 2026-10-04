@@ -3,8 +3,9 @@
  *
  * Single scroll: a "Needs a look" alert list, program configuration, account
  * management and "Sign out all devices". No new mutable state — alerts are
- * derived. Destructive and program changes go through step-up PIN re-auth
- * (StepUp → useAuth().unlock → service mutation).
+ * derived. "Sign out all devices" asks a plain "are you sure?" first
+ * (ConfirmSheet, register A7); a program change is confirmed by its own sheet
+ * (ProgramEdit). Neither asks for a credential — there is no PIN (S1).
  *
  * Appendix E: there is deliberately NO ambient activity feed here.
  *
@@ -14,7 +15,7 @@
  * activity workflow (BE-A-12 — the server has no cross-account activity
  * endpoint to export from).
  *
- * GUARD: !ready → loading · locked → /staff/unlock · anon → /login ·
+ * GUARD: !ready → loading · anon → /login ·
  * signed-in non-admin → "Admins only" notice. Wiring is reused from the old
  * admin sections; only the markup/classes change to the donor.
  */
@@ -36,7 +37,7 @@ import type { Alert as AlertModel } from '@cafe/shared/domain/alerts';
 import { StatWide } from '../_parts/Stat/Stat';
 import { SectionH } from '../_parts/FeedRow/FeedRow';
 import { Alert } from '../_parts/Alert/Alert';
-import { StepUp } from '../_parts/StepUp/StepUp';
+import { ConfirmSheet } from '../_parts/ConfirmSheet/ConfirmSheet';
 import { ProgramEdit } from '../_parts/ProgramEdit/ProgramEdit';
 import { AccountSheet } from '../_parts/AccountSheet/AccountSheet';
 import { AlertDetail } from '../_parts/AlertDetail/AlertDetail';
@@ -50,7 +51,7 @@ const ALERT_PAGE = 4;
 
 /**
  * Numeric program-config fields the Configure panel can edit. Each carries the
- * copy for the value+PIN `ProgramEdit` sheet and how the current value reads on
+ * copy for the `ProgramEdit` value sheet and how the current value reads on
  * the row. Add a field here and it appears in Configure — nothing else to wire.
  */
 const PROGRAM_FIELDS = {
@@ -115,10 +116,7 @@ export function Admin() {
       </div>
     );
   }
-  if (status === 'locked') {
-    return <Navigate to={ROUTES.staffUnlock} replace />;
-  }
-  if (!actor) {
+  if (status === 'anon' || !actor) {
     return <Navigate to={ROUTES.login} replace />;
   }
   if (actor.role !== 'admin') {
@@ -168,12 +166,11 @@ function AdminScreen({ actor }: { actor: Actor }) {
   // immediately and a deleted account closes the sheet.
   const [manageId, setManageId] = useState<string | null>(null);
 
-  // Create-account form (admin defines name, username, password, PIN, role).
+  // Create-account form (admin defines name, username, password, role).
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [newPin, setNewPin] = useState('');
   const [newAdmin, setNewAdmin] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -203,25 +200,28 @@ function AdminScreen({ actor }: { actor: Actor }) {
   const flaggedCount = alerts?.length ?? 0;
   const manageAccount = staff?.find((a) => a.id === manageId) ?? null;
 
-  // "Sign out all devices" — PIN-gated via StepUp (PIN only, no value).
+  // "Sign out all devices" — confirmed by ConfirmSheet. The server ends every
+  // staff session, this one included, so this device signs out with the rest.
   const confirmRevokeAll = async () => {
     if (edit?.kind !== 'revokeAll') return;
     try {
-      const count = await services.staff.revokeAllSessions(actor);
-      toast.show(`Signed out all devices (epoch ${count}).`);
+      await services.staff.revokeAllSessions();
+      setEdit(null);
+      toast.show('Signed out all devices, including this one.');
+      logout();
+      navigate(ROUTES.login, { replace: true });
     } catch {
       toast.show('Couldn’t make that change. Try again.');
-    } finally {
       setEdit(null);
     }
   };
 
-  // Program config save — value + PIN are collected in-app by ProgramEdit (no
-  // more window.prompt, which mobile Safari suppressed); this just persists it.
+  // Program config save — the value is collected in-app by ProgramEdit (no
+  // window.prompt, which mobile Safari suppresses); this just persists it.
   const saveProgram = async (value: number) => {
     if (!edit || edit.kind === 'revokeAll') return;
     try {
-      const saved = await services.config.update(actor, { [edit.kind]: value });
+      const saved = await services.config.update({ [edit.kind]: value });
       setConfig(saved);
       toast.show('Program updated.');
     } catch {
@@ -245,7 +245,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
     setNewName('');
     setNewUsername('');
     setNewPassword('');
-    setNewPin('');
     setNewAdmin(false);
     setCreateError(null);
   };
@@ -256,19 +255,13 @@ function AdminScreen({ actor }: { actor: Actor }) {
       setCreateError('Name, username and password are all required.');
       return;
     }
-    if (newPin && !/^\d{4,8}$/.test(newPin.trim())) {
-      setCreateError('A PIN must be 4–8 digits (or leave it blank).');
-      return;
-    }
     setCreating(true);
     setCreateError(null);
     try {
       await services.staff.create(
-        actor,
         newUsername.trim(),
         newPassword,
         newAdmin ? 'admin' : 'staff',
-        newPin.trim() || undefined,
         newName.trim(),
       );
       resetCreateForm();
@@ -284,7 +277,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
 
   const dismissAlert = async (alert: AlertModel) => {
     try {
-      await services.loyalty.dismissAlert(actor, alertKey(alert));
+      await services.loyalty.dismissAlert(alertKey(alert));
       toast.show('Flag acknowledged.');
     } catch {
       toast.show('Couldn’t dismiss that. Try again.');
@@ -450,7 +443,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
       />
 
       {/* Program configuration — more fields will be added here over time. The
-          ProgramEdit (value + PIN) sheet opens on top of this one. */}
+          ProgramEdit value sheet opens on top of this one. */}
       <Sheet open={configureOpen} onClose={() => setConfigureOpen(false)} label="Configure program">
         <div className="admin-configure">
           <Title className="admin-create__title">Configure program</Title>
@@ -492,12 +485,13 @@ function AdminScreen({ actor }: { actor: Actor }) {
         </div>
       </Sheet>
 
-      <StepUp
+      <ConfirmSheet
         open={edit?.kind === 'revokeAll'}
         onClose={() => setEdit(null)}
         onConfirm={confirmRevokeAll}
-        title="Sign out all devices"
-        message="Re-enter your PIN to revoke every trusted session."
+        title="Sign out all devices?"
+        message="Every staff and admin device is signed out, this one included. Each will need its password again."
+        confirmLabel="Sign out all"
       />
 
       <ProgramEdit
@@ -514,7 +508,7 @@ function AdminScreen({ actor }: { actor: Actor }) {
           <Title className="admin-create__title">Add profile</Title>
           <p className="admin-empty">
             The name shows on the staff panel and in the activity log. The username and
-            password are for signing in; the PIN is the quick re-auth on a remembered device.
+            password are for signing in.
           </p>
           <Field
             label="Name"
@@ -548,19 +542,6 @@ function AdminScreen({ actor }: { actor: Actor }) {
             onChange={(v) => {
               setCreateError(null);
               setNewPassword(v);
-            }}
-            disabled={creating}
-          />
-          <Field
-            label="PIN"
-            optional
-            type="text"
-            inputMode="numeric"
-            placeholder="4–8 digits"
-            value={newPin}
-            onChange={(v) => {
-              setCreateError(null);
-              setNewPin(v.replace(/\D/g, ''));
             }}
             disabled={creating}
           />

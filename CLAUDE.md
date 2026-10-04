@@ -22,28 +22,29 @@ concrete subagent definitions live in `.claude/agents/`.
 > and port half is done (UI-1b, 2026-10-04)**: no `/auth/unlock`, no `IDLE_LOCK_MS`, no `pin_hash`,
 > no `BOOTSTRAP_ADMIN_PIN`; a session ends only at its TTL, on disable/delete, or on "Sign out all
 > devices". The branch is **tagged `backend-v1`** (tagged, not merged — SCOPE-DECISIONS §6.6). The
-> SPA half is UI-2/UI-3.
+> **SPA half is done too (UI-2, 2026-10-04)**; **UI-3 is next**.
 >
-> **`@cafe/web` is red on purpose** — **15 TypeScript errors, 6 of 46 test files not loading**
-> after UI-1 (39 errors and 9 of 47 at the start; 14 after UI-0, 16 after UI-1b removed
-> `setStaffPin` while its callers remained, 15 after UI-1), every one traceable to a Phase 6 deletion
-> or a UI-1b port removal and all of them in `services/` or `tests/`. **UI-1 is done (2026-10-04):**
-> `ApiClient.request` + the `ApiError` union in `packages/web/src/adapters/http/`, `ApiStore` on
-> real routes, and the global session/connectivity handler `ui/app/ConnectionWatch.tsx`. Run the
-> SPA suite under **Node 22** — Node 25's built-in `localStorage` breaks jsdom. Do not chase it outside the UI plan. The gate
-> is the server suite until UI-2 lands.
+> **`@cafe/web` is no longer red (UI-2, 2026-10-04):** 0 TypeScript errors, all 44 test files load
+> and pass (**310 tests = 38 `ui` files + 6 `live` files**), and `npm run build -w @cafe/web`
+> produces a bundle — the first since Phase 6. Services were reshaped to the routes (none writes
+> audit or sends mail; the routes do both). The gate is now **all three suites + their `tsc`**
+> (CI's `web` job stays `continue-on-error` until UI-8). `packages/web/vitest.projects.ts` defines
+> two projects: **`ui`** (jsdom; needs nothing running — `npx vitest --project ui`) and **`live`**
+> (`tests/live/`; the service and `ApiStore` suites run against the real server and a test Postgres,
+> and **fail, never skip,** without one). Run the SPA suite under **Node 22** — Node 25's built-in
+> `localStorage` breaks jsdom. Green is not "works": some screens still disagree with the backend
+> (UI-3/UI-4). `npm run seed:dev -w @cafe/web` seeds a running backend.
 >
 > **⚠ The `## UI` section below still describes deleted things.** UI-0 (done, 2026-09-16) deleted
 > the **Prototype panel and its `DevTrigger`**, the **pairing flow** (`PairingContext`,
 > `PairDevices`, `/pair`), the **wallet button**, the admin **Export activity** workflow and the
-> admin **stat tiles** — the bullets below about them are history, not instructions, and the files
-> they name are gone. Two of the section's wrong bullets are still live code awaiting **UI-3**: the
-> **two-entry card menu** (C6 — becomes one entry, delete) and **auto-advancing to the scanner**
-> after a commit (S2 — becomes a return to the counter). **Superseded by S1/A7 (2026-10-03) — the server
-> no longer has any of it (UI-1b), SPA code still live until UI-2/UI-3:** the **PIN**, `PinPad`, the
+> admin **stat tiles**; **UI-2 (done, 2026-10-04) deleted the PIN** (S1/A7) — `PinPad`, the
 > **Unlock screen**, `AuthContext.unlock`, the **5-minute idle lock**, "reset PIN", the PIN on Add
-> profile, and **step-up PIN re-auth** on program-config save / "Sign out all devices" (that becomes
-> a plain confirmation). UI-9 rewrites the section.
+> profile, and **step-up PIN re-auth** (now `ConfirmSheet`, a plain confirmation) — plus the
+> `RecoverConsume` link landing. The bullets below about all of these are history, not instructions,
+> and the files they name are gone. Two wrong bullets are still live code awaiting **UI-3**: the
+> **two-entry card menu** (C6 — becomes one entry, delete) and **auto-advancing to the scanner**
+> after a commit (S2 — becomes a return to the counter). UI-9 rewrites the section.
 >
 > **Scope is [`docs/SCOPE-DECISIONS.md`](docs/SCOPE-DECISIONS.md)** — the 123-feature triage
 > (2026-09-02, questions closed 2026-09-15) plus the later decisions in its §6: the two from
@@ -65,7 +66,7 @@ assistant's operating conventions, and the iOS/deploy/IndexedDB gotchas.
 ## What this is
 A single-café digital loyalty system. Staff scan a customer's QR and commit loyalty points; customers collect points and earn rewards. **The system never touches money.**
 
-**It is now server-backed.** A React SPA talks to a Node + Fastify + PostgreSQL API, shipped as a Docker Compose bundle. The static-prototype era is over: browser storage, device pairing and the GitHub Pages demo were all deleted in Phase 6. The SPA does not currently compile — see the UI pass.
+**It is now server-backed.** A React SPA talks to a Node + Fastify + PostgreSQL API, shipped as a Docker Compose bundle. The static-prototype era is over: browser storage, device pairing and the GitHub Pages demo were all deleted in Phase 6. The SPA compiles and builds again as of UI-2 (2026-10-04) but is still being reconciled with the API — see the UI pass.
 
 ## Goals
 1. A working system on real devices: customer phones and a staff till, against a real server.
@@ -99,12 +100,12 @@ A single-café digital loyalty system. Staff scan a customer's QR and commit loy
 
 The SPA talks to the API over HTTP and nothing else. **`ApiStore` is the only `DataStore`**; there is no local database, no peer-to-peer channel and no device pairing — the server coordinates state centrally, which is what the pairing layer was standing in for.
 
-- **Sessions are cookies.** HttpOnly, `SameSite=Lax`, server-side rows. Lifetime is the TTL — 30 days "remember me", 12 hours otherwise (`auth/sessions.ts`) — enforced **server-side**, not by a client timer. CSRF is a double-submit token on every mutating request. *The 5-minute idle lock and the PIN are gone from the server (S1; UI-1b, 2026-10-04) — a remembered session survives any amount of idle time — and survive only in SPA code until UI-2/UI-3; a remember-me hardening round is deferred.*
+- **Sessions are cookies.** HttpOnly, `SameSite=Lax`, server-side rows. Lifetime is the TTL — 30 days "remember me", 12 hours otherwise (`auth/sessions.ts`) — enforced **server-side**, not by a client timer. CSRF is a double-submit token on every mutating request. *The 5-minute idle lock and the PIN are gone from the server (S1; UI-1b, 2026-10-04) — a remembered session survives any amount of idle time — and are gone from the SPA too (UI-2, 2026-10-04); a remember-me hardening round is deferred.*
 - **The actor comes from the session, never the request body.** "Staff initiates the credit" is enforced, not trusted.
 - **Liveness is `GET /events`** — a one-way SSE stream carrying a `changed` signal scoped per customer and per till, with subjects derived from the session. It replaces the pairing layer's `dataVersion`.
 - **Deleted in Phase 6, do not restore:** `IndexedDbStore`, `adapters/sync/` (PeerJS pairing), `adapters/transport/`, `adapters/wallet/`, `EmailJsMailer`, `demoSeed`, the preset card tokens, the `VITE_TRANSPORT`/`VITE_DATASTORE`/`VITE_WALLET` flags, `isPrototype`, and the GitHub Pages workflow.
 
-Run it with `docker compose up` (`compose.dev.yml` for development, with mailpit). The `web` service sits behind a Compose profile until the SPA compiles again. The local devbox workflow (real image via `docker compose up -d --wait`, Vite proxying `/api`, opt-in `dev:local`) is in `README.md` → "Running it".
+Run it with `docker compose up` (`compose.dev.yml` for development, with mailpit). The `web` service sits behind a Compose profile until UI-8 (the SPA now builds, but is not yet the definition of finished). The local devbox workflow (real image via `docker compose up -d --wait`, Vite proxying `/api`, opt-in `dev:local`) is in `README.md` → "Running it".
 
 ## Stack
 - **Three-package npm-workspaces monorepo** (root `package.json` `workspaces: ["packages/*"]`; the
@@ -119,15 +120,15 @@ Run it with `docker compose up` (`compose.dev.yml` for development, with mailpit
 - TypeScript throughout. The `packages/shared/src/domain/`, `packages/shared/src/ports/`, `packages/web/src/adapters/`, and `packages/web/src/services/` layers match `docs/SPEC.md §12`. The `packages/web/src/ui/` layout diverges (see STATUS.md divergences g, k) — record any further UI deviations there.
 
 ## UI
-> **⚠ Stale bullets are listed in the box at the top of this file** — including the PIN / `Unlock` / idle-lock / step-up bullets below, superseded by S1 and A7 (2026-10-03).
+> **⚠ Stale bullets are listed in the box at the top of this file** — the PIN / `Unlock` / idle-lock / step-up bullets below were superseded by S1 and A7 (2026-10-03) and deleted from the code in UI-2 (2026-10-04); they are annotated in place.
 
 - **Design system:** `packages/web/src/ui/theme/` — no monolith. Slices: `tokens.css` (design tokens: forest/sage/blush/cream/terra palette, Fraunces/DM Sans/DM Mono fonts, touch targets), `base.css` (reset, `.screen` shell, utilities, `bg-*` gradients, focus-visible ring, reduced-motion, `.card-hint`), `keyframes.css`. All imported once via `packages/web/src/ui/theme/index.css` in `main.tsx`. Do not restore the old `theme.css` / `styles.css` monoliths.
-- **Shared components:** `packages/web/src/ui/components/<Name>/` — one folder per component (`Name.tsx` + `Name.css` + `Name.test.tsx`). Components: Logo, Heading, Button, Field, CupStamps, LoyaltyCard, Qr, Overlay, Toast, PinPad, Slider, Sheet (+MenuRow +RecoveryLine), ContextBanner. (`WalletButton` went with the wallet seam in UI-0.) No business logic in components.
+- **Shared components:** `packages/web/src/ui/components/<Name>/` — one folder per component (`Name.tsx` + `Name.css` + `Name.test.tsx`). Components: Logo, Heading, Button, Field, CupStamps, LoyaltyCard, Qr, Overlay, Toast, Slider, Sheet (+MenuRow +RecoveryLine), ContextBanner. (`WalletButton` went with the wallet seam in UI-0; `PinPad` went with the PIN in UI-2.) No business logic in components.
 - **Structure:** `packages/web/src/ui/app/` — `LogoGestures` (logo tap/long-press handlers; replaces the old Shell), `AuthContext`, `EntryResolver`, `routes.ts`, `session.ts`. `packages/web/src/ui/screens/<area>/<Screen>/` — folder-per-screen (`Screen.tsx` + `Screen.css` + `Screen.test.tsx`); screen-scoped parts live in `_parts/` beside the screen. `packages/web/src/ui/common/` — ServicesContext, QrDisplay, QrScanner, PrivacyNotice, usePager. (`PairingContext`, `PairDevices` and `storageSnapshot` went with the pairing layer in UI-0; UI-5 adds whatever owns the SSE connection.)
-- **`AuthContext`** (`packages/web/src/ui/app/AuthContext.tsx`) manages the staff/admin session: `loginWithPassword` (first sign-in), `unlock` (PIN re-auth on a remembered idle device), inactivity lock, epoch revocation, and the remembered `lastUsername` for form prefill. Replaces the old `SessionContext`. Guards use `useAuth` inside each screen — no `RequireAuth` wrapper.
+- **`AuthContext`** (`packages/web/src/ui/app/AuthContext.tsx`) manages the staff/admin session: `loginWithPassword` (first sign-in), `logout` (also calls `POST /auth/logout`), epoch revocation, and the remembered `lastUsername` for form prefill. *(`unlock` and the inactivity lock were deleted in UI-2.)* Replaces the old `SessionContext`. Guards use `useAuth` inside each screen — no `RequireAuth` wrapper.
 - **Navigation:** no home dashboard. Recognized customer → `/card/:token` (hub). Unrecognized → `/welcome`. Signed-in staff → `/staff`; signed-in admin → `/admin` (home is **role-aware** in `EntryResolver`). Entry resolved by `EntryResolver` at `/`. Logo gestures (`LogoGestures`): **tap → home**; long-press (≥600ms) → staff/admin sign-in — the only two gestures, now that UI-0 deleted the hidden `DevTrigger` and the panel behind it. Visually-hidden keyboard path to sign-in. **No global "Staff sign-in" subtitle** in the layout.
-- **Staff/admin auth:** accounts carry **name + username + password + PIN**. First sign-in on a device is **username/password** (`Login`); "Remember this device" makes it a trusted terminal, after which an idle (>5 min) visit re-auths with the quick **PIN** (`Unlock`) instead of the full form. A non-remembered device prefills the last username. `name` is the display/attribution label (staff panel "on shift", admin activity log); it falls back to `username` when absent.
-- **Admin = superset of staff.** An admin can do everything staff can (the counter/scan view at `/staff`, with a "Back to admin panel" link) **and** the admin view at `/admin` (stats, activity, alerts, account management). Both views have a **Sign out** button. The Admin panel lists **accounts** (name · username · type); tapping one opens a shared `Sheet` popover — enable/disable, reset password, reset PIN, **delete**. (Appendix E removed that profile's activity history from this popover; per-account activity is reachable only via the admin **Export activity** workflow.) These per-profile actions are **not** step-up gated (a signed-in admin may perform them directly); program-config save and "Sign out all devices" still are. **Add profile** creates a staff *or* admin account (name/username/password/PIN/role). Account deletion (`StaffService.remove` → `DataStore.deleteStaff`) refuses to remove the last admin or the signed-in account.
+- **Staff/admin auth:** accounts carry **name + username + password** (the PIN, `Unlock` and the idle re-auth were deleted in UI-2). Sign-in is **username/password** (`Login`); "Remember this device" keeps the login for 30 days, until sign-out. A non-remembered device prefills the last username. `name` is the display/attribution label (staff panel "on shift", admin activity log); it falls back to `username` when absent.
+- **Admin = superset of staff.** An admin can do everything staff can (the counter/scan view at `/staff`, with a "Back to admin panel" link) **and** the admin view at `/admin` (stats, activity, alerts, account management). Both views have a **Sign out** button. The Admin panel lists **accounts** (name · username · type); tapping one opens a shared `Sheet` popover — enable/disable, reset password, **delete** (reset PIN was deleted in UI-2). (Appendix E removed that profile's activity history from this popover; per-account activity is reachable only via the admin **Export activity** workflow.) These per-profile actions are **not** step-up gated (a signed-in admin may perform them directly); program-config save and "Sign out all devices" now ask a plain confirmation (`ConfirmSheet`, no credential — A7). **Add profile** creates a staff *or* admin account (name/username/password/role). Account deletion (`StaffService.remove` → `DataStore.deleteStaff`) refuses to remove the last admin or the signed-in account.
 - **Staff counter commits behind a 3-second pre-commit hold** (Appendix E). The Scan screen **stages** a transaction and shows a blocking countdown of exactly what is about to be written (points · redemptions · rewards it will mint, previewed client-side via `mintFold`) with **Cancel** and **Commit now**. Nothing is written until the window elapses; the `idempotencyKey` is allocated at **stage** time so an early commit and the timeout can never double-write; on success the terminal **auto-advances to the scanner**. There is deliberately **no post-commit undo** — `LoyaltyService.reverse` remains the only correction path. Do not reintroduce `undo`/`undoCommit`/`planUndo`.
 - **Activity is remembered, not broadcast** (Appendix E). Collection is unchanged — every staff/admin action is still audited — but there are **no ambient activity feeds**. The staff counter shows only the **signed-in actor's own last hour**, capped at 10 rows with no pager or "Load all"; the admin home has no cross-account feed; `StatDetail` is total + chart only; `AccountSheet` carries no per-profile history. Cross-account activity is reachable **only** through the admin **Export activity** sheet: a blank-by-default filter (range · actions · accounts incl. admins), a **required reason**, a downloaded JSON file, and an `audit.export` row recording the export itself. Don't add a browsable activity view back.
 - **Exactly two suspicious-activity detectors** (`domain/alerts.ts`): **self-dealing** (same staff credits then redeems the same card within `selfDealWindowSec`, repeated `selfDealCount`+ times) and **repeat-target**. Both are fed attributed data — self-dealing pairs `loyalty.accrue`/`loyalty.redeem` **audit** rows, never the ledger (which no longer carries a `redemption` type). Thresholds live on `ProgramConfig` and are admin-editable in Configure → "Activity alerts". No role exemption; detectors **surface, never block**.
@@ -169,7 +170,7 @@ Five roles. The point is that each agent holds only what it needs; deep work is 
 
 ### Reviewer
 - Checks implementer output against `SPEC.md` and these rules **before** integration.
-- Verifies: ports respected (no UI→adapter calls), `DataStore` stays async, ledger append-only, no PII in QR/logs/URLs, the actor taken from the session rather than the body, audit written server-side, tests present and passing (**and not skipped** — the server suite fails without a database by design), file tree honored.
+- Verifies: ports respected (no UI→adapter calls), `DataStore` stays async, ledger append-only, no PII in QR/logs/URLs, the actor taken from the session rather than the body, audit written server-side, tests present and passing (**and not skipped** — the server suite and the SPA's `live` project fail without a database by design), file tree honored.
 - Also checks that **docs were updated** when the change warranted it (README/STATUS/CLAUDE).
 - Returns issues to fix or an approval.
 

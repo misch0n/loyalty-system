@@ -1,25 +1,31 @@
 /**
- * CustomerService — card issuance, registration, recovery, correction, deletion.
+ * CustomerService — registration, lookups, correction, reissue and deletion.
  *
- * Orchestrates the domain (token generation, validation, duplicate detection)
- * against the `DataStore` port. Staff initiate everything here.
+ * Every write here is one route, and the route does the parts that used to live
+ * in this file: it generates the card's token (a client-chosen token is not a
+ * credential), stamps consent, writes the audit rows from the session, and
+ * sends the welcome mail. What is left is the validation a form shows before it
+ * submits, and the shapes the screens consume.
+ *
+ * Name and email are **required** to register (SCOPE-DECISIONS §2.1); the
+ * server answers `400 invalid_details` without them and `409 email_in_use` for
+ * an address that already has a card, which surface as the `ApiError` they are
+ * (`services/errors.ts`). The token-only shell card, and the staff-side
+ * issue-then-finalize flow that built one, went with that decision.
  */
 
 import type { Customer } from '@cafe/shared/domain/models';
 import type { CustomerPatch, DataStore } from '@cafe/shared/ports/DataStore';
-import type { Mailer } from '@cafe/shared/ports/Mailer';
-import type { RegistrationDetails } from '@cafe/shared/ports/Transport';
-import { generateToken, isValidToken } from '@cafe/shared/domain/tokens';
-import { appUrl } from '../config/links';
 import {
   findDuplicates,
   isRecoverable,
-  isTokenOnly,
   validateRegistration,
   type FieldError,
+  type RegistrationInput,
 } from '@cafe/shared/domain/validation';
-import type { AuditService } from './AuditService';
-import { SYSTEM_ACTOR, type Actor } from './types';
+
+/** What a registration form collects. */
+export type RegistrationDetails = RegistrationInput;
 
 export interface RegistrationResult {
   ok: boolean;
@@ -28,102 +34,31 @@ export interface RegistrationResult {
 }
 
 export class CustomerService {
-  constructor(
-    private readonly store: DataStore,
-    private readonly audit: AuditService,
-    /** Optional: when present, a welcome email confirms a new card. */
-    private readonly mailer?: Mailer,
-  ) {}
+  constructor(private readonly store: DataStore) {}
 
   /**
-   * Best-effort "your card is ready" email. Sent when a customer registers with
-   * an email. Never blocks or fails registration; failures are swallowed and
-   * never logged (the address is PII).
-   */
-  private async sendWelcome(customer: Customer): Promise<void> {
-    if (!this.mailer || !customer.email) return;
-    try {
-      const link = appUrl(`/card/${customer.token}`);
-      await this.mailer.send({
-        to: customer.email,
-        kind: 'card-created',
-        params: {
-          subject: 'Your Ckyka card is ready',
-          message:
-            'Your Ckyka loyalty card has been created. Show it on your next visit to start ' +
-            `collecting — the tenth coffee is on us.\n\nView your card: ${link}`,
-          card_link: link,
-        },
-      });
-    } catch {
-      // Transactional email is a best-effort side channel. Swallow failures and
-      // do NOT log — an error could carry the recipient address (PII).
-    }
-  }
-
-  /**
-   * Step 1 of registration: create a token-only shell customer. Details and
-   * consent are filled in later via `finalizeRegistration`.
-   */
-  async issueCard(actor: Actor): Promise<Customer> {
-    // Every card gets a random token. The first three used to get fixed preset
-    // ones so the pre-generated wallet passes resolved to them; the triage
-    // dropped wallet (SCOPE-DECISIONS §1) and Phase 6 deleted the presets with
-    // it, which also removes the one place a card's identity was predictable.
-    const customer = await this.store.createCustomer({ token: generateToken() });
-    await this.audit.log(actor, 'card.issue', customer.id);
-    return customer;
-  }
-
-  /**
-   * Self-service registration (the primary path): the customer creates their own
-   * card from their own device in one step — token + optional details + consent.
-   * No staff actor and no approval queue; an empty card is harmless until a staff
-   * member commits a real point. Converges on the same validation/audit pipeline
-   * as staff-initiated registration. Returns the created customer (with token).
+   * Self-service registration: the customer creates their own card from their
+   * own device, which `POST /customers` also binds to the new card. Field errors
+   * the form can show resolve `{ ok: false, errors }`; a refusal from the server
+   * throws.
    */
   async selfRegister(details: RegistrationDetails): Promise<RegistrationResult> {
     const errors = validateRegistration(details);
     if (errors.length > 0) return { ok: false, errors };
 
     const customer = await this.store.createCustomer({
-      token: await this.nextCardToken(),
+      // The port still carries a token; `ApiStore` does not send it, and the
+      // route generates its own (BACKEND-PLAN §3-B-10).
+      token: '',
       displayName: details.displayName?.trim() || undefined,
       email: details.email?.trim() || undefined,
       phone: details.phone?.trim() || undefined,
-      consentAt: new Date().toISOString(),
     });
-
-    await this.audit.log(SYSTEM_ACTOR, 'card.issue', customer.id, 'self-register');
-    await this.audit.log(
-      SYSTEM_ACTOR,
-      'customer.register',
-      customer.id,
-      isTokenOnly(details) ? 'token-only' : 'with-details',
-    );
-    await this.sendWelcome(customer);
     return { ok: true, customer };
   }
 
   /**
-   * Auto-provision on scan. Because each device has its own store, a card created
-   * elsewhere (e.g. self-registered on the customer's phone) won't exist in the
-   * staff device's store the first time it's scanned. If the scanned token is
-   * well-formed but unknown here, create a token-only card for it so staff can
-   * credit it. Staff still initiates the credit — this only makes the card known.
-   */
-  async provisionFromToken(actor: Actor, token: string): Promise<Customer> {
-    const existing = await this.store.getCustomerByToken(token);
-    if (existing) return existing;
-    if (!isValidToken(token)) throw new Error('That is not a valid card code.');
-
-    const customer = await this.store.createCustomer({ token });
-    await this.audit.log(actor, 'card.provision', customer.id, 'scan');
-    return customer;
-  }
-
-  /**
-   * Warn-before-duplicate: return active customers that look like the given
+   * Warn-before-duplicate (staff): active customers that look like the given
    * details. Empty array = safe to proceed.
    */
   async checkDuplicates(details: RegistrationDetails): Promise<Customer[]> {
@@ -131,38 +66,7 @@ export class CustomerService {
       (t): t is string => Boolean(t && t.trim()),
     );
     const found = await Promise.all(terms.map((t) => this.store.findCustomers({ term: t })));
-    const candidates = dedupeById(found.flat());
-    return findDuplicates(details, candidates);
-  }
-
-  /**
-   * Step 5: finalize the shell customer with optional details + consent.
-   * Token-only (anonymous) accounts are allowed.
-   */
-  async finalizeRegistration(
-    actor: Actor,
-    customerId: string,
-    details: RegistrationDetails,
-  ): Promise<RegistrationResult> {
-    const errors = validateRegistration(details);
-    if (errors.length > 0) return { ok: false, errors };
-
-    const patch: CustomerPatch = {
-      displayName: details.displayName?.trim() || undefined,
-      email: details.email?.trim() || undefined,
-      phone: details.phone?.trim() || undefined,
-    };
-    await this.store.updateCustomer(customerId, patch);
-    const customer = await this.store.recordConsent(customerId, new Date().toISOString());
-
-    await this.audit.log(
-      actor,
-      'customer.register',
-      customerId,
-      isTokenOnly(details) ? 'token-only' : 'with-details',
-    );
-    await this.sendWelcome(customer);
-    return { ok: true, customer };
+    return findDuplicates(details, dedupeById(found.flat()));
   }
 
   find(term: string): Promise<Customer[]> {
@@ -178,59 +82,45 @@ export class CustomerService {
   }
 
   /** Staff-mediated correction of key fields (never customer self-edit). */
-  async correct(actor: Actor, customerId: string, patch: CustomerPatch): Promise<Customer> {
-    const cleaned: CustomerPatch = {
+  correct(customerId: string, patch: CustomerPatch): Promise<Customer> {
+    return this.store.updateCustomer(customerId, {
       displayName: patch.displayName?.trim() || undefined,
       email: patch.email?.trim() || undefined,
       phone: patch.phone?.trim() || undefined,
-    };
-    const customer = await this.store.updateCustomer(customerId, cleaned);
-    await this.audit.log(actor, 'customer.correct', customerId, Object.keys(cleaned).join(','));
-    return customer;
+    });
   }
 
   /**
-   * Reissue a card. Token-rotation defaults to on (safer if the old card may be
-   * in someone else's hands). Token-only customers cannot be recovered at all.
+   * Reissue a card with a fresh token, for a card that may be in someone else's
+   * hands. The server picks the new token; the old one stops resolving.
    */
-  async reissue(actor: Actor, customerId: string, rotateToken = true): Promise<Customer> {
-    let customer = await this.store.getCustomerById(customerId);
-    if (!customer) throw new Error('Customer not found.');
-    if (rotateToken) {
-      customer = await this.store.rotateToken(customerId, generateToken());
-    }
-    await this.audit.log(
-      actor,
-      'card.reissue',
-      customerId,
-      rotateToken ? 'rotated' : 'kept-token',
-    );
-    return customer;
+  reissue(customerId: string): Promise<Customer> {
+    // As in `selfRegister`, the port's token argument is not sent.
+    return this.store.rotateToken(customerId, '');
   }
 
   canRecover(customer: Customer): boolean {
     return isRecoverable(customer);
   }
 
-  /** Soft delete: status → deleted, PII cleared. Honors the right to erasure. */
-  async deleteCustomer(actor: Actor, customerId: string): Promise<void> {
-    await this.store.softDeleteCustomer(customerId);
-    await this.audit.log(actor, 'customer.delete', customerId);
+  /**
+   * Admin erasure. The card becomes a tombstone — PII cleared, token dead, the
+   * email free for a fresh card — and the ledger keeps its integrity.
+   */
+  deleteCustomer(customerId: string): Promise<void> {
+    return this.store.softDeleteCustomer(customerId);
   }
 
   /**
-   * Customer self-service erasure (UX-SPEC §4.4): the card holder deletes their
-   * own card from the card menu — no staff actor exists in that flow. The service
-   * owns the system actor so the UI never fabricates one (preserving the "no UI
-   * passes SYSTEM_ACTOR" invariant). Same effect as `deleteCustomer`: soft-delete
-   * + audit. No-op (resolves) if the token resolves to nothing or an already
-   * deleted card. Never logs PII in the audit details.
+   * Customer self-service erasure from the card menu. The token resolves the
+   * card, which also proves this device holds it; `DELETE /customers/:id` then
+   * accepts the card's own device. Resolves quietly when the card is already
+   * gone.
    */
   async selfDelete(token: string): Promise<void> {
     const customer = await this.store.getCustomerByToken(token);
     if (!customer || customer.status === 'deleted') return;
     await this.store.softDeleteCustomer(customer.id);
-    await this.audit.log(SYSTEM_ACTOR, 'customer.delete', customer.id);
   }
 }
 

@@ -20,20 +20,23 @@
  *
  * `ApiStore` sits on one `ApiClient`, which is also exposed — as its subscribe
  * half only — as `connection`: the global handlers listen there for a session
- * that ended and for the server going away (`UI-RECONCILIATION.md` X2).
+ * that ended and for the server going away (`UI-RECONCILIATION.md` X2). The
+ * services that need a route the port does not carry — sign-in, recovery,
+ * alerts — get the same client, so those calls share its cookies, its CSRF
+ * header and its one typed failure.
  *
- * **This does not work yet, knowingly.** The services below still call methods
- * the port no longer has (`AuditService.appendAudit`, `RecoveryService`'s code pair,
- * `StaffService.loginWithPin`). That is the state BACKEND-PLAN's revoked-promise
- * box describes: the backend is built first and the UI is adjusted to it
- * afterwards, with every conflict recorded in `docs/UI-RECONCILIATION.md`.
+ * No service writes an audit row or sends mail: the routes do both, from the
+ * session (UI-2, `UI-RECONCILIATION.md` P7).
+ *
+ * `options` exists for the test harness, which drives the real server from Node
+ * and so needs its own `fetch` (a cookie jar) and its own CSRF reader.
  */
 
 import type { DataStore } from '@cafe/shared/ports/DataStore';
 import type { Mailer } from '@cafe/shared/ports/Mailer';
 import type { IdentityStore } from '@cafe/shared/ports/IdentityStore';
 import { apiBaseUrl } from '../config/env';
-import { ApiClient, type ApiEvents } from '../adapters/http/ApiClient';
+import { ApiClient, type ApiClientOptions, type ApiEvents } from '../adapters/http/ApiClient';
 import { ApiStore } from '../adapters/storage/ApiStore';
 import { NoopMailer } from '../adapters/email/NoopMailer';
 import { LocalStorageIdentityStore } from '../adapters/identity/LocalStorageIdentityStore';
@@ -59,23 +62,22 @@ export interface Services {
   recovery: RecoveryService;
 }
 
-export async function createServices(): Promise<Services> {
-  const api = new ApiClient({ baseUrl: apiBaseUrl });
+export async function createServices(
+  options: ApiClientOptions = { baseUrl: apiBaseUrl },
+): Promise<Services> {
+  const api = new ApiClient(options);
   const store: DataStore = new ApiStore(api);
-  const mailer: Mailer = new NoopMailer();
-  const identity: IdentityStore = new LocalStorageIdentityStore();
-  const audit = new AuditService(store);
 
   return {
     store,
     connection: api,
-    mailer,
-    identity,
-    audit,
-    config: new ConfigService(store, audit),
-    staff: new StaffService(store, audit),
-    customers: new CustomerService(store, audit, mailer),
-    loyalty: new LoyaltyService(store, audit, mailer),
-    recovery: new RecoveryService(store, mailer, audit),
+    mailer: new NoopMailer() satisfies Mailer,
+    identity: new LocalStorageIdentityStore() satisfies IdentityStore,
+    audit: new AuditService(store),
+    config: new ConfigService(store),
+    staff: new StaffService(store, api),
+    customers: new CustomerService(store),
+    loyalty: new LoyaltyService(store, api),
+    recovery: new RecoveryService(api),
   };
 }

@@ -1,35 +1,21 @@
 /**
- * AuditService — writes the append-only action trail.
+ * AuditService — reads the signed-in account's own action trail.
  *
- * Every staff/admin action funnels a record through here. `details` must never
- * contain PII (name/email/phone); pass ids and neutral context only.
+ * It no longer writes anything. Every route that changes something appends its
+ * own audit row, with the actor taken from the session (BACKEND-PLAN §4-C), so a
+ * client-side `log` would have been either a second row or a forgery — the
+ * server answers `POST /audit` with 204 and writes nothing. The write path left
+ * the services in UI-2 (`UI-RECONCILIATION.md` P7).
  *
- * The admin activity export went with the Export sheet (UI-0, SCOPE-DECISIONS §1
- * BE-A-12): the server has no cross-account activity endpoint to export from,
- * and refuses to write an `audit.export` row at all.
+ * The read is the session's own rows, always: `GET /audit` replaces any actor
+ * filter with the signed-in account (§4-F). That is what the counter's "your
+ * last hour" shows. The admin activity export went with the Export sheet (UI-0).
  */
 
-import type { AuditAction } from '@cafe/shared/domain/models';
 import type { AuditFilter, DataStore } from '@cafe/shared/ports/DataStore';
-import type { Actor } from './types';
 
 export class AuditService {
   constructor(private readonly store: DataStore) {}
-
-  log(
-    actor: Pick<Actor, 'id' | 'role'> | { id: string; role: 'system' },
-    action: AuditAction,
-    targetId?: string,
-    details?: string,
-  ): Promise<void> {
-    return this.store.appendAudit({
-      actorId: actor.id,
-      actorRole: actor.role,
-      action,
-      targetId,
-      details,
-    });
-  }
 
   list(filter?: AuditFilter) {
     return this.store.listAudit(filter);

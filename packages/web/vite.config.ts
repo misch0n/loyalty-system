@@ -26,8 +26,8 @@ export default defineConfig(({ command, isPreview }) => ({
     },
   },
   test: {
-    environment: 'jsdom',
     globals: true,
-    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx', 'src/ui/**/*.test.tsx'],
+    // Two projects — `ui` (jsdom, stubbed services) and `live` (the real server).
+    workspace: './vitest.projects.ts',
   },
 }));

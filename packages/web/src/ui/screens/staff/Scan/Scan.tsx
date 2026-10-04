@@ -28,7 +28,6 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../components/Button/Button';
 import { PointsSlider } from '../../../components/Slider/Slider';
 import { useToast } from '../../../components/Toast/Toast';
-import { useAuth } from '../../../app/AuthContext';
 import { ROUTES } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
 import { TopBar, ScanView, CustChip, StateLabel } from '../_parts';
@@ -85,7 +84,6 @@ export function Scan(): JSX.Element {
   const services = useServices();
   const navigate = useNavigate();
   const toast = useToast();
-  const { recordActivity } = useAuth();
 
   const [phase, setPhase] = useState<Phase>('scanning');
   const [state, setState] = useState<CustomerState | null>(null);
@@ -140,7 +138,6 @@ export function Scan(): JSX.Element {
     async (text: string) => {
       if (resolvingRef.current) return;
       resolvingRef.current = true;
-      recordActivity();
       const parsed = parseScan(text);
       await stopCamera();
       setActionError(null);
@@ -158,7 +155,7 @@ export function Scan(): JSX.Element {
         resolvingRef.current = false;
       }
     },
-    [services, stopCamera, recordActivity, enterResolved],
+    [services, stopCamera, enterResolved],
   );
 
   // ── resolve a typed SHORT CODE (camera-fail fallback) ───────────────────
@@ -167,7 +164,6 @@ export function Scan(): JSX.Element {
       const code = normalizeShortCode(raw);
       if (!code || resolvingRef.current) return;
       resolvingRef.current = true;
-      recordActivity();
       await stopCamera();
       setActionError(null);
       try {
@@ -190,7 +186,7 @@ export function Scan(): JSX.Element {
         resolvingRef.current = false;
       }
     },
-    [services, stopCamera, recordActivity, enterResolved],
+    [services, stopCamera, enterResolved],
   );
 
   // ── camera lifecycle (only while scanning) ──────────────────────────────
@@ -267,7 +263,6 @@ export function Scan(): JSX.Element {
   const holdProgress = Math.min(1, Math.max(0, 1 - remainingMs / HOLD_MS));
 
   const scanNext = () => {
-    recordActivity();
     firedRef.current = false;
     setState(null);
     setScan(null);
@@ -285,14 +280,12 @@ export function Scan(): JSX.Element {
   };
 
   const toggleReward = (rewardId: string) => {
-    recordActivity();
     setChecked((prev) => ({ ...prev, [rewardId]: !prev[rewardId] }));
   };
 
   // ── stage the transaction and start the hold (writes NOTHING) ───────────
   const onStage = () => {
     if (!state || busy || nothingToCommit) return;
-    recordActivity();
     setActionError(null);
     firedRef.current = false;
     // Preview the mint client-side — the store does the real fold on commit.
@@ -310,7 +303,6 @@ export function Scan(): JSX.Element {
 
   /** Discard the staged transaction — nothing was ever written. */
   const onCancelHold = () => {
-    recordActivity();
     firedRef.current = false;
     setStaged(null);
     setRemainingMs(HOLD_MS);
@@ -323,7 +315,6 @@ export function Scan(): JSX.Element {
     firedRef.current = true;
     setBusy(true);
     setActionError(null);
-    recordActivity();
     try {
       const result = await services.loyalty.commit(actor, {
         customerId: state.customer.id,
@@ -359,7 +350,6 @@ export function Scan(): JSX.Element {
   commitRef.current = runCommit;
 
   const backToPanel = () => {
-    recordActivity();
     void stopCamera();
     navigate(ROUTES.staff);
   };

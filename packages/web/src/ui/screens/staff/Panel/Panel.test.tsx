@@ -43,6 +43,7 @@ function fakeServices(auditRows?: unknown[]): Services {
         { id: 's1', username: 'Sam', role: 'staff', active: true, createdAt: '2026-01-01T00:00:00Z' },
       ]),
       currentSessionEpoch: vi.fn().mockResolvedValue(1),
+      logout: vi.fn().mockResolvedValue(undefined),
     },
     audit: {
       // The Panel scopes its query to the signed-in actor; honour that here so
@@ -66,7 +67,6 @@ function seedSession() {
       username: STAFFER.username,
       role: STAFFER.role,
       epoch: 1,
-      lastActivity: Date.now(),
     }),
   );
 }
@@ -160,5 +160,17 @@ describe('Staff Panel', () => {
       scan.click();
     });
     expect(container.textContent).toContain('SCAN ROUTE');
+  });
+
+  it('"End shift" ends the server session as well as the local one', async () => {
+    const services = fakeServices();
+    await mountPanel(services);
+    const signOut = container.querySelector('.staff-panel__signout') as HTMLButtonElement;
+    await act(async () => {
+      signOut.click();
+    });
+    expect(services.staff.logout).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
+    expect(container.textContent).toContain('LOGIN ROUTE');
   });
 });

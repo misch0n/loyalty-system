@@ -3,7 +3,7 @@
  *
  * Tapping a profile in the account list opens this shared `Sheet`. It shows the
  * profile (name · username · role), the actions an admin can take on it —
- * enable/disable, reset password, reset PIN, delete.
+ * enable/disable, reset password, delete. (There is no PIN to reset — S1.)
  *
  * Appendix E: the profile's action-history list was REMOVED. Reading one
  * person's activity is an investigation, not a casual glance, so it is reachable
@@ -11,8 +11,8 @@
  * itself audited.
  *
  * Per the current product decision these actions are NOT step-up gated: a
- * signed-in admin on the device can perform them directly. Password/PIN entry
- * uses prompt() (the prototype's lightweight input, matching the rest of admin).
+ * signed-in admin on the device can perform them directly. Password entry uses
+ * prompt() (the prototype's lightweight input, matching the rest of admin).
  */
 import { useState } from 'react';
 import { Sheet } from '../../../../components/Sheet/Sheet';
@@ -55,24 +55,14 @@ export function AccountSheet({ account, actor, onClose, onChanged }: AccountShee
 
   const onToggleActive = () =>
     run(
-      () => services.staff.setActive(actor, account.id, !account.active),
+      () => services.staff.setActive(account.id, !account.active),
       account.active ? 'Profile disabled.' : 'Profile enabled.',
     );
 
   const onResetPassword = () => {
     const next = window.prompt(`New password for ${account.name ?? account.username}`);
     if (next == null || next === '') return;
-    void run(() => services.staff.resetPassword(actor, account.id, next), 'Password reset.');
-  };
-
-  const onResetPin = () => {
-    const next = window.prompt(`New sign-in PIN for ${account.name ?? account.username} (4–8 digits)`);
-    const pin = (next ?? '').replace(/\D/g, '');
-    if (pin.length < 4) {
-      if (next != null) toast.show('A PIN needs 4–8 digits. No change made.');
-      return;
-    }
-    void run(() => services.staff.setPin(actor, account.id, pin), 'PIN set.');
+    void run(() => services.staff.resetPassword(account.id, next), 'Password reset.');
   };
 
   const onDelete = () => {
@@ -106,9 +96,6 @@ export function AccountSheet({ account, actor, onClose, onChanged }: AccountShee
           </div>
           <button type="button" className="acct-btn" onClick={onResetPassword} disabled={busy}>
             Reset password
-          </button>
-          <button type="button" className="acct-btn" onClick={onResetPin} disabled={busy}>
-            Reset PIN
           </button>
           <button
             type="button"

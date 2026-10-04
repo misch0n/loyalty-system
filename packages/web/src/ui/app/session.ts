@@ -1,29 +1,30 @@
 /**
  * Pure, framework-free staff/admin session logic (UX-SPEC §6).
  *
- * This module owns the security-critical *decisions* — parsing persisted blobs,
- * boot reconciliation against the server epoch + inactivity timeout, and the
- * idle check the timer uses — with no React or browser dependency so it can be
- * unit-tested in isolation. `AuthContext.tsx` wires these into state + storage
- * I/O and is the single consumer; this is the single source of truth.
+ * This module owns the *decisions* — parsing persisted blobs and the boot
+ * reconciliation against the server's session epoch — with no React or browser
+ * dependency, so it can be unit-tested in isolation. `AuthContext.tsx` wires
+ * them into state + storage I/O and is the single consumer.
  *
- * Persistence shape (no PII beyond the staff attribution NAME, required for the
- * activity log per §6):
- *   - trusted device  → localStorage   'cafe-loyalty.staffDevice'
- *   - ephemeral login → sessionStorage  'cafe-loyalty.staffSession'
- *   both hold { actorId, username, role, epoch, lastActivity }. The PIN is never
+ * There is no inactivity rule (SCOPE-DECISIONS §6.3, register S1): the staff
+ * device is a shared till, and a login lasts until its server-side TTL — 30
+ * days remembered, 12 hours otherwise — or until "Sign out all devices" bumps
+ * the epoch. The cookie is the session; what is persisted here is only what the
+ * screens need to render the signed-in account before the first API answer.
+ *
+ * Persistence shape (no PII beyond the staff attribution NAME):
+ *   - remembered login → localStorage   'cafe-loyalty.staffDevice'
+ *   - ephemeral login  → sessionStorage  'cafe-loyalty.staffSession'
+ *   both hold { actorId, username, name?, role, epoch }. No credential is ever
  *   persisted.
  */
 
 import type { Actor } from '../../services/types';
 import type { StaffRole } from '@cafe/shared/domain/models';
 
-/** Inactivity window before a session locks (trusted) or ends (ephemeral). */
-export const INACTIVITY_MS = 5 * 60 * 1000;
+export type AuthStatus = 'anon' | 'active';
 
-export type AuthStatus = 'anon' | 'active' | 'locked';
-
-/** What we persist to recognize a trusted device and enforce the timeout. */
+/** What we persist to render the signed-in account across a reload. */
 export interface PersistedSession {
   actorId: string;
   username: string;
@@ -31,14 +32,16 @@ export interface PersistedSession {
   name?: string;
   role: StaffRole;
   epoch: number;
-  lastActivity: number;
 }
 
 function isStaffRole(value: unknown): value is StaffRole {
   return value === 'admin' || value === 'staff';
 }
 
-/** Parse a persisted blob, tolerating any malformed/legacy storage. */
+/**
+ * Parse a persisted blob, tolerating any malformed/legacy storage — including
+ * the `lastActivity` an idle-lock-era blob carries, which is simply ignored.
+ */
 export function parseSession(raw: string | null): PersistedSession | null {
   if (!raw) return null;
   try {
@@ -49,8 +52,7 @@ export function parseSession(raw: string | null): PersistedSession | null {
       typeof o.actorId === 'string' &&
       typeof o.username === 'string' &&
       isStaffRole(o.role) &&
-      typeof o.epoch === 'number' &&
-      typeof o.lastActivity === 'number'
+      typeof o.epoch === 'number'
     ) {
       return {
         actorId: o.actorId,
@@ -58,7 +60,6 @@ export function parseSession(raw: string | null): PersistedSession | null {
         name: typeof o.name === 'string' ? o.name : undefined,
         role: o.role,
         epoch: o.epoch,
-        lastActivity: o.lastActivity,
       };
     }
   } catch {
@@ -67,7 +68,7 @@ export function parseSession(raw: string | null): PersistedSession | null {
   return null;
 }
 
-/** The audit/UI actor projected from a persisted session. */
+/** The UI actor projected from a persisted session. */
 export function actorFrom(session: PersistedSession): Actor {
   return {
     id: session.actorId,
@@ -77,17 +78,12 @@ export function actorFrom(session: PersistedSession): Actor {
   };
 }
 
-/** True once the inactivity window has fully elapsed since last activity. */
-export function isIdle(session: PersistedSession, now: number): boolean {
-  return now - session.lastActivity > INACTIVITY_MS;
-}
-
-/** A boot/timer reconciliation outcome. */
+/** A boot reconciliation outcome. */
 export interface Reconciliation {
   status: AuthStatus;
-  /** Restored actor when status is 'active' or 'locked'; null on 'anon'. */
+  /** Restored actor when status is 'active'; null on 'anon'. */
   actor: Actor | null;
-  /** Session to keep (locked/active) or null when it should be cleared. */
+  /** Session to keep, or null when it should be cleared. */
   session: PersistedSession | null;
 }
 
@@ -95,29 +91,15 @@ const ANON: Reconciliation = { status: 'anon', actor: null, session: null };
 
 /**
  * Boot decision (UX-SPEC §2 staff branch). Pure: callers handle the storage
- * side-effects implied by a null `session` (clear) vs a kept one (persist/keep).
+ * side-effect a null `session` implies (clear).
  *
+ *   - nothing persisted                   → 'anon'
  *   - stored epoch < serverEpoch          → REVOKED → 'anon' (clear)
- *   - idle, trusted                       → 'locked' (keep identity to unlock)
- *   - idle, ephemeral                     → 'anon'  (clear)
  *   - else                                → 'active'
- *
- * `trusted` is implied by which store the session came from; the caller passes
- * it through. A null session (nothing persisted) reconciles to 'anon'.
  */
-export function reconcile(
-  session: PersistedSession | null,
-  serverEpoch: number,
-  now: number,
-  trusted: boolean,
-): Reconciliation {
+export function reconcile(session: PersistedSession | null, serverEpoch: number): Reconciliation {
   if (!session) return ANON;
   // Revoked: admin bumped the epoch past this device's stored one.
   if (serverEpoch > session.epoch) return ANON;
-  if (isIdle(session, now)) {
-    // Trusted devices keep identity so the unlock screen can re-auth.
-    if (trusted) return { status: 'locked', actor: actorFrom(session), session };
-    return ANON;
-  }
   return { status: 'active', actor: actorFrom(session), session };
 }

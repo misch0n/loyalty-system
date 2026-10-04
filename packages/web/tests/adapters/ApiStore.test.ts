@@ -201,12 +201,19 @@ describe('ApiStore — the commit’s refusals are CommitResult values', () => {
   });
 });
 
-describe('ApiStore — port methods with no route reject without calling out', () => {
-  it.each<[string, (s: DataStore) => Promise<unknown>]>([
-    ['getStaffByUsername', (s) => s.getStaffByUsername('admin')],
-    ['listAllTransactions', (s) => s.listAllTransactions()],
-  ])('%s', async (_name, invoke) => {
-    await expect(invoke(store)).rejects.toThrow(/has no route/);
-    expect(fetchMock).not.toHaveBeenCalled();
+describe('ApiStore — holds no trusted capability', () => {
+  it('has none of TrustedStore’s methods, so a client cannot even express them', () => {
+    // Audit writes, the recovery-code trio, the digest-bearing username lookup and
+    // the unbounded ledger read (P9) are the server's alone.
+    for (const method of [
+      'appendAudit',
+      'createRecoveryCode',
+      'consumeRecoveryCode',
+      'recordFailedRecoveryAttempt',
+      'getStaffByUsername',
+      'listAllTransactions',
+    ]) {
+      expect(method in store).toBe(false);
+    }
   });
 });

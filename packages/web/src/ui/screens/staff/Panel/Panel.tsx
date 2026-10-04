@@ -1,5 +1,5 @@
 /**
- * Staff panel (Ckyka view 09) — the idle landing a trusted device boots into.
+ * Staff panel (Ckyka view 09) — the landing a signed-in till boots into.
  * Camera is closed here.
  *
  * Header: the forest `<TopBar>` (gesture-bearing mark + "Counter" pill) with an
@@ -68,7 +68,7 @@ export function Panel(): JSX.Element {
   const guard = useStaffGuard();
   const services = useServices();
   const navigate = useNavigate();
-  const { logout, recordActivity } = useAuth();
+  const { logout } = useAuth();
 
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -127,7 +127,6 @@ export function Panel(): JSX.Element {
   const actor = guard.actor;
 
   const onScan = () => {
-    recordActivity();
     navigate(ROUTES.staffScan);
   };
 

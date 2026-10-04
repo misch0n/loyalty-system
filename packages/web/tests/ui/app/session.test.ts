@@ -5,9 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  INACTIVITY_MS,
   actorFrom,
-  isIdle,
   parseSession,
   reconcile,
   type PersistedSession,
@@ -19,7 +17,6 @@ function makeSession(overrides: Partial<PersistedSession> = {}): PersistedSessio
     username: 'Sam',
     role: 'staff',
     epoch: 5,
-    lastActivity: 1_000_000,
     ...overrides,
   };
 }
@@ -45,10 +42,13 @@ describe('parseSession', () => {
   it('returns null when required fields are missing', () => {
     expect(parseSession(JSON.stringify({ actorId: 'a' }))).toBeNull();
     expect(
-      parseSession(
-        JSON.stringify({ actorId: 'a', username: 'b', role: 'staff', epoch: 1 }),
-      ),
+      parseSession(JSON.stringify({ actorId: 'a', username: 'b', role: 'staff' })),
     ).toBeNull();
+  });
+
+  it('accepts an idle-lock-era blob and drops its lastActivity', () => {
+    const legacy = { ...makeSession(), lastActivity: 1_000_000 };
+    expect(parseSession(JSON.stringify(legacy))).toEqual(makeSession());
   });
 
   it('returns null when a field has the wrong type', () => {
@@ -59,7 +59,6 @@ describe('parseSession', () => {
           username: 'b',
           role: 'staff',
           epoch: '1',
-          lastActivity: 2,
         }),
       ),
     ).toBeNull();
@@ -73,7 +72,6 @@ describe('parseSession', () => {
           username: 'b',
           role: 'customer',
           epoch: 1,
-          lastActivity: 2,
         }),
       ),
     ).toBeNull();
@@ -91,7 +89,7 @@ describe('parseSession', () => {
 });
 
 describe('actorFrom', () => {
-  it('projects the audit/UI actor and drops timeout fields', () => {
+  it('projects the UI actor', () => {
     const session = makeSession();
     expect(actorFrom(session)).toEqual({
       id: 'actor-1',
@@ -101,72 +99,27 @@ describe('actorFrom', () => {
   });
 });
 
-describe('isIdle', () => {
-  it('is false within the window', () => {
-    const session = makeSession({ lastActivity: 0 });
-    expect(isIdle(session, INACTIVITY_MS)).toBe(false);
-  });
-
-  it('is false at exactly the window boundary (strict >)', () => {
-    const session = makeSession({ lastActivity: 0 });
-    expect(isIdle(session, INACTIVITY_MS)).toBe(false);
-  });
-
-  it('is true just past the window', () => {
-    const session = makeSession({ lastActivity: 0 });
-    expect(isIdle(session, INACTIVITY_MS + 1)).toBe(true);
-  });
-});
-
 describe('reconcile', () => {
   const serverEpoch = 5;
 
   it('reconciles a null session to anon', () => {
-    expect(reconcile(null, serverEpoch, 0, true)).toEqual({
+    expect(reconcile(null, serverEpoch)).toEqual({
       status: 'anon',
       actor: null,
       session: null,
     });
   });
 
-  it('fresh, equal epoch → active (identity restored)', () => {
-    const session = makeSession({ epoch: 5, lastActivity: 1000 });
-    const out = reconcile(session, serverEpoch, 1000, true);
+  it('equal epoch → active (identity restored)', () => {
+    const session = makeSession({ epoch: 5 });
+    const out = reconcile(session, serverEpoch);
     expect(out.status).toBe('active');
     expect(out.session).toEqual(session);
     expect(out.actor).toEqual(actorFrom(session));
   });
 
-  it('revoked (stored epoch < server) → anon, even if fresh', () => {
-    const session = makeSession({ epoch: 4, lastActivity: 1000 });
-    const out = reconcile(session, serverEpoch, 1000, true);
-    expect(out).toEqual({ status: 'anon', actor: null, session: null });
-  });
-
-  it('idle + trusted → locked, identity kept', () => {
-    const session = makeSession({ epoch: 5, lastActivity: 0 });
-    const out = reconcile(session, serverEpoch, INACTIVITY_MS + 1, true);
-    expect(out.status).toBe('locked');
-    expect(out.session).toEqual(session);
-    expect(out.actor).toEqual(actorFrom(session));
-  });
-
-  it('idle + ephemeral → anon (cleared)', () => {
-    const session = makeSession({ epoch: 5, lastActivity: 0 });
-    const out = reconcile(session, serverEpoch, INACTIVITY_MS + 1, false);
-    expect(out).toEqual({ status: 'anon', actor: null, session: null });
-  });
-
-  it('at exactly INACTIVITY_MS → still active (not idle)', () => {
-    const session = makeSession({ epoch: 5, lastActivity: 0 });
-    const out = reconcile(session, serverEpoch, INACTIVITY_MS, true);
-    expect(out.status).toBe('active');
-    expect(out.session).toEqual(session);
-  });
-
-  it('revocation takes precedence over idle', () => {
-    const session = makeSession({ epoch: 4, lastActivity: 0 });
-    const out = reconcile(session, serverEpoch, INACTIVITY_MS + 1, true);
-    expect(out).toEqual({ status: 'anon', actor: null, session: null });
+  it('revoked (stored epoch < server) → anon', () => {
+    const session = makeSession({ epoch: 4 });
+    expect(reconcile(session, serverEpoch)).toEqual({ status: 'anon', actor: null, session: null });
   });
 });
