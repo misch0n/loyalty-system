@@ -19,15 +19,17 @@ working rules for agents in [`CLAUDE.md`](CLAUDE.md); current build status in
 >
 > **`@cafe/web` compiles and builds again (UI-2, 2026-10-04)** — it was deliberately red from
 > Phase 6 until then ([`docs/SCOPE-DECISIONS.md`](docs/SCOPE-DECISIONS.md) §6: the backend was built
-> first and the UI is being rewritten against it). After UI-3 (2026-10-04) it has 0 TypeScript
-> errors, 360 tests in 47 files all passing (40 `ui` files and 7 `live` files that run against a
+> first and the UI is being rewritten against it). After UI-4 (2026-10-04) it has 0 TypeScript
+> errors, 472 tests in 51 files all passing (44 `ui` files and 7 `live` files that run against a
 > real server), and `npm run build -w @cafe/web` produces a bundle. The rewrite continues in
-> [`docs/UI-PLAN.md`](docs/UI-PLAN.md) (UI-4 next) against the 35 conflicts in
+> [`docs/UI-PLAN.md`](docs/UI-PLAN.md) (UI-5, liveness, next) against the 35 conflicts in
 > [`docs/UI-RECONCILIATION.md`](docs/UI-RECONCILIATION.md). UI-3 made registration require name and
 > email, replaced the recovery link with a typed code, reduced the card menu to a single delete, and
-> swapped the identity adapter for `ServerIdentityStore` over `/me`. **Green is not "works":** error
-> and offline states are not on screen yet (UI-4) and nobody has driven the SPA through a browser
-> against the real server, so **there is no demoable build until the remaining phases land**, and
+> swapped the identity adapter for `ServerIdentityStore` over `/me`. UI-4 put failures on screen:
+> every screen reports offline, server and rate-limit failures where the user acted (no failure
+> toasts), and the staff till keeps an unsent commit, with its idempotency key, so a retry cannot
+> double-add. **Green is not "works":** nothing refreshes live yet (UI-5) and nobody has driven the
+> SPA through a browser against the real server, so **there is no demoable build until the remaining phases land**, and
 > the live-demo link is gone with the Pages workflow.
 >
 > **The feature table and screen descriptions below still describe the pre-migration SPA** —
@@ -535,7 +537,7 @@ Firefox accept `Secure` cookies on `http://localhost`, Safari may not — use Ch
 - **SPA dev server:** `npm run dev` (Vite) serves from `/` and proxies `/api` → `http://127.0.0.1:3000`,
   stripping the prefix exactly like [`ops/nginx/default.conf`](ops/nginx/default.conf). Override the
   target with `VITE_DEV_API_TARGET`. `vite preview` keeps the build base. (The SPA compiles and
-  builds since UI-2 and the screens match the backend's behaviour as of UI-3, but error and offline states are still unbuilt — see the box at the top.)
+  builds since UI-2 and the screens match the backend's behaviour as of UI-3 and report failures on screen as of UI-4; live refresh is still unbuilt (UI-5) — see the box at the top.)
 - **Dev seed:** `npm run seed:dev -w @cafe/web` signs in to the running backend as an existing admin
   (`SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD`; `SEED_API_URL` defaults to `http://127.0.0.1:3000`,
   `SEED_APP_URL` to `http://localhost:5173`), creates a `barista` staff account and three cards —
@@ -575,7 +577,8 @@ flowchart LR
     S["PIN + idle lock"]:::cut --> T["Retired on the server (UI-1b, tag backend-v1) —<br/>shared till; attribution is the signed-in account"]:::done
     T --> U["SPA half: Unlock, PinPad,<br/>step-up deleted (UI-2)"]:::done
     R --> W["Customer + admin screens match the backend<br/>(UI-3, 2026-10-04)"]:::done
-    W --> V["Error and offline states, liveness,<br/>e2e, install (UI-4 onward)"]:::todo
+    W --> X["Error and offline states on screen;<br/>unsent commits kept for retry<br/>(UI-4, 2026-10-04)"]:::done
+    X --> V["Liveness, e2e, install<br/>(UI-5 onward)"]:::todo
 
     classDef done fill:#eef,stroke:#5b6cc0;
     classDef cut fill:#eee,stroke:#888,stroke-dasharray:3;

@@ -166,3 +166,26 @@
   outline: 3px solid var(--terra);
   outline-offset: 2px;
 }
+
+/* UI-4 — failure states. A commit that went unanswered keeps its staged list
+   on screen (`unsent`); a commit that saved but refused rewards says which
+   (`done`). Both reuse the hold card's frame. */
+.staff-scan__unsent {
+  border-color: var(--terra-600);
+}
+.staff-scan__unsent .staff-scan__error {
+  margin-top: 12px;
+}
+.staff-scan__refused-lead {
+  margin-top: 14px;
+  color: var(--terra-600);
+}
+.staff-scan__refused li {
+  color: var(--terra-600);
+}
+.staff-scan__field-error {
+  margin: 0;
+}
+.staff-scan__manual input[aria-invalid='true'] {
+  box-shadow: inset 0 0 0 1.5px var(--terra-600);
+}

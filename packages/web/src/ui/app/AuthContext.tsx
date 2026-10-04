@@ -66,7 +66,7 @@ export interface AuthValue {
     username: string,
     password: string,
     remember: boolean,
-  ): Promise<{ ok: boolean; actor?: Actor; reason?: string }>;
+  ): Promise<{ ok: boolean; actor?: Actor; reason?: string; retryAfterSec?: number | null }>;
   /**
    * The last username that signed in on this device (no credential stored).
    * Used to prefill the sign-in form so a returning, non-remembered device asks
@@ -211,10 +211,10 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       username: string,
       password: string,
       remember: boolean,
-    ): Promise<{ ok: boolean; actor?: Actor; reason?: string }> => {
+    ): Promise<{ ok: boolean; actor?: Actor; reason?: string; retryAfterSec?: number | null }> => {
       const result = await services.staff.login(username, password, remember);
       if (!result.ok || !result.actor || result.epoch === undefined) {
-        return { ok: false, reason: result.reason };
+        return { ok: false, reason: result.reason, retryAfterSec: result.retryAfterSec };
       }
       generation.current += 1;
       // The login answer carries the epoch; a second request here could fail

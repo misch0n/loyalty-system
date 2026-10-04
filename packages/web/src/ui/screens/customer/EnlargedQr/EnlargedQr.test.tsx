@@ -5,7 +5,8 @@ import { createRoot, type Root } from 'react-dom/client';
 // Capture which payload builder the overlay calls so we can assert that the
 // redeem view encodes the REWARD QR (not the card QR). Hoisted so the vi.mock
 // factory (itself hoisted) can reference the spies.
-const { cardPayload, rewardScanPayload } = vi.hoisted(() => ({
+const { cardPayload, rewardScanPayload, toDataUrl } = vi.hoisted(() => ({
+  toDataUrl: vi.fn((payload: string) => Promise.resolve(`data:${payload}`)),
   cardPayload: vi.fn((token: string) => `card:${token}`),
   rewardScanPayload: vi.fn(
     (tokens: string[], customerToken: string) => `reward:${tokens.join(',')}@${customerToken}`,
@@ -14,7 +15,7 @@ const { cardPayload, rewardScanPayload } = vi.hoisted(() => ({
 vi.mock('../../../../qr/encode', () => ({
   cardPayload,
   rewardScanPayload,
-  toDataUrl: (payload: string) => Promise.resolve(`data:${payload}`),
+  toDataUrl,
 }));
 
 import { EnlargedQr } from './EnlargedQr';
@@ -28,6 +29,7 @@ let root: Root;
 beforeEach(() => {
   cardPayload.mockClear();
   rewardScanPayload.mockClear();
+  toDataUrl.mockClear();
 });
 
 afterEach(() => {
@@ -87,5 +89,39 @@ describe('EnlargedQr', () => {
     );
     expect(rewardScanPayload).toHaveBeenCalledWith(['rtok-1', 'rtok-2'], 'tok-1');
     expect(container.querySelector('.redeem-title')?.textContent).toBe('Your free coffees');
+  });
+
+  it('draws the code as an image', async () => {
+    await mount(<EnlargedQr open onClose={() => {}} token="tok-1" name="Maria" code="c" />);
+    expect(container.querySelector('img.enlarged-qr-img')?.getAttribute('src')).toBe(
+      'data:card:tok-1',
+    );
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('says so when the code cannot be drawn, instead of a blank square', async () => {
+    toDataUrl.mockRejectedValueOnce(new Error('canvas refused'));
+    await mount(<EnlargedQr open onClose={() => {}} token="tok-1" name="Maria" code="c" />);
+    expect(container.querySelector('img.enlarged-qr-img')).toBeNull();
+    expect(container.querySelector('.enlarged-qr-placeholder')).toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      'Couldn’t draw your code. Close this and open it again.',
+    );
+  });
+
+  it('reopening draws it again', async () => {
+    toDataUrl.mockRejectedValueOnce(new Error('canvas refused'));
+    await mount(<EnlargedQr open onClose={() => {}} token="tok-1" name="Maria" code="c" />);
+    await act(async () => {
+      root.render(<EnlargedQr open={false} onClose={() => {}} token="tok-1" name="Maria" code="c" />);
+    });
+    await act(async () => {
+      root.render(<EnlargedQr open onClose={() => {}} token="tok-1" name="Maria" code="c" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector('img.enlarged-qr-img')).not.toBeNull();
   });
 });

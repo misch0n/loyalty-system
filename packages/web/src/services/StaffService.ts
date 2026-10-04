@@ -13,14 +13,15 @@
  * *account* — the routes take the actor from the session and write the audit
  * rows themselves, so nothing here logs anything.
  *
- * The admin methods' refusals that a person can act on come back as an `Error`
- * with a sentence in it, as they always have; anything else is the `ApiError`
- * the client threw (`services/errors.ts`).
+ * The admin methods' refusals that a person can act on come back as a
+ * {@link Refusal} — an `Error` whose message is a sentence for the admin, so a
+ * screen may show it as written; anything else is the `ApiError` the client
+ * threw (`services/errors.ts`), or a bug, and is not shown by its message.
  */
 
 import type { StaffAccount, StaffRole } from '@cafe/shared/domain/models';
 import type { DataStore } from '@cafe/shared/ports/DataStore';
-import { isApiError } from './errors';
+import { isApiError, Refusal } from './errors';
 import type { Actor, Api } from './types';
 
 export interface LoginResult {
@@ -29,6 +30,12 @@ export interface LoginResult {
   /** The session epoch the login was issued under (on success). */
   epoch?: number;
   reason?: string;
+  /**
+   * Present only when sign-in was refused for too many attempts: the seconds
+   * the server asked to wait, or `null` when it gave no figure. The screen
+   * counts it down on the button, so `reason` never freezes a number.
+   */
+  retryAfterSec?: number | null;
 }
 
 /** `GET /auth/session` — what the server says this device is signed in as. */
@@ -70,7 +77,7 @@ export class StaffService {
         return { ok: false, reason: 'Wrong username or password, or the account is disabled.' };
       }
       if (failure.kind === 'rate_limited') {
-        return { ok: false, reason: tooManyAttempts(failure.retryAfterSec) };
+        return { ok: false, reason: TOO_MANY_ATTEMPTS, retryAfterSec: failure.retryAfterSec };
       }
       throw err;
     }
@@ -112,8 +119,8 @@ export class StaffService {
     name?: string,
   ): Promise<StaffAccount> {
     const trimmed = username.trim();
-    if (!trimmed) throw new Error('Username is required.');
-    if (!password) throw new Error('Password is required.');
+    if (!trimmed) throw new Refusal('Username is required.');
+    if (!password) throw new Refusal('Password is required.');
     return explained(
       this.store.createStaff({
         username: trimmed,
@@ -133,21 +140,21 @@ export class StaffService {
    * last-admin check is the client's, for a sentence instead of a round trip.
    */
   async remove(actor: Actor, id: string): Promise<void> {
-    if (actor.id === id) throw new Error(REFUSALS.cannot_delete_self);
+    if (actor.id === id) throw new Refusal(REFUSALS.cannot_delete_self);
     const all = await this.store.listStaff();
     const target = all.find((a) => a.id === id);
-    if (!target) throw new Error('Account not found.');
+    if (!target) throw new Refusal('Account not found.');
     if (target.role === 'admin') {
       const otherAdmins = all.filter((a) => a.role === 'admin' && a.id !== id && a.active);
       if (otherAdmins.length === 0) {
-        throw new Error('Can’t delete the last admin account.');
+        throw new Refusal('Can’t delete the last admin account.');
       }
     }
     await explained(this.store.deleteStaff(id));
   }
 
   async resetPassword(id: string, newPassword: string): Promise<void> {
-    if (!newPassword) throw new Error('New password is required.');
+    if (!newPassword) throw new Refusal('New password is required.');
     await explained(this.store.setStaffPassword(id, newPassword));
   }
 }
@@ -159,14 +166,14 @@ async function explained<T>(call: Promise<T>): Promise<T> {
   } catch (err) {
     if (isApiError(err) && err.failure.kind === 'conflict') {
       const sentence = REFUSALS[err.failure.code];
-      if (sentence) throw new Error(sentence);
+      if (sentence) throw new Refusal(sentence);
     }
     throw err;
   }
 }
 
-function tooManyAttempts(retryAfterSec: number | null): string {
-  if (retryAfterSec === null) return 'Too many sign-in attempts. Try again later.';
-  const minutes = Math.max(1, Math.ceil(retryAfterSec / 60));
-  return `Too many sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`;
-}
+/**
+ * The rate-limit refusal. No figure in it: the wait is `retryAfterSec`, which
+ * the sign-in screen counts down on its button (UI-4, X2).
+ */
+const TOO_MANY_ATTEMPTS = 'Too many sign-in attempts. Wait for the countdown, then try again.';

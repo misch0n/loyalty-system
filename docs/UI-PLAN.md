@@ -5,10 +5,10 @@
 > its **47** test files failing to load (this plan first said 53; 47 is the count STATUS has
 > carried since Phase 10 moved the domain suites into `@cafe/shared`) — every one traceable to a
 > Phase 6 deletion. This plan makes it green again *against the API*, not against the store that
-> was deleted. **UI-0, UI-1, UI-1b, UI-2 and UI-3 are done: 0 errors, all 47 test files load and pass
-> (360 tests), and `npm run build -w @cafe/web` produces a bundle (the first since Phase 6 came with UI-2).**
-> What is left is behaviour, not compilation: error and offline states on screen (UI-4), liveness
-> (UI-5), environment and e2e (UI-6), install (UI-7), the gates (UI-8) and the docs (UI-9).
+> was deleted. **UI-0, UI-1, UI-1b, UI-2, UI-3 and UI-4 are done: 0 errors, all 51 test files load and pass
+> (472 tests), and `npm run build -w @cafe/web` produces a bundle (the first since Phase 6 came with UI-2).**
+> What is left is behaviour, not compilation: liveness (UI-5), environment and e2e (UI-6), install
+> (UI-7), the gates (UI-8) and the docs (UI-9).
 >
 > **Input:** [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md) — 35 rows saying what the backend does,
 > what the UI does today, and the gap. That register is the specification; this file is the
@@ -66,7 +66,7 @@ where the answer lands.
 | Row | Answer | Lands in |
 |---|---|---|
 | **S1** | Shared till; **the PIN and the idle lock are removed entirely**; attribution is the signed-in account; "remember me" persists a login (hardening deferred). | **UI-1b** (server + port), then UI-2 and UI-3 |
-| **X2** | One classifier in `ApiStore.request`; session → global, connectivity → both, action → local. | UI-1 (classifier + global), UI-4 (local) |
+| **X2** | One classifier in `ApiStore.request`; session → global, connectivity → both, action → local. | UI-1 (classifier + global) ✅, UI-4 (local) ✅ |
 | **A7** | Admin step-up becomes a plain "Are you sure?" — no credential. The server never enforced it. | ~~UI-3~~ **UI-2** (pulled forward, 2026-10-04) |
 | **P6** | **No fake `DataStore`.** Service tests run against the real server + a test Postgres. | UI-2 ✅ |
 | **P7** | The `audit.log` calls leave the services. | UI-2 ✅ |
@@ -85,7 +85,7 @@ rode along in UI-2 (done 2026-10-04); neither blocked anything.
 - [x] **UI-1b** — Retire the PIN and the idle lock (server + port) → tagged `backend-v1` ✅ 2026-10-04
 - [x] **UI-2** — Services reshaped to the routes, and their tests rebuilt → **15 errors became 0**, first bundle since Phase 6 ✅ 2026-10-04
 - [x] **UI-3** — Screens whose behaviour the backend changed → Register, LostCard, card menu, Scan, config bounds, account sheet and the boot reconcile now match the server; 47 files / 360 tests ✅ 2026-10-04
-- [ ] **UI-4** — Error and offline states on screen
+- [x] **UI-4** — Error and offline states on screen → every screen reports a failure at the point of action (one shared mapper, no failure toasts); Scan keeps an unsent commit and its key for retry; 51 files / 472 tests ✅ 2026-10-04
 - [ ] **UI-5** — Liveness: the SSE subscriber replaces `dataVersion`
 - [ ] **UI-6** — Environment, serving, e2e
 - [ ] **UI-7** — Camera permission + install as a home-screen app
@@ -508,6 +508,83 @@ banner alone leaves staff unable to tell whether the points landed — and only 
 keep the staged transaction for retry. An **action** failure (`email_in_use`, `over_cap`,
 `already_spent`, a rate-limited form) shows on the field or control that needs fixing, **never** as
 a toast or banner; a `rate_limited` response disables the button and counts `retry-after` down.
+
+**As built (2026-10-04).** `@cafe/web` stays at **0** TypeScript errors and the bundle builds. Test
+shape **51 files / 472 tests** = **44 `ui` files (405 tests) + 7 `live` files (67 tests)**, from 47 /
+360 (40 / 293 + 7 / 67). `@cafe/shared` (85) and `@cafe/server` (439) untouched and green. Not yet
+committed at the time of writing.
+
+*Shared foundation*
+- **`ui/common/failure.ts`.** `failureMessage(err, fallback, overrides?)` turns an `ApiError` into one
+  sentence: offline and server failures are worded differently; `csrf_failed` / `forbidden_origin`
+  say "This page is out of date. Reload it…"; `staff_device` gets till copy; `rate_limited` never
+  freezes a figure; a non-`ApiError` gets the fallback. Also `retryAfterOf`, `DEFAULT_WAIT_SEC` (30),
+  `isConnectivityFailure`, `isSessionFailure`. `ui/common/useRetryCountdown.ts` gives
+  `{ secondsLeft, waiting, start }` and `formatWait` ("45 s" / "2:05") — the disabled-button
+  countdown. Tests in `tests/ui/common/failure.test.tsx`.
+- **`Refusal`.** `services/errors.ts` gains `Refusal extends Error` and `isRefusal()`. `StaffService`
+  throws `Refusal` for its admin-facing sentences, and only a `Refusal`'s `.message` may be shown
+  verbatim — an `ApiError`'s or a `TypeError`'s never is.
+- **Rules.** Staff and admin surfaces report nothing locally for a **session** failure
+  (`ConnectionWatch` routes it). There are **no failure toasts anywhere**; the toasts that remain are
+  success confirmations.
+
+*Staff*
+- **S3 `Scan`** (the SCOPE-DECISIONS §2.4 matrix). An unreadable QR (token fails `isValidToken`) says
+  "Couldn't read that code…", sends no request and keeps the camera on; an invalid typed code is a
+  field error ("A card code is 8 letters and numbers, like K39X-Q4T7."). A lookup that throws no
+  longer lands on "not registered": it stays scanning, restarts the camera, reports at the point of
+  action (reads ignored for 3 s after a failure) and counts down on **Look up** when rate-limited.
+  Not-found copy follows the matrix; **Scan again** keeps the typed code. Camera blocked
+  (`NotAllowedError` / `SecurityError`) and no camera are distinct messages, both focusing the
+  card-code field. Bug fixed: the camera started before the auth guard let its region exist and
+  wrongly said "no camera" on reload.
+- **Commit failures.** Offline or server failure enters a new **unsent** state that keeps the staged
+  transaction **and its `idempotencyKey`**: "Couldn't reach the till system, so this may not have
+  saved. Try again — it won't be added twice." **Try again** re-sends the same key with no second
+  hold; **Discard** warns that if an earlier try saved, the card already shows it. `rate_limited`
+  enters the same state with a counting **Try again**, and staging a new commit is blocked while it
+  runs. A refusal (e.g. 403) after an unanswered send carries the same "check the card before adding
+  again" notice. `over_cap` re-reads the card to name the real limit ("You tried to add 2 — the limit
+  is 1 per scan."); `customer_not_found` has its own copy. A partially refused redemption lands in a
+  new **done** state (no navigate, no toast) naming what saved and each reward not redeemed
+  (description · short code — already used / not on this card / no longer valid). `firedRef` resets
+  only on deliberate actions; Cancel is a no-op while a send is in flight.
+- **`Login`.** `LoginResult` gains `retryAfterSec`; Sign in is disabled with a live countdown and the
+  sentence "Too many sign-in attempts. Wait for the countdown, then try again." shows only while it
+  runs. Thrown failures go through `failureMessage`.
+- **`Panel`.** A "your last hour" load failure shows an error and **Try again** instead of the false
+  empty state; a failed customer-name lookup shows "a customer" rather than dropping the list.
+
+*Customer — the one place this phase designed rather than translated.* Principle: no dead ends and no
+endless skeletons; "Your card is safe" appears only on read paths where it is true.
+- **`EntryResolver`.** A failed `identity.get()` no longer sends a remembered phone to `/welcome`:
+  "We couldn't check for your card" + **Try again** (+ "Go to the welcome page" for
+  non-connectivity failures). New `useEntryResolution()` hook.
+- **`Card`.** A first-load failure shows an error state + **Try again**; a thrown `not_found` reaches
+  the existing missing state. A refresh failure keeps the last-seen card under a banner (+ Try
+  again), connectivity only. **That refresh path has no trigger until UI-5 wires liveness into
+  `Card`'s load effect.**
+- **`Register`** uses `failureMessage`, counts down on submit when `rate_limited`, and has till copy.
+  **`LostCard`** drops its local mapper and keeps **separate countdowns** for send and check (separately
+  rate-limited routes). **`CardMenu`** shows a delete failure inside the sheet. **`EnlargedQr`** reports
+  a QR-draw failure (it was an unhandled rejection).
+
+*Admin*
+- New `_parts/adminFailure.ts` (`adminFailureMessage` / `adminActionMessage`, `string | null` — `null`
+  for session failures).
+- **`ConfirmSheet` contract change.** It catches a rejected `onConfirm`, shows the failure inside the
+  sheet (`role="alert"`) and stays open; new optional `describeError` prop. "Sign out all devices"
+  and flag-dismissal failures stay inside their sheets.
+- **`Admin`** load: error state + **Try again**, sections hidden until the first success, stale loads
+  ignored (sequence counter), "The server is busy just now…" for a rate-limited read. `AlertDetail`
+  reports a card-lookup failure or missing card in its row. Add profile no longer leaks "API
+  offline". `AccountSheet.describeFailure` and `ProgramEdit.describeSaveError` (no longer exported)
+  are rebuilt on the shared mapper.
+
+*Left for later.* `AccountSheet` still uses `window.prompt` (reset password) and `window.confirm`
+(delete). **Background (SSE-triggered) failures staying silent is UI-5.** `Card`, `EntryResolver` and
+`CardMenu` have no countdown because their routes are not rate-limited.
 
 ### UI-5 — Liveness: the SSE subscriber
 Rows X6, X7. An `EventSource` on `GET /events`, owned by whatever replaces `PairingContext`, still

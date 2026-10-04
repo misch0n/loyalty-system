@@ -28,6 +28,26 @@
   margin: 10px 0 4px;
 }
 
+/* "Try again" in the last-seen banner's toggle slot — a quiet text button. */
+.card-banner-retry {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 6px 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--forest);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.card-banner-retry:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .card-missing-actions {
   margin-top: 24px;
 }

@@ -217,3 +217,14 @@
   text-transform: uppercase;
   color: var(--ink-soft);
 }
+
+/* The panel's own load failed: one sentence and a retry, in place of the
+   sections (UI-4, X2 — never a toast). */
+.screen.admin .admin-loaderror {
+  margin: 12px 0;
+}
+.screen.admin .admin-loaderror__msg {
+  color: var(--terra-600);
+  font-size: 12.5px;
+  margin: 0 0 10px;
+}

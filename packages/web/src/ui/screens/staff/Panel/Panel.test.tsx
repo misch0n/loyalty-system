@@ -8,6 +8,7 @@ import { ServicesProvider } from '../../../common/ServicesContext';
 import { AuthProvider } from '../../../app/AuthContext';
 import { LogoGesturesProvider } from '../../../app/LogoGestures';
 import { ToastProvider } from '../../../components/Toast/Toast';
+import { ApiError } from '../../../../services/errors';
 import { Panel } from './Panel';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -172,5 +173,49 @@ describe('Staff Panel', () => {
     expect(services.staff.logout).toHaveBeenCalledTimes(1);
     expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
     expect(container.textContent).toContain('LOGIN ROUTE');
+  });
+
+  it('says the list failed to load — not that the hour was empty — and retries', async () => {
+    const services = fakeServices();
+    const list = services.audit.list as ReturnType<typeof vi.fn>;
+    const rows = await list();
+    list.mockReset();
+    list.mockRejectedValueOnce(new ApiError({ kind: 'offline' })).mockResolvedValue(rows);
+    await mountPanel(services);
+
+    expect(container.textContent).not.toContain('Nothing in the last hour');
+    expect(container.querySelector('.staff-panel__error')?.textContent).toContain(
+      'Couldn’t reach the server',
+    );
+    expect(container.querySelector('.feed')).toBeNull();
+
+    const retry = container.querySelector('.staff-panel__retry') as HTMLButtonElement;
+    expect(retry.textContent).toBe('Try again');
+    await act(async () => {
+      retry.click();
+    });
+    await act(async () => {
+      for (let i = 0; i < 4; i += 1) await Promise.resolve();
+    });
+
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('.staff-panel__error')).toBeNull();
+    expect(container.querySelectorAll('.feed .row').length).toBe(2);
+  });
+
+  it('keeps the list when one customer name cannot be fetched', async () => {
+    const services = fakeServices();
+    (services.customers.getById as ReturnType<typeof vi.fn>).mockImplementation((id: string) =>
+      id === 'c1'
+        ? Promise.resolve({ id: 'c1', displayName: 'Maria' })
+        : Promise.reject(new ApiError({ kind: 'server', status: 500 })),
+    );
+    await mountPanel(services);
+
+    const rows = Array.from(container.querySelectorAll('.feed .row')).map((r) => r.textContent);
+    expect(rows.length).toBe(2);
+    expect(rows.some((t) => t?.includes('Maria'))).toBe(true);
+    expect(rows.some((t) => t?.includes('a customer'))).toBe(true);
+    expect(container.querySelector('.staff-panel__error')).toBeNull();
   });
 });

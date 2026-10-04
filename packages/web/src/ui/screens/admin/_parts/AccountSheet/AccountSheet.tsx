@@ -17,6 +17,9 @@
  * the server's codes into sentences, or a connectivity failure — is shown inside
  * the sheet, beside the controls, and never as a toast (X2: an action failure
  * belongs on the control that caused it). Success still confirms with a toast.
+ * The wording is the admin-wide one (`adminFailure.ts`, on `failureMessage`),
+ * so offline, server, out-of-date-page and signed-out read the same as on every
+ * other admin sheet.
  *
  * Appendix E: the profile's action-history list was REMOVED. Reading one
  * person's activity is an investigation, not a casual glance.
@@ -30,7 +33,8 @@ import { Sheet } from '../../../../components/Sheet/Sheet';
 import { Toggle } from '../../../../components/Field/Field';
 import { useServices } from '../../../../common/ServicesContext';
 import { useToast } from '../../../../components/Toast/Toast';
-import { isApiError } from '../../../../../services/errors';
+import type { FailureOverrides } from '../../../../common/failure';
+import { adminActionMessage } from '../adminFailure';
 import type { Actor } from '../../../../../services/types';
 import type { StaffAccount } from '@cafe/shared/domain/models';
 import './AccountSheet.css';
@@ -47,24 +51,16 @@ export interface AccountSheetProps {
 /** The note on the signed-in account's own sheet. */
 export const SELF_NOTE = 'You can’t disable or delete the account you’re signed in with.';
 
-/** What went wrong, as a sentence the admin can act on. */
-function describeFailure(err: unknown): string {
-  if (isApiError(err)) {
-    switch (err.failure.kind) {
-      case 'offline':
-        return 'Couldn’t reach the server, so nothing changed. Check the connection and try again.';
-      case 'server':
-        return 'The server couldn’t make that change just now. Try again in a moment.';
-      case 'not_found':
-        return 'That account no longer exists.';
-      default:
-        return 'Couldn’t make that change. Try again.';
-    }
-  }
-  // `StaffService` turns the refusals an admin can act on into a sentence.
-  if (err instanceof Error && err.message) return err.message;
-  return 'Couldn’t make that change. Try again.';
+/** What went wrong, as a sentence the admin can act on (`null`: signed out — said globally). */
+function describeFailure(err: unknown, overrides: FailureOverrides = {}): string | null {
+  return adminActionMessage(err, 'Couldn’t make that change. Try again.', {
+    not_found: 'That account no longer exists.',
+    ...overrides,
+  });
 }
+
+/** A password the server's length rule refused (`invalid_request`). */
+const PASSWORD_REJECTED = 'That password wasn’t accepted. Use at least 8 characters.';
 
 export function AccountSheet({ account, actor, onClose, onChanged }: AccountSheetProps) {
   const services = useServices();
@@ -80,7 +76,7 @@ export function AccountSheet({ account, actor, onClose, onChanged }: AccountShee
 
   const isSelf = account.id === actor.id;
 
-  const run = async (fn: () => Promise<void>, done: string) => {
+  const run = async (fn: () => Promise<void>, done: string, overrides?: FailureOverrides) => {
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -89,7 +85,7 @@ export function AccountSheet({ account, actor, onClose, onChanged }: AccountShee
       toast.show(done);
       onChanged();
     } catch (err) {
-      setError(describeFailure(err));
+      setError(describeFailure(err, overrides));
     } finally {
       setBusy(false);
     }
@@ -106,7 +102,9 @@ export function AccountSheet({ account, actor, onClose, onChanged }: AccountShee
   const onResetPassword = () => {
     const next = window.prompt(`New password for ${account.name ?? account.username}`);
     if (next == null || next === '') return;
-    void run(() => services.staff.resetPassword(account.id, next), 'Password reset.');
+    void run(() => services.staff.resetPassword(account.id, next), 'Password reset.', {
+      rejected: PASSWORD_REJECTED,
+    });
   };
 
   const onDelete = () => {

@@ -11,7 +11,7 @@ import { ToastProvider } from '../../../components/Toast/Toast';
 import { StatWide } from '../_parts/Stat/Stat';
 import { FeedRow } from '../_parts/FeedRow/FeedRow';
 import { Alert } from '../_parts/Alert/Alert';
-import { ApiError } from '../../../../services/errors';
+import { ApiError, Refusal } from '../../../../services/errors';
 import { Admin } from './Admin';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -39,6 +39,15 @@ function fakeServices(role: 'admin' | 'staff'): Services {
           detail: 'Credited then redeemed on the same card within 30s, 3 times (limit 3).',
         },
       ]),
+      dismissAlert: vi.fn().mockResolvedValue(undefined),
+    },
+    customers: {
+      getById: vi.fn().mockResolvedValue({
+        id: 'c1',
+        displayName: 'Ana',
+        shortCode: 'ABCD1234',
+        status: 'active',
+      }),
     },
     audit: {
       list: vi.fn().mockImplementation(({ action }: { action?: string } = {}) => {
@@ -75,6 +84,7 @@ function fakeServices(role: 'admin' | 'staff'): Services {
       create: vi.fn().mockResolvedValue({ ...actor, active: true, createdAt: '' }),
       revokeAllSessions: vi.fn().mockResolvedValue(2),
       setActive: vi.fn().mockResolvedValue(undefined),
+      resetPassword: vi.fn().mockResolvedValue(undefined),
     },
   } as unknown as Services;
 }
@@ -109,9 +119,13 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-async function mountAdmin(role: 'admin' | 'staff'): Promise<Services> {
+async function mountAdmin(
+  role: 'admin' | 'staff',
+  prepare?: (services: Services) => void,
+): Promise<Services> {
   seedSession(role);
   const services = fakeServices(role);
+  prepare?.(services);
   await act(async () => {
     root.render(
       <MemoryRouter initialEntries={['/admin']}>
@@ -423,8 +437,9 @@ describe('Configure — bounds, wording and the error path (A4, A5)', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(container.querySelector('.progedit-error')?.textContent).toContain(
-      'nothing was saved',
+    // The admin-wide offline wording (UI-4), not a sheet-specific one.
+    expect(container.querySelector('.progedit-error')?.textContent).toBe(
+      'Couldn’t reach the server. Check this device’s internet connection, then try again.',
     );
     expect(container.querySelector('.toast')).toBeNull();
   });
@@ -477,7 +492,7 @@ describe('AccountSheet — your own account (A6)', () => {
   it('shows a refusal inside the sheet, not as a toast', async () => {
     const services = await mountAdmin('admin');
     (services.staff.setActive as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('You can’t disable the account you’re signed in with.'),
+      new Refusal('You can’t disable the account you’re signed in with.'),
     );
     await openAccount('aya');
     await act(async () => {
@@ -492,6 +507,338 @@ describe('AccountSheet — your own account (A6)', () => {
       'You can’t disable the account you’re signed in with.',
     );
     expect(container.querySelector('.toast')).toBeNull();
+  });
+});
+
+const OFFLINE_COPY =
+  'Couldn’t reach the server. Check this device’s internet connection, then try again.';
+const SERVER_COPY = 'The server had a problem just now. Try again in a moment.';
+
+function mocked(fn: unknown): ReturnType<typeof vi.fn> {
+  return fn as ReturnType<typeof vi.fn>;
+}
+
+async function settle() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+describe('Admin — the panel’s own load (UI-4)', () => {
+  it('says why it is empty and offers Try again, instead of rendering empty sections', async () => {
+    await mountAdmin('admin', (s) => {
+      mocked(s.config.get).mockRejectedValueOnce(new ApiError({ kind: 'offline' }));
+    });
+    const message = container.querySelector('.admin-loaderror__msg');
+    expect(message?.getAttribute('role')).toBe('alert');
+    expect(message?.textContent).toBe(OFFLINE_COPY);
+    // None of the sections it would have filled pretend to be empty.
+    expect(container.textContent).not.toContain('No accounts yet.');
+    expect(container.textContent).not.toContain('Accounts');
+    expect(buttonNamed('Configure program')).toBeUndefined();
+    expect(buttonNamed('Add profile')).toBeUndefined();
+    expect(container.querySelector('.toast')).toBeNull();
+  });
+
+  it('Try again loads the panel', async () => {
+    const services = await mountAdmin('admin', (s) => {
+      mocked(s.staff.list).mockRejectedValueOnce(new ApiError({ kind: 'server', status: 502 }));
+    });
+    expect(container.querySelector('.admin-loaderror__msg')?.textContent).toBe(SERVER_COPY);
+
+    await act(async () => {
+      buttonNamed('Try again')!.click();
+    });
+    await settle();
+    expect(services.staff.list).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('.admin-loaderror')).toBeNull();
+    expect(buttonNamed('Add profile')).toBeDefined();
+    expect(container.querySelectorAll('.acct-list-row')).toHaveLength(2);
+  });
+
+  it('says nothing when the session has ended (X2: routed globally)', async () => {
+    await mountAdmin('admin', (s) => {
+      mocked(s.config.get).mockRejectedValueOnce(new ApiError({ kind: 'signed_out' }));
+    });
+    expect(container.querySelector('.admin-loaderror')).toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('a rate-limited load is not called "changes"', async () => {
+    await mountAdmin('admin', (s) => {
+      mocked(s.config.get).mockRejectedValueOnce(
+        new ApiError({ kind: 'rate_limited', retryAfterSec: 5 }),
+      );
+    });
+    expect(container.querySelector('.admin-loaderror__msg')?.textContent).toBe(
+      'The server is busy just now. Wait a moment, then try again.',
+    );
+  });
+
+  it('an older load that fails late does not cover a newer one’s data', async () => {
+    const services = await mountAdmin('admin');
+    let failOlder: (err: unknown) => void = () => {};
+    // The reload after the first change hangs; the one after the second lands.
+    mocked(services.staff.list).mockImplementationOnce(
+      () => new Promise((_resolve, reject) => (failOlder = reject)),
+    );
+    await openAccount('aya');
+    const toggle = () => container.querySelector('.acct [role="switch"]') as HTMLButtonElement;
+    await act(async () => {
+      toggle().click();
+    });
+    await settle();
+    await act(async () => {
+      toggle().click();
+    });
+    await settle();
+    expect(services.staff.list).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      failOlder(new ApiError({ kind: 'offline' }));
+    });
+    await settle();
+    expect(container.querySelector('.admin-loaderror')).toBeNull();
+    expect(container.querySelectorAll('.acct-list-row')).toHaveLength(2);
+  });
+
+  it('a failure that is not the API’s still gets a sentence, not its message', async () => {
+    await mountAdmin('admin', (s) => {
+      mocked(s.loyalty.getAlerts).mockRejectedValueOnce(new TypeError('x is undefined'));
+    });
+    expect(container.querySelector('.admin-loaderror__msg')?.textContent).toBe(
+      'Couldn’t load the admin panel. Try again.',
+    );
+  });
+});
+
+describe('Admin — sign out all devices fails (UI-4)', () => {
+  it('says so inside the sheet, keeps it open, and does not sign this device out', async () => {
+    const services = await mountAdmin('admin', (s) => {
+      mocked(s.staff.revokeAllSessions).mockRejectedValueOnce(
+        new ApiError({ kind: 'server', status: 500 }),
+      );
+    });
+    await act(async () => {
+      buttonNamed('Sign out all devices')!.click();
+    });
+    await act(async () => {
+      buttonNamed('Sign out all')!.click();
+    });
+    await settle();
+
+    expect(services.staff.revokeAllSessions).toHaveBeenCalled();
+    expect(container.querySelector('.confirm-title')?.textContent).toBe('Sign out all devices?');
+    const error = container.querySelector('.confirm-error');
+    expect(error?.getAttribute('role')).toBe('alert');
+    expect(error?.textContent).toBe(SERVER_COPY);
+    expect(container.querySelector('.toast')).toBeNull();
+    expect(container.querySelector('.at-login')).toBeNull();
+    // The admin can try again from the same sheet.
+    expect(buttonNamed('Sign out all')!.disabled).toBe(false);
+  });
+});
+
+describe('Admin — a flagged alert (UI-4)', () => {
+  async function openAlert() {
+    await act(async () => {
+      (container.querySelector('.admin-collapse') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (container.querySelector('.alert-btn') as HTMLButtonElement).click();
+    });
+    await settle();
+  }
+
+  it('shows the flagged card once it is looked up', async () => {
+    await mountAdmin('admin');
+    await openAlert();
+    expect(container.querySelector('.alertdetail')?.textContent).toContain('Ana');
+    expect(container.querySelector('.alertdetail')?.textContent).toContain('ABCD-1234');
+  });
+
+  it('says the card couldn’t be loaded, rather than "Loading…" forever', async () => {
+    await mountAdmin('admin', (s) => {
+      mocked(s.customers.getById).mockRejectedValueOnce(new ApiError({ kind: 'offline' }));
+    });
+    await openAlert();
+    const rows = container.querySelector('.alertdetail-rows')!.textContent;
+    expect(rows).toContain('Couldn’t load this card. Close and reopen to try again.');
+    expect(rows).not.toContain('Loading…');
+  });
+
+  it('says when the card no longer exists', async () => {
+    await mountAdmin('admin', (s) => {
+      mocked(s.customers.getById).mockResolvedValueOnce(null);
+    });
+    await openAlert();
+    expect(container.querySelector('.alertdetail-rows')!.textContent).toContain(
+      'This card no longer exists.',
+    );
+  });
+
+  it('a failed dismiss stays in the sheet, not a toast', async () => {
+    const services = await mountAdmin('admin', (s) => {
+      mocked(s.loyalty.dismissAlert).mockRejectedValueOnce(new ApiError({ kind: 'offline' }));
+    });
+    await openAlert();
+    await act(async () => {
+      buttonNamed('Acknowledge & dismiss')!.click();
+    });
+    await settle();
+
+    expect(services.loyalty.dismissAlert).toHaveBeenCalled();
+    expect(container.querySelector('.alertdetail')).not.toBeNull();
+    const error = container.querySelector('.alertdetail-error');
+    expect(error?.getAttribute('role')).toBe('alert');
+    expect(error?.textContent).toBe(OFFLINE_COPY);
+    expect(container.querySelector('.toast')).toBeNull();
+    expect(buttonNamed('Acknowledge & dismiss')!.disabled).toBe(false);
+  });
+
+  it('a dismiss refused because the session ended says nothing (X2: routed globally)', async () => {
+    await mountAdmin('admin', (s) => {
+      mocked(s.loyalty.dismissAlert).mockRejectedValueOnce(new ApiError({ kind: 'signed_out' }));
+    });
+    await openAlert();
+    await act(async () => {
+      buttonNamed('Acknowledge & dismiss')!.click();
+    });
+    await settle();
+    expect(container.querySelector('.alertdetail-error')).toBeNull();
+    expect(container.querySelector('.toast')).toBeNull();
+  });
+
+  it('a dismiss that lands closes the sheet and confirms', async () => {
+    await mountAdmin('admin');
+    await openAlert();
+    await act(async () => {
+      buttonNamed('Acknowledge & dismiss')!.click();
+    });
+    await settle();
+    expect(container.querySelector('.alertdetail')).toBeNull();
+    expect(container.querySelector('.toast')?.textContent).toBe('Flag acknowledged.');
+  });
+});
+
+describe('Admin — Add profile fails (UI-4)', () => {
+  async function submit(services: Services, failure: unknown) {
+    mocked(services.staff.create).mockRejectedValueOnce(failure);
+    await act(async () => {
+      buttonNamed('Add profile')!.click();
+    });
+    const inputs = container.querySelectorAll<HTMLInputElement>('.admin-create input');
+    await typeInto(inputs[0]!, 'Maria');
+    await typeInto(inputs[1]!, 'maria');
+    await typeInto(inputs[2]!, 'a-long-password');
+    await act(async () => {
+      buttonNamed('Create account')!.click();
+    });
+    await settle();
+    return container.querySelector('.admin-create__error')?.textContent;
+  }
+
+  it('words an unreachable server, never the raw "API offline"', async () => {
+    const services = await mountAdmin('admin');
+    const text = await submit(services, new ApiError({ kind: 'offline' }));
+    expect(text).toBe(OFFLINE_COPY);
+    expect(text).not.toContain('API');
+    expect(container.querySelector('.toast')).toBeNull();
+  });
+
+  it('words a server failure, never "API server error (500)"', async () => {
+    const services = await mountAdmin('admin');
+    expect(await submit(services, new ApiError({ kind: 'server', status: 500 }))).toBe(SERVER_COPY);
+  });
+
+  it('explains a refused password', async () => {
+    const services = await mountAdmin('admin');
+    expect(
+      await submit(services, new ApiError({ kind: 'rejected', code: 'invalid_request' })),
+    ).toBe('Those details weren’t accepted. Use a password of at least 8 characters.');
+  });
+
+  it('shows a StaffService refusal as written', async () => {
+    const services = await mountAdmin('admin');
+    expect(await submit(services, new Refusal('That username is already taken.'))).toBe(
+      'That username is already taken.',
+    );
+  });
+
+  it('never shows a stray error’s own message', async () => {
+    const services = await mountAdmin('admin');
+    expect(await submit(services, new TypeError('x is undefined'))).toBe(
+      'Couldn’t create the account. Try again.',
+    );
+  });
+
+  it('says nothing when the session has ended (X2: routed globally)', async () => {
+    const services = await mountAdmin('admin');
+    expect(await submit(services, new ApiError({ kind: 'signed_out' }))).toBeUndefined();
+  });
+});
+
+describe('AccountSheet — failure wording (UI-4)', () => {
+  async function toggleWith(failure: unknown) {
+    await mountAdmin('admin', (s) => {
+      mocked(s.staff.setActive).mockRejectedValueOnce(failure);
+    });
+    await openAccount('aya');
+    await act(async () => {
+      (container.querySelector('.acct [role="switch"]') as HTMLButtonElement).click();
+    });
+    await settle();
+    return container.querySelector('.acct-error')?.textContent;
+  }
+
+  it.each([
+    ['offline', new ApiError({ kind: 'offline' }), OFFLINE_COPY],
+    ['server', new ApiError({ kind: 'server', status: 503 }), SERVER_COPY],
+    ['not_found', new ApiError({ kind: 'not_found', code: 'staff_not_found' }), 'That account no longer exists.'],
+    [
+      'csrf',
+      new ApiError({ kind: 'forbidden', code: 'csrf_failed' }),
+      'This page is out of date. Reload it, then try again.',
+    ],
+    [
+      'role',
+      new ApiError({ kind: 'forbidden', code: 'forbidden' }),
+      'This needs an admin account. Sign in as an admin, then try again.',
+    ],
+    [
+      'rate_limited',
+      new ApiError({ kind: 'rate_limited', retryAfterSec: 30 }),
+      'Too many changes in a row. Wait a moment, then try again.',
+    ],
+    ['other', new ApiError({ kind: 'conflict', code: 'weird' }), 'Couldn’t make that change. Try again.'],
+  ])('%s', async (_kind, failure, copy) => {
+    expect(await toggleWith(failure)).toBe(copy);
+    expect(container.querySelector('.toast')).toBeNull();
+  });
+
+  it('says nothing when the session has ended (X2: routed globally)', async () => {
+    expect(await toggleWith(new ApiError({ kind: 'signed_out' }))).toBeUndefined();
+    expect(container.querySelector('.toast')).toBeNull();
+  });
+
+  it('explains a refused new password', async () => {
+    const services = await mountAdmin('admin', (s) => {
+      mocked(s.staff.resetPassword).mockRejectedValueOnce(
+        new ApiError({ kind: 'rejected', code: 'invalid_request' }),
+      );
+    });
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValue('short');
+    await openAccount('aya');
+    await act(async () => {
+      buttonNamed('Reset password')!.click();
+    });
+    await settle();
+    expect(services.staff.resetPassword).toHaveBeenCalledWith('s1', 'short');
+    expect(container.querySelector('.acct-error')?.textContent).toBe(
+      'That password wasn’t accepted. Use at least 8 characters.',
+    );
+    prompt.mockRestore();
   });
 });
 

@@ -8,6 +8,8 @@ import { ServicesProvider } from '../../../common/ServicesContext';
 import { AuthProvider } from '../../../app/AuthContext';
 import { LogoGesturesProvider } from '../../../app/LogoGestures';
 import { ToastProvider } from '../../../components/Toast/Toast';
+import { ApiError } from '../../../../services/errors';
+import { startScanner } from '../../../../qr/scan';
 import { Scan } from './Scan';
 
 // jsdom has no camera; capture the scanner's decode callback so tests can inject
@@ -365,34 +367,481 @@ describe('Staff Scan', () => {
     expect(services.loyalty.commit).not.toHaveBeenCalled();
   });
 
-  it('keeps the customer on screen when a commit cannot be saved', async () => {
+  it('surfaces an over_cap refusal with the real limit and what was attempted', async () => {
+    // The server's limit dropped to 1 since the card was read: the re-read names it.
+    const lowered = { ...stateFor(7), config: { ...CONFIG, maxPointsPerTransaction: 1 } };
+    const getState = vi.fn().mockResolvedValueOnce(stateFor(7)).mockResolvedValue(lowered);
     const services = fakeServices({
-      commit: vi.fn().mockRejectedValue(new Error('offline')),
-    });
-    await mountScan(services);
-    await inject('PROTOcard0000000000001');
-
-    await click(forestButton('Add 1 coffee'));
-    await click(forestButton('Commit now'));
-
-    // Only a saved commit leaves the screen; a failed one keeps the card up.
-    expect(container.textContent).not.toContain('STAFF PANEL');
-    expect(container.querySelector('.cust .cn')?.textContent).toBe('Maria');
-    expect(container.querySelector('.staff-scan__error')?.textContent).toContain('Could not save');
-  });
-
-  it('surfaces an over_cap rejection as an error', async () => {
-    const services = fakeServices({
+      getState,
       commit: vi.fn().mockResolvedValue({ ok: false, error: 'over_cap' }),
     });
     await mountScan(services);
-    await inject('PROTOcard0000000000001');
+    await inject(TOKEN);
 
+    await setSlider('2');
+    await click(forestButton('Add 2 coffees'));
+    await click(forestButton('Commit now'));
+    await settle();
+
+    // Rejection drops back to the counter panel with the error shown.
+    expect(errorText()).toContain('You tried to add 2 — the limit is 1 per scan.');
+    expect(container.querySelector('.staff-scan__hold')).toBeNull();
+    // …and the slider follows the real limit.
+    expect(forestButton('Add 1 coffee')).toBeDefined();
+  });
+
+  it('says the card is gone when the commit finds no customer', async () => {
+    const services = fakeServices({
+      commit: vi.fn().mockResolvedValue({ ok: false, error: 'customer_not_found' }),
+    });
+    await mountScan(services);
+    await inject(TOKEN);
     await click(forestButton('Add 1 coffee'));
     await click(forestButton('Commit now'));
 
-    // Rejection drops back to the counter panel with the error shown.
-    expect(container.querySelector('.staff-scan__error')?.textContent).toContain('limit');
-    expect(container.querySelector('.staff-scan__hold')).toBeNull();
+    expect(errorText()).toContain('No card matches that code any more. Scan it again.');
+  });
+
+  describe('scanning failures', () => {
+    it('an unreadable QR makes no request and keeps the camera on', async () => {
+      const services = fakeServices();
+      await mountScan(services);
+      await inject('https://example.com/menu');
+
+      expect(services.loyalty.getStateByToken).not.toHaveBeenCalled();
+      expect(container.querySelector('.scanview')).not.toBeNull();
+      expect(container.querySelector('.staff-scan__scan-error')?.textContent).toContain(
+        'Couldn’t read that code',
+      );
+      // The camera was never stopped and restarted.
+      expect(startScanner).toHaveBeenCalledTimes(1);
+    });
+
+    it('a malformed typed code is refused on the field, with no request', async () => {
+      const services = fakeServices();
+      await mountScan(services);
+      await typeAndSubmit('K39X');
+
+      expect(services.loyalty.getStateByShortCode).not.toHaveBeenCalled();
+      expect(container.querySelector('.staff-scan__field-error')?.textContent).toBe(
+        'A card code is 8 letters and numbers, like K39X-Q4T7.',
+      );
+      expect(manualInput().getAttribute('aria-invalid')).toBe('true');
+    });
+
+    it('a well-formed typed code is normalized and looked up', async () => {
+      const services = fakeServices();
+      await mountScan(services);
+      await typeAndSubmit('k39x-q4t7');
+
+      expect(services.loyalty.getStateByShortCode).toHaveBeenCalledWith('K39XQ4T7');
+      expect(container.querySelector('.cust .cn')?.textContent).toBe('Maria');
+    });
+
+    it('a lookup that cannot reach the server keeps scanning — it is not "not registered"', async () => {
+      const services = fakeServices({
+        getStateByToken: vi.fn().mockRejectedValue(new ApiError({ kind: 'offline' })),
+      });
+      await mountScan(services);
+      await inject(TOKEN);
+      await settle();
+
+      expect(container.textContent).not.toContain('No card matches that code');
+      expect(container.querySelector('.scanview')).not.toBeNull();
+      expect(container.querySelector('.staff-scan__scan-error')?.textContent).toContain(
+        'Couldn’t reach the till system',
+      );
+      // The camera was stopped for the lookup and started again after it.
+      expect(startScanner).toHaveBeenCalledTimes(2);
+    });
+
+    it('a typed lookup that fails keeps the code and says why on the field', async () => {
+      const services = fakeServices({
+        getStateByShortCode: vi
+          .fn()
+          .mockRejectedValue(new ApiError({ kind: 'server', status: 503 })),
+      });
+      await mountScan(services);
+      await typeAndSubmit('K39X-Q4T7');
+      await settle();
+
+      expect(manualInput().value).toBe('K39X-Q4T7');
+      expect(container.querySelector('.staff-scan__field-error')?.textContent).toContain(
+        'The till system had a problem',
+      );
+      expect(container.querySelector('.scanview')).not.toBeNull();
+    });
+
+    it('a lookup that finds nothing says so and asks them to check they registered', async () => {
+      const services = fakeServices({ getStateByToken: vi.fn().mockResolvedValue(null) });
+      await mountScan(services);
+      await inject(TOKEN);
+
+      expect(container.querySelector('.cust .cn')?.textContent).toBe('No card matches that code');
+      expect(container.querySelector('.staff-scan__hint')?.textContent).toContain(
+        'check they’ve registered',
+      );
+    });
+
+    it('a blocked camera points at the card-code field', async () => {
+      vi.mocked(startScanner).mockRejectedValueOnce(
+        new DOMException('Permission denied', 'NotAllowedError'),
+      );
+      await mountScan(fakeServices());
+      await settle();
+
+      expect(container.querySelector('.staff-scan__camera-error')?.textContent).toContain(
+        'Camera access is blocked',
+      );
+      expect(document.activeElement).toBe(manualInput());
+    });
+
+    it('a missing camera says so and points at the card-code field', async () => {
+      vi.mocked(startScanner).mockRejectedValueOnce(
+        new Error('NotFoundError: Requested device not found'),
+      );
+      await mountScan(fakeServices());
+      await settle();
+
+      expect(container.querySelector('.staff-scan__camera-error')?.textContent).toContain(
+        'There’s no camera available',
+      );
+      expect(document.activeElement).toBe(manualInput());
+    });
+  });
+
+  describe('commit failures', () => {
+    it('keeps the staged transaction when the till system cannot be reached, and retries with the SAME key', async () => {
+      const commit = vi
+        .fn()
+        .mockRejectedValueOnce(new ApiError({ kind: 'offline' }))
+        .mockRejectedValueOnce(new ApiError({ kind: 'server', status: 502 }))
+        .mockResolvedValue({
+          ok: true,
+          state: stateFor(8),
+          minted: [],
+          redeemed: [],
+          rejected: [],
+          replayed: true,
+        });
+      const services = fakeServices({ commit });
+      await mountScan(services);
+      await inject(TOKEN);
+
+      await click(forestButton('Add 1 coffee'));
+      await click(forestButton('Commit now'));
+
+      // Not thrown away: what was staged is still on screen, with the reason.
+      expect(container.textContent).not.toContain('STAFF PANEL');
+      expect(container.querySelector('.staff-scan__unsent .staff-scan__hold-list')?.textContent).toContain(
+        'Add 1 coffee',
+      );
+      expect(errorText()).toContain('Couldn’t reach the till system, so this may not have saved.');
+
+      // A second failure keeps it too.
+      await click(forestButton('Try again'));
+      expect(errorText()).toContain('The till system had a problem, so this may not have saved.');
+      expect(container.querySelector('.staff-scan__unsent')).not.toBeNull();
+
+      // Third time lucky — and every send used the one key allocated at stage time.
+      await click(forestButton('Try again'));
+      expect(commit).toHaveBeenCalledTimes(3);
+      const keys = commit.mock.calls.map((call) => call[1].idempotencyKey);
+      expect(new Set(keys).size).toBe(1);
+      expect(commit.mock.calls[2][1]).toMatchObject({ pointsDelta: 1, redeemRewardIds: [] });
+      expect(container.textContent).toContain('STAFF PANEL');
+    });
+
+    it('counts a rate-limited commit down before Try again comes back', async () => {
+      vi.useFakeTimers();
+      try {
+        const commit = vi
+          .fn()
+          .mockRejectedValueOnce(new ApiError({ kind: 'rate_limited', retryAfterSec: 12 }))
+          .mockResolvedValue({
+            ok: true,
+            state: stateFor(8),
+            minted: [],
+            redeemed: [],
+            rejected: [],
+            replayed: false,
+          });
+        const services = fakeServices({ commit });
+        await mountScan(services);
+        await inject(TOKEN);
+        await click(forestButton('Add 1 coffee'));
+        await click(forestButton('Commit now'));
+
+        expect(errorText()).toContain('Too many saves in a row');
+        const waiting = forestButton('Try again');
+        expect(waiting.disabled).toBe(true);
+        expect(waiting.textContent).toBe('Try again in 12 s');
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5000);
+        });
+        expect(forestButton('Try again').textContent).toBe('Try again in 7 s');
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(7000);
+        });
+        const ready = forestButton('Try again');
+        expect(ready.disabled).toBe(false);
+        expect(ready.textContent).toBe('Try again');
+
+        await click(ready);
+        expect(commit).toHaveBeenCalledTimes(2);
+        expect(commit.mock.calls[1][1].idempotencyKey).toBe(commit.mock.calls[0][1].idempotencyKey);
+        expect(container.textContent).toContain('STAFF PANEL');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('Discard drops the unsent transaction and says how to check whether it landed', async () => {
+      const services = fakeServices({
+        commit: vi.fn().mockRejectedValue(new ApiError({ kind: 'offline' })),
+      });
+      await mountScan(services);
+      await inject(TOKEN);
+      await click(forestButton('Add 1 coffee'));
+      await click(forestButton('Commit now'));
+
+      await click(lineButton('Discard'));
+
+      expect(services.loyalty.commit).toHaveBeenCalledTimes(1);
+      expect(container.querySelector('.staff-scan__unsent')).toBeNull();
+      expect(container.querySelector('.cust .cn')?.textContent).toBe('Maria');
+      expect(container.querySelector('.staff-scan__notice')?.textContent).toContain(
+        'the customer’s card already shows it',
+      );
+      // Back on the counter: a fresh stage is possible.
+      expect(forestButton('Add 1 coffee').disabled).toBe(false);
+    });
+
+    it('a refused commit (not a connection problem) goes back to the counter with the reason', async () => {
+      const services = fakeServices({
+        commit: vi
+          .fn()
+          .mockRejectedValue(new ApiError({ kind: 'forbidden', code: 'csrf_failed' })),
+      });
+      await mountScan(services);
+      await inject(TOKEN);
+      await click(forestButton('Add 1 coffee'));
+      await click(forestButton('Commit now'));
+
+      expect(container.querySelector('.staff-scan__unsent')).toBeNull();
+      expect(errorText()).toContain('This page is out of date');
+      expect(container.querySelector('.toast')).toBeNull();
+    });
+
+    it('a saved commit with refused rewards stays on screen and names them', async () => {
+      const services = fakeServices({
+        getStateByToken: vi.fn().mockResolvedValue(stateFor(3, [reward('rw1', 'rtok1')])),
+        getState: vi.fn().mockResolvedValue(stateFor(3, [reward('rw1', 'rtok1')])),
+        commit: vi.fn().mockResolvedValue({
+          ok: true,
+          state: stateFor(4),
+          minted: [],
+          redeemed: [],
+          rejected: [{ rewardId: 'rw1', reason: 'already_spent' }],
+          replayed: false,
+        }),
+      });
+      await mountScan(services);
+      await inject('/r?ids=rtok1&c=' + TOKEN);
+
+      // Tick a coffee as well, so something does save.
+      await setSlider('1');
+      await click(forestButton('Add 1 coffee · Redeem 1'));
+      await click(forestButton('Commit now'));
+
+      expect(container.textContent).not.toContain('STAFF PANEL');
+      expect(container.querySelector('.toast')).toBeNull();
+      const result = container.querySelector('.staff-scan__result');
+      expect(result?.querySelector('.staff-scan__saved-list')?.textContent).toContain('Added 1 coffee');
+      expect(result?.querySelector('.staff-scan__refused')?.textContent).toBe(
+        'Free coffee · ABCD-1234 — already used',
+      );
+      expect(container.querySelector('.cust .cs')?.textContent).toBe('4 of 10 cups');
+
+      expect(container.querySelector('.staff-scan__result')?.textContent).toContain(
+        'Everything else above was saved.',
+      );
+
+      await click(forestButton('Back to counter'));
+      expect(container.textContent).toContain('STAFF PANEL');
+    });
+
+    it('a refusal on Try again, after an unanswered send, still says it may have saved', async () => {
+      const commit = vi
+        .fn()
+        .mockRejectedValueOnce(new ApiError({ kind: 'offline' }))
+        .mockRejectedValueOnce(new ApiError({ kind: 'forbidden', code: 'csrf_failed' }));
+      const services = fakeServices({ commit });
+      await mountScan(services);
+      await inject(TOKEN);
+      await click(forestButton('Add 1 coffee'));
+      await click(forestButton('Commit now'));
+      await click(forestButton('Try again'));
+
+      expect(commit).toHaveBeenCalledTimes(2);
+      expect(container.querySelector('.staff-scan__unsent')).toBeNull();
+      expect(errorText()).toContain('This page is out of date');
+      expect(container.querySelector('.staff-scan__notice')?.textContent).toContain(
+        'If the first try did save, the customer’s card already shows it',
+      );
+    });
+
+    it('a refusal on the FIRST send carries no "may have saved" notice', async () => {
+      const services = fakeServices({
+        commit: vi.fn().mockRejectedValue(new ApiError({ kind: 'forbidden', code: 'csrf_failed' })),
+      });
+      await mountScan(services);
+      await inject(TOKEN);
+      await click(forestButton('Add 1 coffee'));
+      await click(forestButton('Commit now'));
+
+      expect(container.querySelector('.staff-scan__notice')).toBeNull();
+    });
+
+    it('sends once when "Commit now" is still in flight as the hold elapses', async () => {
+      vi.useFakeTimers();
+      try {
+        let answer: (value: unknown) => void = () => undefined;
+        const commit = vi.fn(
+          () =>
+            new Promise((resolve) => {
+              answer = resolve;
+            }),
+        );
+        const services = fakeServices({ commit });
+        await mountScan(services);
+        await inject(TOKEN);
+        await click(forestButton('Add 1 coffee'));
+        await click(forestButton('Commit now'));
+
+        // Cancel is too late now: disabled while the send is in flight.
+        expect(lineButton('Cancel').disabled).toBe(true);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3500);
+        });
+        expect(commit).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+          answer({ ok: true, state: stateFor(8), minted: [], redeemed: [], rejected: [], replayed: false });
+        });
+        await settle();
+        expect(commit).toHaveBeenCalledTimes(1);
+        expect(container.textContent).toContain('STAFF PANEL');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('blocks staging anew while a rate-limit countdown runs', async () => {
+      vi.useFakeTimers();
+      try {
+        const services = fakeServices({
+          commit: vi
+            .fn()
+            .mockRejectedValue(new ApiError({ kind: 'rate_limited', retryAfterSec: 10 })),
+        });
+        await mountScan(services);
+        await inject(TOKEN);
+        await click(forestButton('Add 1 coffee'));
+        await click(forestButton('Commit now'));
+        await click(lineButton('Discard'));
+
+        const stage = forestButton('Add 1 coffee');
+        expect(stage.disabled).toBe(true);
+        expect(stage.textContent).toBe('Add 1 coffee — wait 10 s');
+        // Only the rate-limited send happened: no "may have saved" notice.
+        expect(container.querySelector('.staff-scan__notice')).toBeNull();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(10_000);
+        });
+        expect(forestButton('Add 1 coffee').disabled).toBe(false);
+        expect(forestButton('Add 1 coffee').textContent).toBe('Add 1 coffee');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('"Scan next" from the refusal screen goes back to the camera', async () => {
+      const services = fakeServices({
+        getStateByToken: vi.fn().mockResolvedValue(stateFor(3, [reward('rw1', 'rtok1')])),
+        getState: vi.fn().mockResolvedValue(stateFor(3, [reward('rw1', 'rtok1')])),
+        commit: vi.fn().mockResolvedValue({
+          ok: true,
+          state: stateFor(3),
+          minted: [],
+          redeemed: [],
+          rejected: [{ rewardId: 'rw1', reason: 'not_owner' }],
+          replayed: false,
+        }),
+      });
+      await mountScan(services);
+      await inject('/r?ids=rtok1&c=' + TOKEN);
+      await click(forestButton('Redeem 1'));
+      await click(forestButton('Commit now'));
+
+      expect(container.querySelector('.staff-scan__saved')?.textContent).toBe('Nothing was saved.');
+      expect(container.querySelector('.staff-scan__refused')?.textContent).toContain('not on this card');
+      // Nothing saved → no "Saved" heading and no "everything else was saved".
+      const leads = Array.from(container.querySelectorAll('.staff-scan__hold-lead')).map(
+        (el) => el.textContent,
+      );
+      expect(leads).toEqual(['Not redeemed']);
+      expect(container.querySelector('.staff-scan__result')?.textContent).not.toContain(
+        'Everything else',
+      );
+
+      await click(lineButton('Scan next'));
+      expect(container.querySelector('.scanview')).not.toBeNull();
+    });
   });
 });
+
+const TOKEN = 'PROTOcard0000000000001';
+
+function errorText(): string {
+  return Array.from(container.querySelectorAll('.staff-scan__error'))
+    .map((el) => el.textContent ?? '')
+    .join(' ');
+}
+
+function manualInput(): HTMLInputElement {
+  return container.querySelector('.staff-scan__manual input') as HTMLInputElement;
+}
+
+async function settle() {
+  await act(async () => {
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+  });
+}
+
+async function setSlider(value: string) {
+  const slider = container.querySelector('.assign input[type=range]') as HTMLInputElement;
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+  await act(async () => {
+    setValue?.call(slider, value);
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+async function typeAndSubmit(code: string) {
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+  await act(async () => {
+    setValue?.call(manualInput(), code);
+    manualInput().dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => {
+    container
+      .querySelector('.staff-scan__manual')
+      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
+  await settle();
+}

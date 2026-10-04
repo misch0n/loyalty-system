@@ -10,6 +10,9 @@
  * Rewards-as-objects (REWARDS-PLAN Phase 7): the redeem mode shows the composite
  * reward QR for the reward token(s) the card selected; the plain view shows the
  * card QR.
+ *
+ * Drawing the QR can fail (a canvas the browser refuses); rather than a blank
+ * placeholder forever, the tile then says so and how to get past it (UI-4).
  */
 
 import { useEffect, useState } from 'react';
@@ -45,6 +48,7 @@ export function EnlargedQr({
   rewardTokens = [],
 }: EnlargedQrProps) {
   const [qr, setQr] = useState<string | null>(null);
+  const [drawFailed, setDrawFailed] = useState(false);
 
   // In redeem mode the QR carries the reward token(s) (`/r?ids=…&c=<token>`); the
   // plain enlarged view carries the card URL. A redeem QR with no reward tokens
@@ -54,20 +58,33 @@ export function EnlargedQr({
   useEffect(() => {
     if (!open) return;
     let active = true;
+    setDrawFailed(false);
     const payload =
       redeem && rewardTokens.length > 0
         ? rewardScanPayload(rewardTokens, token)
         : cardPayload(token);
-    void toDataUrl(payload).then((url) => {
-      if (active) setQr(url);
-    });
+    toDataUrl(payload).then(
+      (url) => {
+        if (active) setQr(url);
+      },
+      () => {
+        if (!active) return;
+        // Never leave an older code (maybe the other mode's) on screen.
+        setQr(null);
+        setDrawFailed(true);
+      },
+    );
     return () => {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, token, redeem, rewardKey]);
 
-  const qrImg = qr ? (
+  const qrImg = drawFailed ? (
+    <p className="enlarged-qr-img enlarged-qr-error" role="alert">
+      Couldn’t draw your code. Close this and open it again.
+    </p>
+  ) : qr ? (
     <img className="enlarged-qr-img" src={qr} alt="Your card code" />
   ) : (
     <div className="enlarged-qr-img enlarged-qr-placeholder" aria-hidden="true" />

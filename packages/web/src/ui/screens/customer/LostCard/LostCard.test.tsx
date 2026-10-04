@@ -24,6 +24,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.clearAllMocks();
+  vi.useRealTimers();
   locationState = null;
 });
 
@@ -133,7 +134,7 @@ describe('LostCard', () => {
     expect(container.textContent).not.toMatch(/attempt|tries|locked/i);
   });
 
-  it('shows the generic form error when the check itself fails', async () => {
+  it('offline while checking: says it could not reach the server', async () => {
     const services = fakeServices(
       undefined,
       vi.fn().mockRejectedValue(new ApiError({ kind: 'offline' })),
@@ -142,8 +143,8 @@ describe('LostCard', () => {
     await type(codeInput(), 'ABC123');
     await click(button('Restore my card'));
 
-    expect(container.querySelector('.lost-form-error')?.textContent).toContain(
-      'Could not check the code',
+    expect(container.querySelector('.lost-form-error')?.textContent).toBe(
+      'Couldn’t reach the server. Check this device’s internet connection, then try again.',
     );
     expect(navigate).not.toHaveBeenCalled();
   });
@@ -169,13 +170,100 @@ describe('LostCard', () => {
     expect(emailInput().value).toBe('maria@example.com');
   });
 
-  it('shows the form error when the code cannot be sent', async () => {
+  it('shows the form error when the code cannot be sent, and stays on the email step', async () => {
     const services = fakeServices(vi.fn().mockRejectedValue(new ApiError({ kind: 'offline' })));
     await toCodeStep(services);
     expect(container.querySelector('.lost-form-error')?.textContent).toContain(
-      'Could not send the code',
+      'Couldn’t reach the server',
     );
     expect(codeInput()).toBeNull();
+  });
+
+  it('does not blame the connection when the server fails', async () => {
+    const services = fakeServices(
+      vi.fn().mockRejectedValue(new ApiError({ kind: 'server', status: 500 })),
+    );
+    await toCodeStep(services);
+    const sendError = container.querySelector('.lost-form-error')?.textContent ?? '';
+    expect(sendError).toContain('server had a problem');
+    expect(sendError).not.toMatch(/connection/i);
+  });
+
+  it('a refusal it has no words for gets the plain fallback', async () => {
+    const services = fakeServices(
+      undefined,
+      vi.fn().mockRejectedValue(new ApiError({ kind: 'rejected', code: 'invalid_body' })),
+    );
+    await toCodeStep(services);
+    await type(codeInput(), 'ABC123');
+    await click(button('Restore my card'));
+    expect(container.querySelector('.lost-form-error')?.textContent).toBe(
+      'Couldn’t check the code. Try again.',
+    );
+  });
+
+  it('rate-limited send: counts down on "Send me a code", then gives it back', async () => {
+    vi.useFakeTimers();
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError({ kind: 'rate_limited', retryAfterSec: 65 }))
+      .mockResolvedValue(undefined);
+    await toCodeStep(fakeServices(request));
+
+    const send = container.querySelector('.btn-forest') as HTMLButtonElement;
+    expect(send.textContent).toBe('Try again in 1:05');
+    expect(send.disabled).toBe(true);
+    expect(container.querySelector('.lost-form-error')?.textContent).toContain('Too many tries');
+
+    await act(async () => {
+      vi.advanceTimersByTime(65_000);
+    });
+    expect(send.textContent).toBe('Send me a code');
+    expect(send.disabled).toBe(false);
+    expect(container.querySelector('.lost-form-error')).toBeNull();
+
+    await click(send);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(codeInput()).not.toBeNull();
+  });
+
+  it('rate-limited check: counts down on "Restore my card"; sending a new code is unaffected', async () => {
+    vi.useFakeTimers();
+    const consume = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError({ kind: 'rate_limited', retryAfterSec: 2 }))
+      .mockResolvedValue({ token: 'tok-back' });
+    await toCodeStep(fakeServices(undefined, consume));
+    await type(codeInput(), 'ABC123');
+    await click(button('Restore my card'));
+
+    const restore = container.querySelector('.btn-forest') as HTMLButtonElement;
+    expect(restore.textContent).toBe('Try again in 2 s');
+    expect(restore.disabled).toBe(true);
+    expect(button('Send a new code')?.disabled).toBe(false);
+
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(restore.textContent).toBe('Restore my card');
+    await click(restore);
+    expect(navigate).toHaveBeenCalledWith('/card/tok-back', { replace: true });
+  });
+
+  it('rate-limited resend: counts down on "Send a new code"', async () => {
+    vi.useFakeTimers();
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new ApiError({ kind: 'rate_limited', retryAfterSec: null }));
+    await toCodeStep(fakeServices(request));
+    await click(button('Send a new code'));
+
+    const resend = container.querySelector('.lost-link') as HTMLButtonElement;
+    // No `retry-after` from the server: the default wait (30 s).
+    expect(resend.textContent).toBe('Send a new code in 30 s');
+    expect(resend.disabled).toBe(true);
+    expect(container.querySelector('.lost-form-error')?.textContent).toContain('Too many tries');
   });
 
   it('says a rate limit is a wait, not a connection problem', async () => {

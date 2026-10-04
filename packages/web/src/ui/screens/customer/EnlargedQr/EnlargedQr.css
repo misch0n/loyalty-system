@@ -24,6 +24,21 @@
   border-radius: 12px;
 }
 
+/* Drawing the QR failed: the message takes the QR's square. */
+.qr-enlarge .enlarged-qr-error {
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 18px;
+  box-sizing: border-box;
+  background: #f1ede4;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: center;
+  color: var(--ink);
+}
+
 /* ── Redeem mode (V4): the QR framed by the café's botanical wreath ──────────── */
 .qr-enlarge .redeem-panel {
   position: relative;

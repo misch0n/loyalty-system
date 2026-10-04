@@ -10,6 +10,7 @@ vi.mock('react-router-dom', () => ({
 import { CardMenu } from './CardMenu';
 import { ServicesProvider } from '../../../common/ServicesContext';
 import type { Services } from '../../../../services/Services';
+import { ApiError } from '../../../../services/errors';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -136,5 +137,48 @@ describe('CardMenu', () => {
     await tap(keep);
     expect(rows()).toHaveLength(1);
     expect(services.customers.selfDelete).not.toHaveBeenCalled();
+  });
+
+  describe('a failed delete says why, inside the sheet', () => {
+    async function holdToDelete(err: unknown) {
+      vi.useFakeTimers();
+      const services = fakeServices(vi.fn().mockRejectedValue(err));
+      await mount(services);
+      await tap(deleteRow());
+      await act(async () => {
+        holdBtn().dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      return services;
+    }
+    const alert = () => container.querySelector('.card-menu-error[role="alert"]')?.textContent;
+
+    it('offline: could not reach the server', async () => {
+      const services = await holdToDelete(new ApiError({ kind: 'offline' }));
+      expect(alert()).toBe(
+        'Couldn’t reach the server. Check this device’s internet connection, then try again.',
+      );
+      expect(services.identity.clear).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+      // Still on the confirmation, ready to hold again.
+      expect(holdBtn().disabled).toBe(false);
+    });
+
+    it('server: the server failed, not the connection', async () => {
+      await holdToDelete(new ApiError({ kind: 'server', status: 500 }));
+      expect(alert()).toContain('server had a problem');
+    });
+
+    it('an out-of-date page is told to reload', async () => {
+      await holdToDelete(new ApiError({ kind: 'forbidden', code: 'csrf_failed' }));
+      expect(alert()).toBe('This page is out of date. Reload it, then try again.');
+    });
+
+    it('anything else gets the plain fallback', async () => {
+      await holdToDelete(new ApiError({ kind: 'not_found', code: 'customer_not_found' }));
+      expect(alert()).toBe('Couldn’t delete your card. Try again.');
+    });
   });
 });

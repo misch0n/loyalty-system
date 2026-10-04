@@ -18,6 +18,14 @@
  * which is often the wrong one. Every card has an email (§2.1), so there is no
  * "no email on your card?" path either (C4).
  *
+ * Failures (UI-4) are one sentence under the form from the shared
+ * {@link failureMessage} — can't reach, the server failed, a till, or a plain
+ * fallback that blames nobody (the old copy blamed the connection for
+ * everything). `/recovery/request` and `/recovery/consume` are rate-limited
+ * separately, so each has its own countdown: a `rate_limited` refusal disables
+ * "Send me a code" / "Send a new code" or "Restore my card" and counts
+ * `retry-after` down on it, with a line saying why for as long as it runs.
+ *
  * Register's `email_in_use` offer arrives here with the address in router
  * location state ({@link LostCardState}) — never in the URL — and prefills it.
  *
@@ -34,7 +42,12 @@ import { Button } from '../../../components/Button/Button';
 import { GestureLogo } from '../../../app/LogoGestures';
 import { ROUTES, cardPath } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
-import { isApiError } from '../../../../services/errors';
+import { failureMessage, retryAfterOf } from '../../../common/failure';
+import {
+  formatWait,
+  useRetryCountdown,
+  type RetryCountdown,
+} from '../../../common/useRetryCountdown';
 import './LostCard.css';
 
 /** Router location state another screen may hand `/lost`. */
@@ -47,6 +60,9 @@ export interface LostCardState {
 const CODE_EXPIRY_MINUTES = 15;
 
 type Step = 'email' | 'code';
+
+const SEND_FAILED = 'Couldn’t send the code. Try again.';
+const CHECK_FAILED = 'Couldn’t check the code. Try again.';
 
 function prefilledEmail(state: unknown): string {
   if (state && typeof state === 'object' && 'email' in state) {
@@ -68,9 +84,24 @@ export function LostCard() {
   const [resent, setResent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // One wait per rate-limited route, and the line saying why while it runs.
+  const sendWait = useRetryCountdown();
+  const checkWait = useRetryCountdown();
+  const [limitNote, setLimitNote] = useState<string | null>(null);
+
+  /** Report a failure: a countdown for a rate limit, one sentence otherwise. */
+  function fail(err: unknown, fallback: string, wait: RetryCountdown) {
+    const seconds = retryAfterOf(err);
+    if (seconds !== null) {
+      wait.start(seconds);
+      setLimitNote(failureMessage(err, fallback));
+    } else {
+      setFormError(failureMessage(err, fallback));
+    }
+  }
 
   async function sendCode(again: boolean) {
-    if (submitting || !email.trim()) return;
+    if (submitting || sendWait.waiting || !email.trim()) return;
     setSubmitting(true);
     setFormError(null);
     setCodeError(null);
@@ -81,16 +112,14 @@ export function LostCard() {
       setCode('');
       setResent(again);
     } catch (err) {
-      setFormError(
-        failureMessage(err, 'Could not send the code. Check your connection and try again.'),
-      );
+      fail(err, SEND_FAILED, sendWait);
     } finally {
       setSubmitting(false);
     }
   }
 
   async function restore() {
-    if (submitting || !code.trim()) return;
+    if (submitting || checkWait.waiting || !code.trim()) return;
     setSubmitting(true);
     setFormError(null);
     setCodeError(null);
@@ -103,9 +132,7 @@ export function LostCard() {
       // The server has bound this device to the card; open it.
       navigate(cardPath(restored.token), { replace: true });
     } catch (err) {
-      setFormError(
-        failureMessage(err, 'Could not check the code. Check your connection and try again.'),
-      );
+      fail(err, CHECK_FAILED, checkWait);
     } finally {
       setSubmitting(false);
     }
@@ -118,6 +145,10 @@ export function LostCard() {
     setFormError(null);
     setResent(false);
   }
+
+  // The rate-limit line lives exactly as long as a countdown this step shows.
+  const limited = sendWait.waiting || (step === 'code' && checkWait.waiting);
+  const shownError = formError ?? (limited ? limitNote : null);
 
   return (
     <div className="screen bg-cream">
@@ -154,17 +185,21 @@ export function LostCard() {
               onChange={setEmail}
               disabled={submitting}
             />
-            {formError && (
+            {shownError && (
               <p className="lost-form-error" role="alert">
-                {formError}
+                {shownError}
               </p>
             )}
             <Button
               variant="forest"
-              disabled={submitting || !email.trim()}
+              disabled={submitting || sendWait.waiting || !email.trim()}
               onClick={() => void sendCode(false)}
             >
-              {submitting ? 'Sending…' : 'Send me a code'}
+              {submitting
+                ? 'Sending…'
+                : sendWait.waiting
+                  ? `Try again in ${formatWait(sendWait.secondsLeft)}`
+                  : 'Send me a code'}
             </Button>
           </>
         ) : (
@@ -200,26 +235,32 @@ export function LostCard() {
                 disabled={submitting}
               />
             </div>
-            {formError && (
+            {shownError && (
               <p className="lost-form-error" role="alert">
-                {formError}
+                {shownError}
               </p>
             )}
             <Button
               variant="forest"
-              disabled={submitting || !code.trim()}
+              disabled={submitting || checkWait.waiting || !code.trim()}
               onClick={() => void restore()}
             >
-              {submitting ? 'Checking…' : 'Restore my card'}
+              {submitting
+                ? 'Checking…'
+                : checkWait.waiting
+                  ? `Try again in ${formatWait(checkWait.secondsLeft)}`
+                  : 'Restore my card'}
             </Button>
             <div className="lost-alt">
               <button
                 type="button"
                 className="lost-link"
-                disabled={submitting}
+                disabled={submitting || sendWait.waiting}
                 onClick={() => void sendCode(true)}
               >
-                Send a new code
+                {sendWait.waiting
+                  ? `Send a new code in ${formatWait(sendWait.secondsLeft)}`
+                  : 'Send a new code'}
               </button>
               <button
                 type="button"
@@ -241,18 +282,3 @@ export function LostCard() {
 
 export default LostCard;
 
-/**
- * The two refusals a connection hint would get wrong. The `retry-after`
- * countdown on a rate limit is UI-4's (register X2); this only says what
- * happened.
- */
-function failureMessage(err: unknown, fallback: string): string {
-  if (!isApiError(err)) return fallback;
-  if (err.failure.kind === 'rate_limited') {
-    return 'Too many tries for now. Wait a few minutes, then try again.';
-  }
-  if (err.failure.kind === 'forbidden') {
-    return 'This device is signed in as a till. Restore your card on your own phone.';
-  }
-  return fallback;
-}

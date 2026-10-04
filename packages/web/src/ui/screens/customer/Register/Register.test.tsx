@@ -25,6 +25,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 const customer: Customer = {
@@ -186,20 +187,68 @@ describe('Register', () => {
     expect(container.querySelector('.register-form-error')).toBeNull();
   });
 
-  it('keeps the generic form error for anything else', async () => {
+  async function failWith(err: unknown) {
     const services = fakeServices(
       registerStub(async () => {
-        throw new ApiError({ kind: 'offline' });
+        throw err;
       }),
     );
     await mount(services);
     await fillIn();
     await click(button('Create my card'));
+    return services;
+  }
+  const formError = () => container.querySelector('.register-form-error')?.textContent;
 
-    expect(container.querySelector('.register-form-error')?.textContent).toContain(
-      'Could not create your card',
+  it('offline: says it could not reach the server, under the form', async () => {
+    await failWith(new ApiError({ kind: 'offline' }));
+    expect(formError()).toBe(
+      'Couldn’t reach the server. Check this device’s internet connection, then try again.',
     );
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('server error: says the server failed, not the connection', async () => {
+    await failWith(new ApiError({ kind: 'server', status: 500 }));
+    expect(formError()).toContain('server had a problem');
+    expect(formError()).not.toMatch(/connection/i);
+  });
+
+  it('anything unrecognised gets the plain fallback that blames nobody', async () => {
+    await failWith(new ApiError({ kind: 'rejected', code: 'something_else' }));
+    expect(formError()).toBe('Couldn’t create your card. Try again.');
+  });
+
+  it('a till is told to use the customer’s own phone', async () => {
+    await failWith(new ApiError({ kind: 'forbidden', code: 'staff_device' }));
+    expect(formError()).toBe('This device is signed in as a till. Use your own phone for this.');
+  });
+
+  it('rate_limited: disables the button with a countdown, then gives it back', async () => {
+    vi.useFakeTimers();
+    const services = await failWith(new ApiError({ kind: 'rate_limited', retryAfterSec: 3 }));
+
+    const waiting = container.querySelector('.btn-forest') as HTMLButtonElement;
+    expect(waiting.textContent).toBe('Try again in 3 s');
+    expect(waiting.disabled).toBe(true);
+    expect(formError()).toContain('Too many tries');
+    expect(formError()).not.toMatch(/connection|\d/);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(waiting.textContent).toBe('Try again in 2 s');
+
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(waiting.textContent).toBe('Create my card');
+    expect(waiting.disabled).toBe(false);
+    // The why goes with the wait.
+    expect(formError()).toBeUndefined();
+
+    await click(waiting);
+    expect(services.customers.selfRegister).toHaveBeenCalledTimes(2);
   });
 
   it('the privacy notice says name and email are collected, and nothing about anonymity', async () => {

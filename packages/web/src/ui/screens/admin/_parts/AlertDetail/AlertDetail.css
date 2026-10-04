@@ -48,3 +48,9 @@
 .alertdetail-muted {
   color: var(--ink-soft);
 }
+/* A failed dismiss, shown here rather than as a toast (X2). */
+.alertdetail-error {
+  font-size: 12.5px;
+  color: var(--terra-600);
+  margin: -8px 0 12px;
+}

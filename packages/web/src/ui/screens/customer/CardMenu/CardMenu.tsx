@@ -17,6 +17,12 @@
  * accepts the card's own device and writes the audit row from the session; the
  * UI never fabricates an actor. `identity.clear()` (`DELETE /me`) follows,
  * harmless when the server already forgot the card, and we go to welcome.
+ *
+ * A failed delete says why inside the sheet (`role="alert"`, never a toast) in
+ * the shared {@link failureMessage} terms — can't reach, the server failed, an
+ * out-of-date page — with "Couldn't delete your card. Try again." for the rest.
+ * It does not claim the card survived: a request lost on the way back may have
+ * landed.
  */
 
 import { useEffect, useState } from 'react';
@@ -25,6 +31,7 @@ import { Sheet, MenuRow } from '../../../components/Sheet/Sheet';
 import { HoldButton } from '../../../components/HoldButton/HoldButton';
 import { ROUTES } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
+import { failureMessage } from '../../../common/failure';
 import './CardMenu.css';
 
 export interface CardMenuProps {
@@ -70,8 +77,8 @@ export function CardMenu({ open, onClose, token }: CardMenuProps) {
       // for a deleted card whether or not this device's binding is cleared.
       await identity.clear().catch(() => undefined);
       navigate(ROUTES.welcome, { replace: true });
-    } catch {
-      setError('Could not delete your card. Try again.');
+    } catch (err) {
+      setError(failureMessage(err, 'Couldn’t delete your card. Try again.'));
     } finally {
       setBusy(false);
     }

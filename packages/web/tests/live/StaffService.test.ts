@@ -59,7 +59,7 @@ describe('sign-in', () => {
     expect((await till.services.staff.login(login.username, login.password)).ok).toBe(false);
   });
 
-  it('says how long to wait once an account is under attack', async () => {
+  it('says how long to wait, as a figure to count down, once an account is under attack', async () => {
     const login = await newAccount('staff');
     const till = await device();
     for (let i = 0; i < 5; i += 1) {
@@ -67,7 +67,8 @@ describe('sign-in', () => {
     }
     const result = await till.services.staff.login(login.username, login.password);
     expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/^Too many sign-in attempts\. Try again in \d+ minutes?\.$/);
+    expect(result.reason).toBe('Too many sign-in attempts. Wait for the countdown, then try again.');
+    expect(result.retryAfterSec).toBeGreaterThan(0);
   });
 
   it('remembers the login only when asked to', async () => {

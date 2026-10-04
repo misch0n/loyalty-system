@@ -14,6 +14,11 @@
  * went with the pairing layer (UI-0); live refresh returns with the SSE
  * subscriber (UI-5), so for now it loads once per visit.
  * Reuses the old StaffPanel + activity.ts wiring, restyled to the reference.
+ *
+ * A list that failed to load says so, with Try again — it never shows the
+ * "Nothing in the last hour" empty state, which would be a false statement
+ * (UI-4). A customer whose name could not be fetched costs that row its name,
+ * not the whole list.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -21,6 +26,8 @@ import { Button } from '../../../components/Button/Button';
 import { useAuth } from '../../../app/AuthContext';
 import { ROUTES } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
+import { failureMessage, isSessionFailure, retryAfterOf } from '../../../common/failure';
+import { formatWait, useRetryCountdown } from '../../../common/useRetryCountdown';
 import { TopBar, OnShift } from '../_parts';
 import { useStaffGuard } from '../useStaffGuard';
 import { actionLabel, isLoyaltyAction, relativeTime } from '../activity';
@@ -36,6 +43,9 @@ import './Panel.css';
  */
 const RECENT_CAP = 10;
 const RECENT_WINDOW_MS = 60 * 60 * 1000;
+/** The row label for a customer whose name could not be fetched. */
+const UNNAMED_CUSTOMER = 'a customer';
+const LOAD_FAILED = 'Couldn’t load your last hour. Try again.';
 
 /** True when an ISO timestamp falls inside the trailing one-hour window. */
 function withinWindow(iso: string): boolean {
@@ -72,7 +82,12 @@ export function Panel(): JSX.Element {
 
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** Bumped by Try again to re-run the load. */
+  const [attempt, setAttempt] = useState(0);
   const [recentOpen, setRecentOpen] = useState(true);
+  const wait = useRetryCountdown();
+  const startWait = wait.start;
 
   const actorId = guard.actor?.id;
 
@@ -86,12 +101,17 @@ export function Panel(): JSX.Element {
       .slice(0, RECENT_CAP);
 
     // Resolve customer names for targets (read-only; never written to the log).
+    // One lookup failing costs that row its name, not the whole list.
     const customerNames = new Map<string, string>();
     await Promise.all(
       [...new Set(loyalty.map((e) => e.targetId).filter((id): id is string => Boolean(id)))].map(
         async (id) => {
-          const customer = await services.customers.getById(id);
-          if (customer?.displayName) customerNames.set(id, customer.displayName);
+          try {
+            const customer = await services.customers.getById(id);
+            if (customer?.displayName) customerNames.set(id, customer.displayName);
+          } catch {
+            // Fall through to the neutral label below.
+          }
         },
       ),
     );
@@ -100,7 +120,7 @@ export function Panel(): JSX.Element {
       id: e.id,
       action: actionLabel(e.action, e.details),
       kind: e.action === 'loyalty.redeem' ? 'red' : 'add',
-      customerName: e.targetId ? customerNames.get(e.targetId) : undefined,
+      customerName: e.targetId ? (customerNames.get(e.targetId) ?? UNNAMED_CUSTOMER) : undefined,
       timestamp: e.timestamp,
     }));
   }, [services, actorId]);
@@ -112,22 +132,36 @@ export function Panel(): JSX.Element {
       .then((rows) => {
         if (!cancelled) {
           setItems(rows);
+          setLoadError(null);
           setLoaded(true);
         }
       })
-      .catch(() => {
-        if (!cancelled) setLoaded(true);
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        // A session failure is the global handler's (X2): it leaves this screen.
+        if (isSessionFailure(err)) return;
+        const retryAfter = retryAfterOf(err);
+        if (retryAfter !== null) startWait(retryAfter);
+        setItems([]);
+        setLoadError(failureMessage(err, LOAD_FAILED));
+        setLoaded(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [actorId, loadActivity]);
+  }, [actorId, loadActivity, attempt, startWait]);
 
   if (guard.redirect) return guard.redirect;
   const actor = guard.actor;
 
   const onScan = () => {
     navigate(ROUTES.staffScan);
+  };
+
+  const onRetryLoad = () => {
+    setLoaded(false);
+    setLoadError(null);
+    setAttempt((n) => n + 1);
   };
 
   const onSignOut = () => {
@@ -168,6 +202,20 @@ export function Panel(): JSX.Element {
         {recentOpen &&
           (!loaded ? (
             <p className="staff-panel__empty">Loading…</p>
+          ) : loadError ? (
+            <div className="staff-panel__load-error">
+              <p className="staff-panel__error" role="alert">
+                {loadError}
+              </p>
+              <button
+                type="button"
+                className="staff-panel__retry"
+                onClick={onRetryLoad}
+                disabled={wait.waiting}
+              >
+                {wait.waiting ? `Try again in ${formatWait(wait.secondsLeft)}` : 'Try again'}
+              </button>
+            </div>
           ) : items.length === 0 ? (
             <p className="staff-panel__empty">
               Nothing in the last hour. Scan a customer’s code to add their first coffee.

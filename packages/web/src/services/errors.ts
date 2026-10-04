@@ -16,3 +16,20 @@ export {
   type FailureScope,
 } from '../adapters/http/ApiError';
 export type { ApiEvent, ApiEvents, ApiListener } from '../adapters/http/ApiClient';
+
+/**
+ * A refusal a service has already put into words for the person at the screen
+ * ("That username is already taken.") — the one kind of `Error` a screen may
+ * show by its `message`. An `ApiError`'s message, or a `TypeError`'s, is for
+ * logs, not people.
+ */
+export class Refusal extends Error {
+  constructor(sentence: string) {
+    super(sentence);
+    this.name = 'Refusal';
+  }
+}
+
+export function isRefusal(value: unknown): value is Refusal {
+  return value instanceof Refusal;
+}

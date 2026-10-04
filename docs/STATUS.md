@@ -20,18 +20,18 @@
 > **So everything below describes a prototype that has been dismantled, not a shipping one — and
 > much of it is now stale.** The adapters are gone, and the screens that used them were deleted in
 > UI-0 and UI-2. `@cafe/web` (the SPA, physically moved to `packages/web/` in Phase 10) **was red on
-> purpose from Phase 6 until UI-2 (2026-10-04) and is not any more**: 0 TypeScript errors, **all 47
-> test files load and pass (360 tests = 40 `ui` files / 293 + 7 `live` files / 67, after UI-3)**, and
+> purpose from Phase 6 until UI-2 (2026-10-04) and is not any more**: 0 TypeScript errors, **all 51
+> test files load and pass (472 tests = 44 `ui` files / 405 + 7 `live` files / 67, after UI-4)**, and
 > `npm run build -w @cafe/web` produces a bundle. It was 9 of 47 files not loading until UI-0, 6 of 44
 > until UI-2 (the six `tests/services/` suites that ran on `IndexedDbStore`; UI-2 rebuilt them as
 > `tests/live/*` against the real server). The release gate is now **all three suites + their `tsc`**
 > — `@cafe/shared`, `@cafe/server` and `@cafe/web` — though CI's `web` job stays `continue-on-error`
-> until UI-8. Green is not "works": error and offline states are still not on screen (UI-4) and
-> nobody has driven the SPA against the real server through a browser (UI-6).
+> until UI-8. Green is not "works": error and offline states are on screen as of UI-4, but nothing
+> refreshes live (UI-5) and nobody has driven the SPA against the real server through a browser (UI-6).
 >
 > **▶ Active initiative — the UI pass.** The backend is **complete**;
 > [`UI-PLAN.md`](UI-PLAN.md) is the live plan and [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md)
-> its specification. **UI-0, UI-1, UI-1b, UI-2 and UI-3 are done (UI-3: 2026-10-04); UI-4 is next.** **Every blocking decision
+> its specification. **UI-0, UI-1, UI-1b, UI-2, UI-3 and UI-4 are done (UI-4: 2026-10-04); UI-5 — liveness (SSE) — is next.** **Every blocking decision
 > was answered on 2026-10-03** — notably that the staff device is a shared till and **the PIN and the
 > idle lock are removed**. The server + port half, **UI-1b, landed 2026-10-04** (branch tagged
 > `backend-v1`; [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) §6.3–§6.7), and the **SPA half landed in
@@ -69,8 +69,53 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-10-04 (**UI pass — UI-3: the screens whose behaviour the backend changed**
-(branch `claude/backend-implementation-2kqb08`; uncommitted at the time of writing)). **Verification
+**Last updated:** 2026-10-04 (**UI pass — UI-4: error and offline states on screen**
+(branch `claude/backend-implementation-2kqb08`)). **Verification
+(2026-10-04, Node 22, full gate re-run after the review fixes):** `@cafe/shared` **7 files / 85 tests** and `@cafe/server`
+**439** (both unchanged, green); `@cafe/web` **51 files / 472 tests** = **44 `ui` files / 405 tests + 7
+`live` files / 67 tests** (was 47 / 360 = 40 / 293 + 7 / 67); 0 TypeScript errors in all three;
+`npm run build -w @cafe/web` produces a bundle.
+**Shared foundation.** `ui/common/failure.ts` — `failureMessage(err, fallback, overrides?)` turns an
+`ApiError` into one sentence (offline worded differently from server; `csrf_failed` / `forbidden_origin`
+→ "This page is out of date. Reload it…"; `staff_device` → till copy; `rate_limited` never freezes a
+figure; a non-`ApiError` → the fallback), plus `retryAfterOf`, `DEFAULT_WAIT_SEC` (30),
+`isConnectivityFailure`, `isSessionFailure`. `ui/common/useRetryCountdown.ts` + `formatWait` drive the
+disabled-button countdown for `rate_limited`. `services/errors.ts` gains `Refusal` / `isRefusal()`:
+`StaffService` throws `Refusal` for its admin-facing sentences, and **only a `Refusal`'s message may be
+shown verbatim**. Rules: staff/admin surfaces report nothing locally for a session failure
+(`ConnectionWatch` owns it); **no failure toasts anywhere** — the toasts left are success confirmations.
+**Staff.** **S3** `Scan` follows the SCOPE-DECISIONS §2.4 matrix: unreadable QR, invalid typed code, a
+throwing lookup (no longer reads as "not registered"; stays scanning, countdown when rate-limited),
+not-found with "Scan again" keeping the typed code, camera blocked vs none. **Commit:** offline or server
+failure → a new **unsent** state that keeps the staged transaction **and its `idempotencyKey`** ("Try
+again" re-sends the same key with no second hold; "Discard" warns the card may already show it);
+`rate_limited` → the same state with a counting Try again and new staging blocked meanwhile; `over_cap`
+re-reads the card to name the real limit; a partially refused redemption → a new **done** state naming
+what saved and each reward not redeemed. Bug fixed: the camera started before the auth guard let its
+region exist and wrongly said "no camera" on reload. `Login` disables Sign in with a live countdown
+(`LoginResult.retryAfterSec`); `Panel`'s "your last hour" shows an error + Try again instead of a false
+empty state.
+**Customer** (designed here, no prior art; "Your card is safe" only on read paths where it is true).
+`EntryResolver` no longer sends a phone to `/welcome` when `identity.get()` fails ("We couldn't check for
+your card" + Try again; new `useEntryResolution()`); `Card` shows an error + Try again on first-load
+failure (no endless skeleton) and keeps the last-seen card under a banner on a connectivity refresh
+failure — **that refresh path has no trigger until UI-5 wires liveness into `Card`'s load effect**;
+`Register`, `LostCard` (separate send/check countdowns), `CardMenu` and `EnlargedQr` report failures in
+place.
+**Admin.** `_parts/adminFailure.ts` (`adminFailureMessage` / `adminActionMessage`, `null` for session
+failures). **`ConfirmSheet` contract change:** it catches a rejected `onConfirm` and shows the failure
+inside the sheet (`role="alert"`), staying open; new optional `describeError`. The admin load has an
+error state + Try again (sections hidden until the first success, stale loads ignored); `AlertDetail`
+reports lookup failures in its row; `AccountSheet.describeFailure` and `ProgramEdit.describeSaveError`
+are rebuilt on the shared mapper. **Register rows done in UI-4:** S3, and the local halves of X2.
+**Known gaps this leaves (UI-5 and later):** background (SSE-triggered) failures staying silent is UI-5
+(X2); `Card` and `Panel` still load once per visit until then; `AccountSheet` still uses `window.prompt`
+(reset password) and `window.confirm` (delete); `Card`, `EntryResolver` and `CardMenu` have no countdown
+because their routes are not rate-limited; a device with a live cookie but nothing persisted is not
+adopted at boot; `e2e/` does not run (UI-6).
+
+**Prior:** 2026-10-04 (**UI pass — UI-3: the screens whose behaviour the backend changed**
+(branch `claude/backend-implementation-2kqb08`)). **Verification
 (2026-10-04, Node 22, as reported by the implementer):** `@cafe/shared` **7 files / 85 tests** (was 73:
 new `config.test.ts`, rewritten `validation.test.ts`), `@cafe/server` **439** (unchanged, green),
 `@cafe/web` **47 files / 360 tests** = **40 `ui` files / 293 tests + 7 `live` files / 67 tests** (was
@@ -821,9 +866,9 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
   `IndexedDbStore`, the suite's former second adapter; the `@cafe/conformance` alias is gone.
 - **`@cafe/web` compiles and its suite is green (UI-2, 2026-10-04)** — it was red on purpose from
   Phase 6 until then (9 of 47 test files not loading and 39 `tsc` errors before UI-0; 6 of 44 and 15
-  before UI-2). Now (after UI-3): **0 `tsc` errors, 47 test files, 360 tests, all loading and passing**,
+  before UI-2). Now (after UI-4): **0 `tsc` errors, 51 test files, 472 tests, all loading and passing**,
   and `npm run build -w @cafe/web` produces a bundle. Two Vitest projects (`packages/web/vitest.projects.ts`):
-  **`ui`** — 40 jsdom files, 293 tests, no server needed (`npx vitest --project ui`) — and **`live`** — 7 node
+  **`ui`** — 44 jsdom files, 405 tests, no server needed (`npx vitest --project ui`) — and **`live`** — 7 node
   files, 67 tests, run against the real server and a test Postgres (`tests/live/`). **`npm test -w
   @cafe/web` therefore needs Postgres, fails rather than skips without one, and needs Node 22.**
   **`@cafe/shared` — 85 tests in 7 files** (73 before UI-3), green independently (the six domain suites, moved out of the SPA's
@@ -1155,10 +1200,10 @@ actions).
 Three separate suites since Phase 10 split the repo into packages — there is no longer a single
 `npm test`. `npm test -w @cafe/shared` runs **85 tests in 7 files** (UI-3; it was 73 — new `config.test.ts`,
 rewritten `validation.test.ts`; green, independent of the SPA).
-`npm test -w @cafe/web` runs **360 tests in 47 files, none failing to load** (UI-3, 2026-10-04; it was
-310 in 44 after UI-2, 257 passing in 40 of 46 loading files before UI-2, 180 in 38 of 44 before UI-1,
+`npm test -w @cafe/web` runs **472 tests in 51 files, none failing to load** (UI-4, 2026-10-04; it was
+360 in 47 after UI-3, 310 in 44 after UI-2, 257 passing in 40 of 46 loading files before UI-2, 180 in 38 of 44 before UI-1,
 and 189 in 38 of 47 before UI-0) as two Vitest projects defined in `packages/web/vitest.projects.ts`:
-**`ui`** — 40 jsdom files / 293 tests, including the co-located `packages/web/src/ui/**/*.test.tsx` —
+**`ui`** — 44 jsdom files / 405 tests (UI-4 added `tests/ui/common/failure.test.tsx` and the new failure-state cases), including the co-located `packages/web/src/ui/**/*.test.tsx` —
 and **`live`** — 7 node files in `packages/web/tests/live/`, 67 tests, run against the real server and a test Postgres. The
 `live` project **needs a database and fails, never skips, without one**; its `pretest` rebuilds the
 server's `dist/`. Under Node 25 the `ui` project breaks (built-in `localStorage` shadows jsdom's) —
@@ -1367,14 +1412,14 @@ unit tests cannot.
   the server (UI-1b) and the SPA (UI-2) — both are now a plain confirmation with no credential
   (`ConfirmSheet`; `ProgramEdit`'s Save). Per-row staff mutations are still un-gated, and "set PIN"
   no longer exists.
-- **Known SPA gaps after UI-3 (UI-4 onward):** no error or offline state is on screen outside the
-  config editor and the account sheet (S3, X2's local halves) and the recovery rate-limit countdown is
-  unbuilt (UI-4); per-screen error mapping (`describeSaveError`, `describeFailure`) may be
-  consolidated; "Reset password" still uses `window.prompt` and admin Delete `window.confirm`; a device
-  with a live cookie but nothing persisted is not adopted at boot; `Card` and `Panel` load once per
-  visit until UI-5's SSE subscriber; `e2e/` does not run (UI-6). *(The recovery code-entry screen
-  (C2), `Register`'s optional name/email and `email_in_use` (C1) and the boot reconcile (X1) were
-  closed by UI-3.)*
+- **Known SPA gaps after UI-4 (UI-5 onward):** background (SSE-triggered) failures staying silent is
+  UI-5's (X2); `Card` and `Panel` load once per visit until UI-5's SSE subscriber, and `Card`'s
+  refresh-failure banner has no trigger until then; "Reset password" still uses `window.prompt` and
+  admin Delete `window.confirm`; a device with a live cookie but nothing persisted is not adopted at
+  boot; `e2e/` does not run (UI-6). *(Closed by UI-4: error and offline states on screen — S3 and X2's
+  local halves — and the rate-limit countdowns, including the recovery one; per-screen error mapping is
+  consolidated on `ui/common/failure.ts`. Closed by UI-3: the recovery code-entry screen (C2),
+  `Register`'s optional name/email and `email_in_use` (C1) and the boot reconcile (X1).)*
 - **Remember-me hardening is deferred, not dropped** (S1, 2026-10-03). A remembered till stays
   signed in for 30 days with no idle rule (true on the server since UI-1b, 2026-10-04); the
   security round on that has no phase yet.

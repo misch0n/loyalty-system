@@ -9,6 +9,11 @@
  *
  * On success both roles land on the counter. UI → services only (via `useAuth`);
  * never touches adapters.
+ *
+ * Failures stay on the form (X2 `action` scope, never a toast): a wrong
+ * password says so; too many attempts disables Sign in and counts the
+ * server's `retry-after` down on the button; a sign-in that could not be asked
+ * says whether the connection or the server failed (`failureMessage`).
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -19,6 +24,8 @@ import { Button } from '../../../components/Button/Button';
 import { Field, Toggle } from '../../../components/Field/Field';
 import { useAuth } from '../../../app/AuthContext';
 import { ROUTES } from '../../../app/routes';
+import { DEFAULT_WAIT_SEC, failureMessage } from '../../../common/failure';
+import { formatWait, useRetryCountdown } from '../../../common/useRetryCountdown';
 import './Login.css';
 
 export function Login(): JSX.Element {
@@ -29,10 +36,13 @@ export function Login(): JSX.Element {
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The rate-limit sentence; shown only while its countdown runs. */
+  const [limitNote, setLimitNote] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const wait = useRetryCountdown();
 
   async function onSubmit() {
-    if (submitting) return;
+    if (submitting || wait.waiting) return;
     if (!username.trim() || !password) {
       setError('Enter your username and password.');
       return;
@@ -43,17 +53,24 @@ export function Login(): JSX.Element {
       const result = await loginWithPassword(username.trim(), password, remember);
       if (!result.ok || !result.actor) {
         setPassword('');
+        if (result.retryAfterSec !== undefined) {
+          setLimitNote(result.reason ?? 'Too many sign-in attempts.');
+          wait.start(result.retryAfterSec ?? DEFAULT_WAIT_SEC);
+          return;
+        }
         setError(result.reason ?? "That didn't match. Try again.");
         return;
       }
       // Both roles land on the counter; admins open the admin panel from there.
       navigate(ROUTES.staff, { replace: true });
-    } catch {
-      setError('Could not sign in. Check your connection and try again.');
+    } catch (err) {
+      setError(failureMessage(err, 'Couldn’t sign in. Try again.'));
     } finally {
       setSubmitting(false);
     }
   }
+
+  const shownError = error ?? (wait.waiting ? limitNote : null);
 
   return (
     <div className="screen bg-cream center staff-login">
@@ -104,14 +121,18 @@ export function Login(): JSX.Element {
             <Toggle on={remember} onChange={setRemember} label="Remember this device" />
           </div>
 
-          {error && (
+          {shownError && (
             <p className="staff-login__error" role="alert">
-              {error}
+              {shownError}
             </p>
           )}
 
-          <Button variant="forest" type="submit" disabled={submitting}>
-            {submitting ? 'Signing in…' : 'Sign in'}
+          <Button variant="forest" type="submit" disabled={submitting || wait.waiting}>
+            {submitting
+              ? 'Signing in…'
+              : wait.waiting
+                ? `Try again in ${formatWait(wait.secondsLeft)}`
+                : 'Sign in'}
           </Button>
         </form>
 

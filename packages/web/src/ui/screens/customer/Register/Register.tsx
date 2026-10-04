@@ -18,8 +18,14 @@
  *   - `400 invalid_details` — a blank name or a malformed address the form's
  *     own checks missed; both fields are flagged, since the server does not say
  *     which.
- * Anything else keeps the generic form error (the rest of the error matrix —
- * rate limits included — is UI-4's).
+ *   - `429 rate_limited` — the button is disabled and counts the server's
+ *     `retry-after` down ("Try again in 45 s"), with one line saying why; both
+ *     go when the wait is over (UI-4).
+ * Anything else is one sentence under the form from the shared
+ * {@link failureMessage}: can't reach (check the connection) is kept apart from
+ * the server failing (wait), a till gets "use your own phone", and the fallback
+ * blames nobody. None of it is a toast or a banner (X2: action failures stay at
+ * the control; the global banner covers connectivity on its own).
  *
  * A discreet gesture-bearing LogoMark sits in the header so the home/staff
  * gestures stay reachable on a screen the reference renders mark-less.
@@ -36,12 +42,16 @@ import { GestureLogo } from '../../../app/LogoGestures';
 import { ROUTES, cardPath } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
 import { PrivacyNotice } from '../../../common/PrivacyNotice';
+import { failureMessage, retryAfterOf } from '../../../common/failure';
+import { formatWait, useRetryCountdown } from '../../../common/useRetryCountdown';
 import { isApiError } from '../../../../services/errors';
 import { isValidEmail, type FieldError } from '@cafe/shared/domain/validation';
 import type { LostCardState } from '../LostCard/LostCard';
 import './Register.css';
 
 type FieldName = FieldError['field'];
+
+const CREATE_FAILED = 'Couldn’t create your card. Try again.';
 
 export function Register() {
   const navigate = useNavigate();
@@ -57,6 +67,9 @@ export function Register() {
   const [emailTaken, setEmailTaken] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // A `rate_limited` refusal: the wait on the button, and why, until it is over.
+  const countdown = useRetryCountdown();
+  const [limitNote, setLimitNote] = useState<string | null>(null);
 
   // Inline email-format validation: a typed address must be plausible before we
   // let them submit. A blank one is caught on submit, as a required field.
@@ -75,7 +88,7 @@ export function Register() {
   }, [email]);
 
   async function onSubmit() {
-    if (submitting) return;
+    if (submitting || countdown.waiting) return;
     if (emailInvalid) {
       setShowEmailError(true);
       return;
@@ -109,7 +122,13 @@ export function Register() {
           email: 'Check your email address, then try again.',
         });
       } else {
-        setFormError('Could not create your card. Check your connection and try again.');
+        const wait = retryAfterOf(err);
+        if (wait !== null) {
+          countdown.start(wait);
+          setLimitNote(failureMessage(err, CREATE_FAILED));
+        } else {
+          setFormError(failureMessage(err, CREATE_FAILED));
+        }
       }
     } finally {
       setSubmitting(false);
@@ -127,6 +146,9 @@ export function Register() {
       (showEmailError
         ? 'Enter a valid email address.'
         : 'For a code to get your card back, and to tell you when a free coffee is ready.');
+
+  // The rate-limit line lives exactly as long as its countdown.
+  const shownError = formError ?? (countdown.waiting ? limitNote : null);
 
   return (
     <div className="screen bg-cream">
@@ -209,14 +231,22 @@ export function Register() {
           </p>
         )}
 
-        {formError && (
+        {shownError && (
           <p className="register-form-error" role="alert">
-            {formError}
+            {shownError}
           </p>
         )}
 
-        <Button variant="forest" disabled={submitting || emailInvalid} onClick={onSubmit}>
-          {submitting ? 'Creating your card…' : 'Create my card'}
+        <Button
+          variant="forest"
+          disabled={submitting || emailInvalid || countdown.waiting}
+          onClick={onSubmit}
+        >
+          {submitting
+            ? 'Creating your card…'
+            : countdown.waiting
+              ? `Try again in ${formatWait(countdown.secondsLeft)}`
+              : 'Create my card'}
         </Button>
       </div>
 

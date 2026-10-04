@@ -24,6 +24,7 @@ import { Button } from '../../../../components/Button/Button';
 import { Field } from '../../../../components/Field/Field';
 import { Sheet } from '../../../../components/Sheet/Sheet';
 import { isApiError } from '../../../../../services/errors';
+import { adminFailureMessage } from '../adminFailure';
 import './ProgramEdit.css';
 
 export interface ProgramEditProps {
@@ -47,38 +48,25 @@ export interface ProgramEditProps {
   onConfirm: (value: number) => void | Promise<void>;
 }
 
-/** The range, as a sentence fragment. */
 /** The same pause Register waits before flagging a half-typed email. */
 const RANGE_MESSAGE_DELAY_MS = 600;
 
+/** The range, as a sentence fragment. */
 function rangeText(min: number, max: number): string {
   return `${min} to ${max}`;
 }
 
-/** What went wrong with a save, in words the admin can act on. */
-export function describeSaveError(err: unknown, min: number, max: number): string {
-  if (isApiError(err)) {
-    const { failure } = err;
-    switch (failure.kind) {
-      case 'offline':
-        return 'Couldn’t reach the server, so nothing was saved. Check the connection and try again.';
-      case 'server':
-        return 'The server couldn’t save that just now. Try again in a moment.';
-      case 'signed_out':
-        return 'You’ve been signed out, so nothing was saved. Sign in again to make this change.';
-      case 'forbidden':
-        return 'Only an admin account can change the program.';
-      case 'rate_limited':
-        return 'Too many changes in a row. Wait a moment, then save again.';
-      case 'rejected':
-        return failure.code === 'rejected_field'
-          ? 'That setting can’t be changed here.'
-          : `The server didn’t accept that value. Enter a whole number from ${rangeText(min, max)}.`;
-      default:
-        break;
-    }
-  }
-  return 'Couldn’t save that change. Try again.';
+/**
+ * What went wrong with a save, in words the admin can act on. Offline, server,
+ * out-of-date-page, signed-out and rate-limit wording is the admin-wide one
+ * (`adminFailure.ts`); only a refused value is this editor's own to explain.
+ */
+function describeSaveError(err: unknown, min: number, max: number): string | null {
+  const rejected =
+    isApiError(err) && err.failure.kind === 'rejected' && err.failure.code === 'rejected_field'
+      ? 'That setting can’t be changed here.'
+      : `The server didn’t accept that value. Enter a whole number from ${rangeText(min, max)}.`;
+  return adminFailureMessage(err, 'Couldn’t save that change. Try again.', { rejected });
 }
 
 export function ProgramEdit({
