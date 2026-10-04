@@ -18,7 +18,7 @@
  *
  * Deliberate behaviours, each load-bearing rather than incidental:
  *   • **Credentials are hashed here** (argon2id), never stored as given —
- *     BACKEND-PLAN §4-A. The port's `password`/`pin` parameters carry the
+ *     BACKEND-PLAN §4-A. The port's `password` parameters carry the
  *     plaintext; whatever the client sends *is* the credential, so hashing it is
  *     the store's job, not the caller's. (Phase 6 renamed those parameters: they
  *     used to say `passwordHash`, and no caller ever passed a hash.)
@@ -126,7 +126,6 @@ interface StaffRow {
   username: string;
   name: string | null;
   password_hash: string;
-  pin_hash: string | null;
   role: StaffAccount['role'];
   active: boolean;
   created_at: Date;
@@ -163,7 +162,7 @@ const TRANSACTION_COLUMNS =
 const REWARD_COLUMNS =
   'id, token, short_code, owner_id, status, issued_at, source_txn_id, description_snapshot, spent_at, spent_by_staff_id';
 const REWARD_EVENT_COLUMNS = 'id, reward_id, type, customer_id, staff_id, timestamp, details';
-const STAFF_COLUMNS = 'id, username, name, password_hash, pin_hash, role, active, created_at';
+const STAFF_COLUMNS = 'id, username, name, password_hash, role, active, created_at';
 const AUDIT_COLUMNS = 'id, actor_id, actor_role, action, target_id, details, timestamp';
 const CONFIG_COLUMNS = `points_per_reward, reward_description, points_per_purchase,
   max_points_per_transaction, card_inactivity_days, session_epoch, dismissed_alerts,
@@ -276,10 +275,9 @@ function toStaff(row: StaffRow): StaffAccount {
     id: row.id,
     username: row.username,
     name: opt(row.name),
-    // The argon2id digest. `StaffAccount.passwordHash`/`pin` are documented as
-    // holding a hash in production; routes must never serialize either (Phase 4).
+    // The argon2id digest. `StaffAccount.passwordHash` is documented as holding
+    // a hash in production; routes must never serialize it (Phase 4).
     passwordHash: row.password_hash,
-    pin: opt(row.pin_hash),
     role: row.role,
     active: row.active,
     createdAt: row.created_at.toISOString(),
@@ -809,21 +807,18 @@ export class PostgresStore implements TrustedStore {
   // ── staff & config ──────────────────────────────────────────────────────────
 
   /**
-   * BACKEND-PLAN §4-A: `password` and `pin` are **plaintext** — whatever reaches
-   * the server is the secret — so they are hashed here with argon2id and the
+   * BACKEND-PLAN §4-A: `password` is **plaintext** — whatever reaches the
+   * server is the secret — so it is hashed here with argon2id and the
    * plaintext is never stored. The input field was called `passwordHash` until
    * Phase 6, which is the same fact told as a lie.
    */
   async createStaff(input: CreateStaffInput): Promise<StaffAccount> {
-    const [passwordHash, pinHash] = await Promise.all([
-      hashSecret(input.password),
-      input.pin ? hashSecret(input.pin) : Promise.resolve(null),
-    ]);
+    const passwordHash = await hashSecret(input.password);
     const { rows } = await this.db.query<StaffRow>(
-      `INSERT INTO staff_accounts (id, username, name, password_hash, pin_hash, role, active, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, true, $7)
+      `INSERT INTO staff_accounts (id, username, name, password_hash, role, active, created_at)
+       VALUES ($1, $2, $3, $4, $5, true, $6)
        RETURNING ${STAFF_COLUMNS}`,
-      [generateId(), input.username, input.name ?? null, passwordHash, pinHash, input.role, this.now()],
+      [generateId(), input.username, input.name ?? null, passwordHash, input.role, this.now()],
     );
     return toStaff(required(rows[0], 'Staff insert returned no row.'));
   }
@@ -837,23 +832,12 @@ export class PostgresStore implements TrustedStore {
     return row ? toStaff(row) : null;
   }
 
-  // `getStaffByPin` is deliberately absent, and Phase 6 took it off the port
-  // rather than leaving it implemented with a guardrail test warning nobody to
-  // call it. A global "which account has this PIN?" search is an unauthenticated
-  // credential oracle over HTTP, brute-forceable across the whole staff table at
-  // four digits (BACKEND-PLAN §4-B). PIN re-auth is `POST /auth/unlock`, which
-  // verifies a PIN against the account this device's session already names.
-
   async setStaffActive(id: string, active: boolean): Promise<void> {
     await this.updateStaff(id, 'active = $2', [active]);
   }
 
   async setStaffPassword(id: string, password: string): Promise<void> {
     await this.updateStaff(id, 'password_hash = $2', [await hashSecret(password)]);
-  }
-
-  async setStaffPin(id: string, pin: string): Promise<void> {
-    await this.updateStaff(id, 'pin_hash = $2', [await hashSecret(pin)]);
   }
 
   private async updateStaff(id: string, assignment: string, params: unknown[]): Promise<void> {
@@ -1121,9 +1105,10 @@ export class PostgresStore implements TrustedStore {
 
       for (const s of snapshot.staff) {
         await tx.query(
-          `INSERT INTO staff_accounts (id, username, name, password_hash, pin_hash, role, active, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [s.id, s.username, s.name ?? null, s.passwordHash, s.pin ?? null, s.role, s.active, s.createdAt],
+          // Named fields only: a legacy snapshot's `pin` (pre-UI-1b) is ignored.
+          `INSERT INTO staff_accounts (id, username, name, password_hash, role, active, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [s.id, s.username, s.name ?? null, s.passwordHash, s.role, s.active, s.createdAt],
         );
       }
 

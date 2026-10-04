@@ -147,14 +147,9 @@ jobs:
           POSTGRES_DB=cafe_loyalty
           BOOTSTRAP_ADMIN_USERNAME=ci-admin
           BOOTSTRAP_ADMIN_PASSWORD=ci-throwaway-admin-password
-          BOOTSTRAP_ADMIN_PIN=43265187
           BOOTSTRAP_ADMIN_NAME=CI Admin
           LOG_LEVEL=info
           EOF
-          # The PIN is eight digits rather than the usual four so that the log
-          # scan below can match it literally: a four-digit needle is short
-          # enough to turn up inside a timestamp or a port number and fail the
-          # build for nothing.
 
       # Builds the one image the bundle ships: `api` and `migrate` are the same
       # image with a different command, so this covers both. `web` is not built —
@@ -196,7 +191,6 @@ jobs:
             fi
           done <<'EOF'
           ci-throwaway-admin-password|the admin password
-          43265187|the admin PIN
           Smoke Test|a customer's name
           @example.test|a customer's email address
           EOF

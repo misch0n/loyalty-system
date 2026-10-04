@@ -182,7 +182,6 @@ describe('parseEnv', () => {
     const ADMIN = {
       BOOTSTRAP_ADMIN_USERNAME: 'manager',
       BOOTSTRAP_ADMIN_PASSWORD: 'correct-horse',
-      BOOTSTRAP_ADMIN_PIN: '4321',
     };
 
     it('parses a complete set', () => {
@@ -191,7 +190,6 @@ describe('parseEnv', () => {
       expect(env.bootstrapAdmin).toEqual({
         username: 'manager',
         password: 'correct-horse',
-        pin: '4321',
         name: 'Manager',
       });
     });
@@ -202,16 +200,18 @@ describe('parseEnv', () => {
       expect(found).toEqual([expect.stringContaining('must be set together')]);
     });
 
-    it('rejects a short password and a non-numeric PIN', () => {
-      const found = problems({
-        ...MINIMAL,
-        ...ADMIN,
-        BOOTSTRAP_ADMIN_PASSWORD: 'short',
-        BOOTSTRAP_ADMIN_PIN: 'abcd',
-      });
+    it('rejects a short password without echoing it', () => {
+      const found = problems({ ...MINIMAL, ...ADMIN, BOOTSTRAP_ADMIN_PASSWORD: 'short' });
 
-      expect(found).toHaveLength(2);
+      expect(found).toEqual([expect.stringContaining('BOOTSTRAP_ADMIN_PASSWORD')]);
       expect(found.join(' ')).not.toContain('short');
+    });
+
+    it('ignores a leftover PIN from a pre-UI-1b .env, so the deployment still boots', () => {
+      // SCOPE-DECISIONS §6.3 retired the PIN; an un-edited .env must not break boot.
+      const env = parseEnv({ ...MINIMAL, ...ADMIN, BOOTSTRAP_ADMIN_PIN: 'abcd' });
+
+      expect(env.bootstrapAdmin).toEqual({ username: 'manager', password: 'correct-horse' });
     });
   });
 });

@@ -7,9 +7,9 @@
  * like a hash — replayable by anyone who reads the database. TLS protects it in
  * transit; argon2id protects it at rest.
  *
- * Passwords and PINs use the same function. A 4-digit PIN has no meaningful
- * entropy whatever the KDF, so its protection is rate limiting and lockout
- * (Phase 3) — hashing it only stops a database reader from walking up to a till.
+ * Passwords are the only staff credential hashed here — the quick-unlock PIN
+ * was removed (SCOPE-DECISIONS §6.3). Rate limiting and lockout (Phase 3)
+ * stand beside the KDF: it slows an offline attacker, they slow an online one.
  */
 
 import argon2 from 'argon2';

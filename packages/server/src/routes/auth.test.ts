@@ -1,8 +1,9 @@
 /**
  * The auth routes, end to end against a real database and a real Fastify.
  *
- * This is the phase's "done when": sign-in, PIN unlock, the idle lock and "sign
- * out all devices" working over HTTP. Everything goes through `app.inject`, so
+ * This is the phase's "done when": sign-in, a session that lasts until its TTL
+ * (no PIN, no idle lock — SCOPE-DECISIONS §6.3) and "sign out all devices"
+ * working over HTTP. Everything goes through `app.inject`, so
  * the cookies, the CSRF header and the status codes are the ones a browser would
  * actually see — a test that called the handlers directly would prove nothing
  * about the boundary, which is where all of this lives.
@@ -12,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import type { AuthDeps } from '../auth/guards.js';
 import { createAuthDeps, CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from '../auth/guards.js';
-import { IDLE_LOCK_MS } from '../auth/sessions.js';
+import { EPHEMERAL_TTL_MS, REMEMBERED_TTL_MS } from '../auth/sessions.js';
 import type { Db } from '../db.js';
 import { migrate } from '../migrate.js';
 import { PostgresStore } from '../PostgresStore.js';
@@ -20,7 +21,8 @@ import { buildServer } from '../server.js';
 import { resetSchema, testPool } from '../testing/database.js';
 
 const PASSWORD = 'correct horse battery staple';
-const PIN = '4821';
+/** The retired idle lock's window. Sessions must now outlast it. */
+const FIVE_MINUTES = 5 * 60 * 1000;
 
 let db: Db;
 let store: PostgresStore;
@@ -91,14 +93,13 @@ async function send(jar: Jar, options: InjectOptions) {
 
 async function createAccount(
   username: string,
-  over: { role?: 'admin' | 'staff'; pin?: string; name?: string } = {},
+  over: { role?: 'admin' | 'staff'; name?: string } = {},
 ) {
   return store.createStaff({
     username,
     password: PASSWORD,
     role: over.role ?? 'staff',
     name: over.name,
-    pin: over.pin ?? PIN,
   });
 }
 
@@ -175,10 +176,8 @@ describe('POST /auth/login', () => {
     const serialized = JSON.stringify(body);
 
     expect(serialized).not.toContain(PASSWORD);
-    expect(serialized).not.toContain(PIN);
     expect(serialized).not.toContain('$argon2');
     expect(body).not.toHaveProperty('actor.passwordHash');
-    expect(body).not.toHaveProperty('actor.pin');
   });
 
   it('verifies the stored hash instead of comparing it (§4-A)', async () => {
@@ -345,7 +344,7 @@ describe('sign-in rate limiting', () => {
   });
 });
 
-// ── the session, the idle lock, and PIN unlock ────────────────────────────────
+// ── the session: TTL only, no idle lock ───────────────────────────────────────
 
 describe('GET /auth/session', () => {
   it('answers anon for a visitor with no cookie, and does not treat it as an error', async () => {
@@ -375,150 +374,64 @@ describe('GET /auth/session', () => {
     expect(response.json()).toMatchObject({ status: 'anon' });
   });
 
-  it('locks a remembered terminal after five idle minutes', async () => {
+  it('keeps a remembered till signed in after more than five idle minutes', async () => {
+    // SCOPE-DECISIONS §6.3: a shared till, no PIN, no idle lock. "Remember me"
+    // is how a login persists.
     await createAccount('ada');
     const { jar } = await signIn('ada', { remember: true });
 
-    clock += IDLE_LOCK_MS + 1;
-    const response = await send(jar, { method: 'GET', url: '/auth/session' });
-    expect(response.json()).toMatchObject({ status: 'locked', actor: { username: 'ada' } });
+    clock += FIVE_MINUTES + 1;
+    expect((await send(jar, { method: 'GET', url: '/auth/session' })).json()).toMatchObject({
+      status: 'active',
+      actor: { username: 'ada' },
+      remembered: true,
+    });
+
+    // And it can still act — the staff guard has no locked state to refuse.
+    clock += 6 * 60 * 60 * 1000;
+    expect((await send(jar, { method: 'GET', url: '/config' })).statusCode).toBe(200);
   });
 
-  it('signs a non-remembered device out entirely after the same idle window', async () => {
+  it('keeps a non-remembered device signed in past five idle minutes too', async () => {
     await createAccount('ada');
     const { jar } = await signIn('ada', { remember: false });
 
-    clock += IDLE_LOCK_MS + 1;
+    clock += FIVE_MINUTES + 1;
+    expect((await send(jar, { method: 'GET', url: '/auth/session' })).json()).toMatchObject({
+      status: 'active',
+      remembered: false,
+    });
+  });
+
+  it('still ends a remembered session at its 30-day TTL', async () => {
+    await createAccount('ada');
+    const { jar } = await signIn('ada', { remember: true });
+
+    clock += REMEMBERED_TTL_MS - 1_000;
+    expect((await send(jar, { method: 'GET', url: '/auth/session' })).json()).toMatchObject({
+      status: 'active',
+    });
+
+    // Use does not extend it: the TTL is absolute.
+    clock += 1_000;
     expect((await send(jar, { method: 'GET', url: '/auth/session' })).json()).toMatchObject({
       status: 'anon',
     });
   });
 
-  it('keeps a terminal active while it is being used', async () => {
+  it('still ends a one-off sign-in at its 12-hour TTL', async () => {
     await createAccount('ada');
-    const { jar } = await signIn('ada');
+    const { jar } = await signIn('ada', { remember: false });
 
-    for (let i = 0; i < 3; i += 1) {
-      clock += IDLE_LOCK_MS - 1_000;
-      expect((await send(jar, { method: 'GET', url: '/auth/session' })).json()).toMatchObject({
-        status: 'active',
-      });
-    }
-  });
-});
-
-describe('POST /auth/unlock', () => {
-  it('re-authenticates a locked terminal with its PIN', async () => {
-    await createAccount('ada', { pin: '1357' });
-    const { jar } = await signIn('ada');
-    clock += IDLE_LOCK_MS + 1;
-
-    const response = await send(jar, {
-      method: 'POST',
-      url: '/auth/unlock',
-      payload: { pin: '1357' },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ status: 'active', actor: { username: 'ada' } });
+    clock += EPHEMERAL_TTL_MS - 1_000;
     expect((await send(jar, { method: 'GET', url: '/auth/session' })).json()).toMatchObject({
       status: 'active',
     });
-  });
 
-  it('refuses the wrong PIN and leaves the terminal locked', async () => {
-    await createAccount('ada', { pin: '1357' });
-    const { jar } = await signIn('ada');
-    clock += IDLE_LOCK_MS + 1;
-
-    const response = await send(jar, {
-      method: 'POST',
-      url: '/auth/unlock',
-      payload: { pin: '9999' },
-    });
-
-    expect(response.statusCode).toBe(401);
-    expect(response.json()).toEqual({ error: 'invalid_credentials' });
+    clock += 1_000;
     expect((await send(jar, { method: 'GET', url: '/auth/session' })).json()).toMatchObject({
-      status: 'locked',
+      status: 'anon',
     });
-  });
-
-  it('is not a global PIN search (§4-B)', async () => {
-    // The prototype's `getStaffByPin` finds WHICHEVER account holds the PIN. Over
-    // HTTP that is a credential oracle over the whole staff table at four digits.
-    // Here another account's PIN is simply a wrong PIN.
-    await createAccount('ada', { pin: '1357' });
-    await createAccount('grace', { pin: '2468' });
-    const { jar } = await signIn('ada');
-    clock += IDLE_LOCK_MS + 1;
-
-    const response = await send(jar, {
-      method: 'POST',
-      url: '/auth/unlock',
-      payload: { pin: '2468' },
-    });
-
-    expect(response.statusCode).toBe(401);
-    expect((await send(jar, { method: 'GET', url: '/auth/session' })).json()).toMatchObject({
-      status: 'locked',
-      actor: { username: 'ada' },
-    });
-  });
-
-  it('has nothing to unlock without a session', async () => {
-    await createAccount('ada', { pin: '1357' });
-    const response = await app.inject({
-      method: 'POST',
-      url: '/auth/unlock',
-      payload: { pin: '1357' },
-    });
-    expect(response.statusCode).toBe(401);
-    expect(response.json()).toEqual({ error: 'unauthorized' });
-  });
-
-  it('locks the PIN out after five misses', async () => {
-    await createAccount('ada', { pin: '1357' });
-    const { jar } = await signIn('ada');
-    clock += IDLE_LOCK_MS + 1;
-
-    for (let i = 0; i < 5; i += 1) {
-      const miss = await send(jar, {
-        method: 'POST',
-        url: '/auth/unlock',
-        payload: { pin: '0000' },
-      });
-      expect(miss.statusCode).toBe(401);
-    }
-
-    const locked = await send(jar, {
-      method: 'POST',
-      url: '/auth/unlock',
-      payload: { pin: '1357' },
-    });
-    expect(locked.statusCode).toBe(429);
-    expect(locked.headers['retry-after']).toBe('900');
-  });
-
-  it('rejects a PIN that is not 4-8 digits before it costs a verify', async () => {
-    await createAccount('ada', { pin: '1357' });
-    const { jar } = await signIn('ada');
-
-    const response = await send(jar, { method: 'POST', url: '/auth/unlock', payload: { pin: 'abc' } });
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: 'invalid_request' });
-  });
-
-  it('audits an unlock and a failed unlock against the account', async () => {
-    const account = await createAccount('ada', { pin: '1357' });
-    const { jar } = await signIn('ada');
-    clock += IDLE_LOCK_MS + 1;
-    await send(jar, { method: 'POST', url: '/auth/unlock', payload: { pin: '9999' } });
-    await send(jar, { method: 'POST', url: '/auth/unlock', payload: { pin: '1357' } });
-
-    const failed = await store.listAudit({ action: 'staff.login.failed' });
-    expect(failed.some((entry) => entry.targetId === account.id)).toBe(true);
-    expect(JSON.stringify(failed)).not.toContain('1357');
   });
 });
 
@@ -542,14 +455,6 @@ describe('POST /auth/logout', () => {
       headers: { cookie: `${SESSION_COOKIE}=${sessionToken}` },
     });
     expect(replay.json()).toMatchObject({ status: 'anon' });
-  });
-
-  it('signs a locked terminal out too', async () => {
-    await createAccount('ada');
-    const { jar } = await signIn('ada');
-    clock += IDLE_LOCK_MS + 1;
-
-    expect((await send(jar, { method: 'POST', url: '/auth/logout' })).statusCode).toBe(204);
   });
 
   it('succeeds for a caller who was not signed in', async () => {
@@ -590,14 +495,13 @@ describe('POST /auth/logout-all', () => {
     expect(response.statusCode).toBe(401);
   });
 
-  it('is refused to a locked admin terminal', async () => {
+  it('works from an admin till that has sat idle — there is no lock to clear first', async () => {
     await createAccount('root', { role: 'admin' });
     const { jar } = await signIn('root');
-    clock += IDLE_LOCK_MS + 1;
+    clock += FIVE_MINUTES + 1;
 
     const response = await send(jar, { method: 'POST', url: '/auth/logout-all' });
-    expect(response.statusCode).toBe(401);
-    expect(response.json()).toEqual({ error: 'locked' });
+    expect(response.statusCode).toBe(200);
   });
 
   it('audits itself as a config change, the same shape the prototype writes', async () => {
@@ -763,7 +667,7 @@ describe('the session is the only source of identity', () => {
 // ── credentials never reach a log ─────────────────────────────────────────────
 
 describe('what the logs see', () => {
-  it('records a sign-in without the password, the PIN or the session token', async () => {
+  it('records a sign-in without the password or the session token', async () => {
     // BACKEND-PLAN §6: "credentials are never stored or logged recoverably".
     // The request serializer is an allow-list, so this is a regression guard on
     // the one path that actually handles a credential.
@@ -775,10 +679,9 @@ describe('what the logs see', () => {
       loggerDestination: { write: (line: string) => lines.push(line) },
     });
     await app.ready();
-    await createAccount('ada', { pin: '1357' });
+    await createAccount('ada');
 
     const { jar } = await signIn('ada');
-    await send(jar, { method: 'POST', url: '/auth/unlock', payload: { pin: '1357' } });
     await app.inject({
       method: 'POST',
       url: '/auth/login',
@@ -789,7 +692,6 @@ describe('what the logs see', () => {
     expect(logged.length).toBeGreaterThan(0);
     expect(logged).not.toContain(PASSWORD);
     expect(logged).not.toContain('wrong-but-secret');
-    expect(logged).not.toContain('1357');
     expect(logged).not.toContain(jar[SESSION_COOKIE] ?? 'no-session');
     expect(logged).not.toContain(jar[CSRF_COOKIE] ?? 'no-csrf');
   });

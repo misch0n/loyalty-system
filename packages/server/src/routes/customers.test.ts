@@ -22,9 +22,9 @@ import { resetSchema, testPool } from '../testing/database.js';
 import { send, signIn, type Jar } from '../testing/http.js';
 import { CollectingMailer } from '../testing/mail.js';
 
-const ADMIN = { username: 'owner', password: 'owner-password-1', pin: '1111' };
-const STAFF = { username: 'barista', password: 'barista-password-1', pin: '2222' };
-const OTHER_STAFF = { username: 'colleague', password: 'colleague-password-1', pin: '3333' };
+const ADMIN = { username: 'owner', password: 'owner-password-1' };
+const STAFF = { username: 'barista', password: 'barista-password-1' };
+const OTHER_STAFF = { username: 'colleague', password: 'colleague-password-1' };
 
 let db: Db;
 let store: PostgresStore;

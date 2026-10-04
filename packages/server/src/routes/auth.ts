@@ -1,24 +1,20 @@
 /**
  * Staff authentication routes.
  *
- * Five routes, matching what `AuthContext` already does client-side — sign in,
- * PIN unlock, sign out, sign out everywhere, and "what is my session" for boot
- * reconciliation. The prototype's answers to all five came from localStorage;
- * these are the server's.
+ * Four routes — sign in, sign out, sign out everywhere, and "what is my
+ * session" for boot reconciliation. The prototype's answers came from
+ * localStorage; these are the server's.
  *
- * Two contract problems from BACKEND-PLAN §4 are resolved here:
+ * **There is no PIN and no idle lock** (SCOPE-DECISIONS §6.3, register S1). The
+ * staff device is a shared till; a login lasts until its TTL — 30 days with
+ * "remember me", 12 hours without — and the actor on every audit row is the
+ * signed-in **account**. Audit rows, the counter's "your last hour" and both
+ * alert detectors are therefore per account, not per person at the till. The
+ * former PIN-unlock route went with the PIN.
  *
- *   • **§4-A** — the client never hashes. `POST /auth/login` takes the plaintext
- *     over TLS and hands it to argon2id `verify`; `PostgresStore` did the hashing
- *     when the account was created. Nothing here re-hashes a hash.
- *   • **§4-B** — the port used to carry `getStaffByPin`, a *global* "which
- *     account has this PIN?" search, which over HTTP is an unauthenticated
- *     credential oracle across the whole staff table at four digits. It never
- *     got a route, and Phase 6 removed it from the port outright. `POST
- *     /auth/unlock` verifies the PIN against the account this device's session
- *     already identifies, rate-limited and locked out. That is a real
- *     divergence from prototype behaviour — a device with no session cannot PIN
- *     in at all — and is recorded as one in `STATUS.md`.
+ * **§4-A** — the client never hashes. `POST /auth/login` takes the plaintext
+ * over TLS and hands it to argon2id `verify`; `PostgresStore` did the hashing
+ * when the account was created. Nothing here re-hashes a hash.
  *
  * Every failure answers the same way whatever went wrong (no such account, wrong
  * password, disabled account), so the route is not an account-enumeration
@@ -37,7 +33,7 @@ import {
   type AuthDeps,
 } from '../auth/guards.js';
 import type { RateLimitDecision } from '../auth/rateLimit.js';
-import type { SessionState, StaffActor } from '../auth/sessions.js';
+import type { StaffActor } from '../auth/sessions.js';
 
 const LOGIN_SCHEMA = {
   body: {
@@ -49,15 +45,6 @@ const LOGIN_SCHEMA = {
       password: { type: 'string', minLength: 1, maxLength: 256 },
       remember: { type: 'boolean' },
     },
-  },
-};
-
-const UNLOCK_SCHEMA = {
-  body: {
-    type: 'object',
-    required: ['pin'],
-    additionalProperties: false,
-    properties: { pin: { type: 'string', pattern: '^\\d{4,8}$' } },
   },
 };
 
@@ -84,8 +71,8 @@ function actorOf(account: StaffAccount): StaffActor {
 }
 
 /** The session body every route answers with. Never carries a credential. */
-function sessionBody(actor: StaffActor, state: SessionState, epoch: number) {
-  return { status: state, actor, epoch };
+function sessionBody(actor: StaffActor, epoch: number) {
+  return { status: 'active' as const, actor, epoch };
 }
 
 function firstRefusal(...decisions: RateLimitDecision[]): RateLimitDecision | null {
@@ -114,12 +101,13 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
     if (!auth || auth.record.kind !== 'staff' || !auth.actor) {
       return { status: 'anon', epoch };
     }
-    return { ...sessionBody(auth.actor, auth.state, epoch), remembered: auth.record.remembered };
+    return { ...sessionBody(auth.actor, epoch), remembered: auth.record.remembered };
   });
 
   /**
-   * Username + password — the first sign-in on a device. `remember` makes it a
-   * trusted terminal, which is what buys the PIN unlock after an idle lock.
+   * Username + password — the only sign-in. `remember` makes the login last the
+   * long TTL (30 days) rather than the short one (12 hours); either way it is
+   * never locked for idling.
    */
   app.post<{ Body: LoginBody }>('/auth/login', { schema: LOGIN_SCHEMA }, async (request, reply) => {
     const username = request.body.username.trim();
@@ -170,7 +158,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
     });
 
     return {
-      ...sessionBody(actor, 'active', issued.sessionEpoch),
+      ...sessionBody(actor, issued.sessionEpoch),
       remembered: remember,
       // Also in a script-readable cookie; returned here so a client that cannot
       // read cookies (a native shell, a test) can still make mutating calls.
@@ -179,67 +167,10 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
   });
 
   /**
-   * PIN re-auth for a locked terminal (BACKEND-PLAN §4-B).
-   *
-   * The session names the account; the PIN only proves the person at the till is
-   * still the person who signed in. A device with no session has nothing to
-   * unlock and is told so — it signs in with the full form instead.
-   */
-  app.post<{ Body: { pin: string } }>(
-    '/auth/unlock',
-    { schema: UNLOCK_SCHEMA },
-    async (request, reply) => {
-      const auth = request.auth;
-      const staffId = auth?.record.kind === 'staff' ? auth.record.staffId : null;
-      if (!auth || !staffId) return reply.code(401).send({ error: 'unauthorized' });
-
-      const key = `staff:${staffId}`;
-      const limited = deps.pinLimiter.check(key);
-      if (!limited.allowed) return rateLimited(reply, limited);
-
-      // The port has no `getStaffById`, and adding one to reach a single row is
-      // not worth widening the contract for a café's handful of accounts.
-      const account = (await store.listStaff()).find((candidate) => candidate.id === staffId);
-      const ok =
-        account && account.active && account.pin
-          ? await verifySecret(account.pin, request.body.pin)
-          : false;
-
-      if (!ok || !account) {
-        deps.pinLimiter.fail(key);
-        // Never record the PIN or any account detail beyond the id — it is a credential.
-        await store.appendAudit({
-          actorId: staffId,
-          actorRole: 'system',
-          action: 'staff.login.failed',
-          targetId: staffId,
-        });
-        return reply.code(401).send({ error: 'invalid_credentials' });
-      }
-
-      deps.pinLimiter.succeed(key);
-      await sessions.touch(auth.record.id);
-      const actor = actorOf(account);
-      await store.appendAudit({
-        actorId: actor.id,
-        actorRole: actor.role,
-        action: 'staff.login',
-        targetId: actor.id,
-      });
-
-      return {
-        ...sessionBody(actor, 'active', auth.record.sessionEpoch),
-        remembered: auth.record.remembered,
-      };
-    },
-  );
-
-  /**
    * Sign out this device.
    *
-   * Deliberately not behind `requireStaff`: a **locked** session is still a
-   * session to end, and the guard refuses those. Signing out with no session at
-   * all succeeds too — the caller wanted to be signed out, and they are.
+   * Deliberately not behind `requireStaff`: signing out with no session at all
+   * succeeds — the caller wanted to be signed out, and they are.
    */
   app.post('/auth/logout', async (request, reply) => {
     if (request.auth) {

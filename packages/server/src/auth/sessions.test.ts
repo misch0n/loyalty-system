@@ -2,7 +2,9 @@
  * `SessionStore` against a real database.
  *
  * Every rule here is one the prototype could only *ask* the client to follow —
- * the idle lock, the revocation epoch, "this account is disabled now". The tests
+ * the absolute TTL, the revocation epoch, "this account is disabled now". There
+ * is no idle lock any more (SCOPE-DECISIONS §6.3), and the tests below prove a
+ * session outlasts the window it used to enforce. The tests
  * therefore drive the clock rather than the UI: what matters is that the server
  * refuses, not that a timer in the browser noticed.
  */
@@ -15,7 +17,6 @@ import { resetSchema, testPool } from '../testing/database.js';
 import {
   CUSTOMER_TTL_MS,
   EPHEMERAL_TTL_MS,
-  IDLE_LOCK_MS,
   REMEMBERED_TTL_MS,
   SessionStore,
 } from './sessions.js';
@@ -24,6 +25,9 @@ let db: Db;
 let store: PostgresStore;
 let sessions: SessionStore;
 let clock: number;
+
+/** The retired idle lock's window. Sessions must now outlast it. */
+const FIVE_MINUTES = 5 * 60 * 1000;
 
 beforeAll(async () => {
   db = testPool();
@@ -41,13 +45,12 @@ beforeEach(async () => {
   sessions = new SessionStore(db, () => clock);
 });
 
-async function makeStaff(over: { role?: 'admin' | 'staff'; pin?: string } = {}) {
+async function makeStaff(over: { role?: 'admin' | 'staff' } = {}) {
   return store.createStaff({
     username: `staff-${Math.random().toString(36).slice(2, 8)}`,
     password: 'correct horse',
     role: over.role ?? 'staff',
     name: 'On Shift',
-    pin: over.pin,
   });
 }
 
@@ -117,7 +120,6 @@ describe('SessionStore — resolving', () => {
     const issued = await sessions.issueStaff(staff.id, true);
 
     const resolved = await sessions.resolve(issued.token);
-    expect(resolved?.state).toBe('active');
     expect(resolved?.actor).toEqual({
       id: staff.id,
       username: staff.username,
@@ -132,36 +134,51 @@ describe('SessionStore — resolving', () => {
     expect(await sessions.resolve('')).toBeNull();
   });
 
-  it('locks a remembered terminal that has idled, keeping its identity', async () => {
+  it('keeps a remembered till signed in after more than five idle minutes', async () => {
+    // SCOPE-DECISIONS §6.3: no idle lock. A remembered till is idle for most of
+    // a quiet afternoon and must still be signed in when the next customer comes.
     const staff = await makeStaff();
     const issued = await sessions.issueStaff(staff.id, true);
 
-    clock += IDLE_LOCK_MS + 1;
-    const resolved = await sessions.resolve(issued.token);
-    // Locked, not gone: the PIN unlock needs to know whose session this is.
-    expect(resolved?.state).toBe('locked');
-    expect(resolved?.actor?.id).toBe(staff.id);
+    clock += FIVE_MINUTES + 1;
+    expect((await sessions.resolve(issued.token))?.actor?.id).toBe(staff.id);
+
+    clock += 3 * 24 * 60 * 60 * 1000;
+    expect((await sessions.resolve(issued.token))?.actor?.id).toBe(staff.id);
   });
 
-  it('ends an idle session on a device that was never remembered', async () => {
+  it('keeps a one-off sign-in past five idle minutes too, until its 12-hour TTL', async () => {
     const staff = await makeStaff();
     const issued = await sessions.issueStaff(staff.id, false);
 
-    clock += IDLE_LOCK_MS + 1;
+    clock += FIVE_MINUTES + 1;
+    expect((await sessions.resolve(issued.token))?.actor?.id).toBe(staff.id);
+
+    clock = issued.expiresAt.getTime();
     expect(await sessions.resolve(issued.token)).toBeNull();
     // And the row is gone, not merely refused.
     expect(await countSessions()).toBe(0);
   });
 
-  it('keeps a session alive while it is being used', async () => {
+  it('does not extend a session for being used — the TTL is absolute', async () => {
     const staff = await makeStaff();
-    const issued = await sessions.issueStaff(staff.id, false);
+    const issued = await sessions.issueStaff(staff.id, true);
 
-    for (let i = 0; i < 4; i += 1) {
-      clock += IDLE_LOCK_MS - 1_000;
-      expect((await sessions.resolve(issued.token))?.state).toBe('active');
-      await sessions.touch(issued.id);
-    }
+    clock += REMEMBERED_TTL_MS - 1_000;
+    await sessions.touch(issued.id);
+    expect(await sessions.resolve(issued.token)).not.toBeNull();
+
+    clock += 1_000;
+    expect(await sessions.resolve(issued.token)).toBeNull();
+  });
+
+  it('records activity in last_seen_at without deciding anything on it', async () => {
+    const staff = await makeStaff();
+    const issued = await sessions.issueStaff(staff.id, true);
+
+    clock += FIVE_MINUTES + 1;
+    await sessions.touch(issued.id);
+    expect((await sessions.resolve(issued.token))?.record.lastSeenAt.getTime()).toBe(clock);
   });
 
   it('ends a session past its absolute expiry even on a remembered terminal', async () => {
@@ -174,12 +191,12 @@ describe('SessionStore — resolving', () => {
 
   it('never idles out a customer session', async () => {
     // The card recognition IS the feature; a customer who visits fortnightly
-    // must still be known. Only staff terminals lock.
+    // must still be known.
     const customer = await makeCustomer();
     const issued = await sessions.issueCustomer(customer.id);
 
     clock += 14 * 24 * 60 * 60 * 1000;
-    expect((await sessions.resolve(issued.token))?.state).toBe('active');
+    expect((await sessions.resolve(issued.token))?.record.customerId).toBe(customer.id);
   });
 
   it('drops a staff session the moment its account is disabled', async () => {

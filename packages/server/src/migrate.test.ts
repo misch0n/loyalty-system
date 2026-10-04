@@ -1,11 +1,14 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from './db.js';
 import { verifySecret } from './hashing.js';
-import { migrate, provision } from './migrate.js';
+import { MIGRATIONS_DIR, migrate, provision } from './migrate.js';
 import { listTables, resetSchema, testPool } from './testing/database.js';
+
+/** Every migration on disk, in the order the runner applies them. */
+const ALL_MIGRATIONS = ['001_initial.sql', '002_retire_pin.sql'];
 
 const EXPECTED_TABLES = [
   'audit_log',
@@ -40,7 +43,7 @@ describe('migrations', () => {
   it('migrates a fresh database clean', async () => {
     const result = await migrate(db);
 
-    expect(result.applied).toEqual(['001_initial.sql']);
+    expect(result.applied).toEqual(ALL_MIGRATIONS);
     expect(result.skipped).toEqual([]);
     expect(await listTables(db)).toEqual(EXPECTED_TABLES);
     expect(EXPECTED_TABLES).toHaveLength(SCHEMA_TABLE_COUNT + 1);
@@ -51,7 +54,7 @@ describe('migrations', () => {
     const second = await migrate(db);
 
     expect(second.applied).toEqual([]);
-    expect(second.skipped).toEqual(['001_initial.sql']);
+    expect(second.skipped).toEqual(ALL_MIGRATIONS);
     expect(await listTables(db)).toEqual(EXPECTED_TABLES);
   });
 
@@ -74,6 +77,26 @@ describe('migrations', () => {
     await expect(
       db.query("INSERT INTO program_config (id, points_per_reward) VALUES ('other', 9)"),
     ).rejects.toThrow();
+  });
+
+  it('upgrades a 001-only database, dropping stored PINs and keeping the accounts', async () => {
+    // A deployment migrated before UI-1b: 001 applied, accounts carrying a PIN.
+    const dir = await mkdtemp(path.join(tmpdir(), 'cafe-migrations-'));
+    await copyFile(path.join(MIGRATIONS_DIR, '001_initial.sql'), path.join(dir, '001_initial.sql'));
+    await migrate(db, dir);
+    await db.query(
+      `INSERT INTO staff_accounts (id, username, password_hash, pin_hash, role)
+       VALUES ('s1', 'ada', 'argon2-hash', 'argon2-pin-hash', 'admin')`,
+    );
+
+    const result = await migrate(db);
+
+    expect(result.applied).toEqual(['002_retire_pin.sql']);
+    expect(result.skipped).toEqual(['001_initial.sql']);
+    const { rows } = await db.query('SELECT * FROM staff_accounts');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: 's1', username: 'ada', password_hash: 'argon2-hash' });
+    expect(rows[0]).not.toHaveProperty('pin_hash');
   });
 
   it('refuses an applied migration whose contents have changed', async () => {
@@ -106,7 +129,7 @@ describe('provisioning a database from nothing', () => {
   // CLI did not either. A fresh deployment therefore migrated clean and came up
   // with no admin — and `POST /staff` is admin-tier, so there was no way to
   // create one over HTTP. These tests are the wiring that closes it.
-  const admin = { username: 'ada', password: 'correct horse', pin: '4821' };
+  const admin = { username: 'ada', password: 'correct horse' };
   let db: Db;
 
   beforeAll(() => {
@@ -122,7 +145,7 @@ describe('provisioning a database from nothing', () => {
   it('migrates and then creates the first admin', async () => {
     const result = await provision(db, admin);
 
-    expect(result.migration.applied).toEqual(['001_initial.sql']);
+    expect(result.migration.applied).toEqual(ALL_MIGRATIONS);
     expect(result.bootstrap.status).toBe('created');
 
     const { rows } = await db.query("SELECT username, role, active FROM staff_accounts");
@@ -150,7 +173,7 @@ describe('provisioning a database from nothing', () => {
     // who can sign in, which the CLI warns about loudly.
     const result = await provision(db, null);
 
-    expect(result.migration.applied).toEqual(['001_initial.sql']);
+    expect(result.migration.applied).toEqual(ALL_MIGRATIONS);
     expect(result.bootstrap.status).toBe('not-configured');
     expect(await listTables(db)).toEqual(EXPECTED_TABLES);
   });
@@ -268,16 +291,13 @@ describe('schema integrity', () => {
       ).rejects.toThrow(/staff_accounts_username_key/);
     });
 
-    it('does not constrain PINs to be unique', async () => {
-      // SCOPE-DECISIONS §3.6: unimplementable against hashed PINs, and no longer
-      // needed — a PIN is verified against an already-identified account.
-      await insertStaff('s1');
-      await db.query("UPDATE staff_accounts SET pin_hash = 'same-hash' WHERE id = 's1'");
-      await insertStaff('s2');
-
-      await expect(
-        db.query("UPDATE staff_accounts SET pin_hash = 'same-hash' WHERE id = 's2'"),
-      ).resolves.toBeTruthy();
+    it('carries no PIN column', async () => {
+      // SCOPE-DECISIONS §6.3: the PIN is retired; 002 dropped the column.
+      const { rows } = await db.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'staff_accounts' AND column_name = 'pin_hash'`,
+      );
+      expect(rows).toEqual([]);
     });
   });
 

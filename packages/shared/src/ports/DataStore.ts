@@ -19,8 +19,9 @@
  *     what it has always been handed; the store hashes it (§4-A). Same for
  *     `CreateStaffInput`.
  *   - `getStaffByPin` is **gone** — a global "which account has this PIN?" is a
- *     credential oracle over HTTP (§4-B). Re-auth verifies a PIN against the
- *     account the session already names.
+ *     credential oracle over HTTP (§4-B). The PIN itself went later
+ *     (SCOPE-DECISIONS §6.3): the staff device is a shared till, a login lasts
+ *     until its TTL, and staff carry a password and nothing else.
  *   - `appendAudit` and the recovery-code methods moved to {@link TrustedStore},
  *     below: capabilities a client must never hold (§4-C, and the recovery twin
  *     of §4-B).
@@ -85,8 +86,6 @@ export interface CreateStaffInput {
   role: StaffRole;
   /** Display name (attribution + UI). Optional; falls back to username. */
   name?: string;
-  /** Optional sign-in PIN (4–8 digits). Absent for password-only accounts. */
-  pin?: string;
 }
 
 export interface AppendAuditInput {
@@ -216,8 +215,6 @@ export interface DataStore {
    * TLS and is hashed at rest, once, here.
    */
   setStaffPassword(id: string, password: string): Promise<void>;
-  /** Set/replace an account's sign-in PIN, from the plaintext. Hashed at rest. */
-  setStaffPin(id: string, pin: string): Promise<void>;
   /** Permanently remove a staff/admin account. Audit history keeps the actor id. */
   deleteStaff(id: string): Promise<void>;
   listStaff(): Promise<StaffAccount[]>;

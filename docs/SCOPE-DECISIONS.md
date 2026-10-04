@@ -234,7 +234,7 @@ quietly contradicting. A Scribe pass owes each of these an edit:
 | `SPEC.md` §15 / `STATUS.md` | Optional-PII and token-only registration; wallet acceptance rows. | Rows retire. |
 | `STATUS.md` | Admin stats, breakdowns, export workflow as shipped features. | Collected, not surfaced. |
 | `INTEGRITY-PLAN.md` | Export workflow is the sanctioned route to cross-account activity. | No route at all — database access only. |
-| `CLAUDE.md` architecture *(2026-10-03)* | Sessions carry a 5-minute idle lock, enforced server-side. | **Retired** (§6.3). Sessions run to their TTL — 30 days remembered, 12 hours otherwise. Removal is UI-1b; `CLAUDE.md` annotates the bullet. |
+| `CLAUDE.md` architecture *(2026-10-03)* | Sessions carry a 5-minute idle lock, enforced server-side. | **Retired** (§6.3). Sessions run to their TTL — 30 days remembered, 12 hours otherwise. Removed from the server in UI-1b (2026-10-04, `backend-v1`); `CLAUDE.md` annotates the bullet. |
 | `CLAUDE.md` non-negotiables *(2026-10-03)* | "Every staff/admin action writes an audit entry." | **Still true, with a stated limit** (§6.3): the entry names the *account* that was signed in, not the person at a shared till. `CLAUDE.md` now says so. |
 | `CLAUDE.md` non-negotiables *(2026-10-03)* | "No mocked customer workflows" carves out a fake `DataStore` in the SPA's tests, held to the conformance suite. | **Withdrawn** (§6.5). Screen tests stub services; service tests hit the real server. Amended in `CLAUDE.md`. |
 | `CLAUDE.md` UI *(2026-10-03)* | Staff/admin auth uses a quick PIN (`Unlock`, `PinPad`, `AuthContext.unlock`), the admin sheet has "reset PIN", Add profile takes a PIN, and program-config save / sign-out-all are step-up gated. | **Superseded** (§6.3, §6.4): no PIN anywhere; step-up is a plain confirmation. Flagged in the box at the top of `CLAUDE.md`; UI-9 rewrites the section. |
@@ -328,7 +328,9 @@ alternative in the staged notes is the picker rejected above.
 **Work.** Server **and** port: it touches `packages/server` and `packages/shared/src/ports/`
 (`DataStore` loses the PIN methods), and lands **before UI-2** so UI-2 does not rebuild PIN logic
 only to delete it. It is its own plan phase, **UI-1b** ([`UI-PLAN.md`](UI-PLAN.md)), done when the
-server and shared suites are green.
+server and shared suites are green. **Implemented 2026-10-04** (UI-1b): the server and port half
+is done as listed, `@cafe/server` is at 439 tests and green; the SPA half (`PinPad`, Unlock,
+`AuthContext.unlock`, "reset PIN", the PIN on Add profile) remains for UI-2 / UI-3.
 
 ### 6.4 · 2026-10-03 — admin step-up becomes a plain confirmation (register A7)
 
@@ -358,7 +360,8 @@ the backend is deemed complete enough and the UI rewire starts; the natural poin
 PIN-removal phase (**UI-1b**) lands. This replaces the earlier framing of the merge as an
 outstanding decision. `main` still carries none of the server, the three-package layout or any
 decision document: a branch cut from it gets the pre-triage `CLAUDE.md` and no server, so new work
-is cut from this branch (or, once it exists, the tag). The tag's name is not yet chosen.
+is cut from this branch (or, once it exists, the tag). **Done 2026-10-04:** the tag is
+**`backend-v1`**, on the commit that landed UI-1b.
 
 ### 6.7 · 2026-10-03 — smaller settlements, recorded in the register
 

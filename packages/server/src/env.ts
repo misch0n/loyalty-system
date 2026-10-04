@@ -15,7 +15,6 @@ export type NodeEnv = 'development' | 'test' | 'production';
 export interface BootstrapAdmin {
   username: string;
   password: string;
-  pin: string;
   name?: string;
 }
 
@@ -238,33 +237,31 @@ function parseAllowedOrigins(source: Source, problems: string[]): string[] {
 }
 
 /**
- * The bootstrap admin is all-or-nothing: either all three required variables are
- * set or none are. A partially-configured bootstrap is a deployment mistake that
+ * The bootstrap admin is all-or-nothing: either both required variables are set
+ * or neither is. A partially-configured bootstrap is a deployment mistake that
  * would otherwise leave an operator locked out of a running system.
+ *
+ * There is no PIN (SCOPE-DECISIONS §6.3). A leftover PIN variable from an older
+ * `.env` is simply never read, so an un-edited deployment still boots.
  */
 function parseBootstrapAdmin(source: Source, problems: string[]): BootstrapAdmin | null {
   const username = read(source, 'BOOTSTRAP_ADMIN_USERNAME');
   const password = read(source, 'BOOTSTRAP_ADMIN_PASSWORD');
-  const pin = read(source, 'BOOTSTRAP_ADMIN_PIN');
   const name = read(source, 'BOOTSTRAP_ADMIN_NAME');
 
-  const present = [username, password, pin].filter((v) => v !== undefined).length;
-  if (present === 0) return null;
-  if (present < 3) {
+  if (username === undefined && password === undefined) return null;
+  if (username === undefined || password === undefined) {
     problems.push(
-      'BOOTSTRAP_ADMIN_USERNAME, BOOTSTRAP_ADMIN_PASSWORD and BOOTSTRAP_ADMIN_PIN must be set together, or all left unset',
+      'BOOTSTRAP_ADMIN_USERNAME and BOOTSTRAP_ADMIN_PASSWORD must be set together, or both left unset',
     );
     return null;
   }
 
-  if (password!.length < 8) {
+  if (password.length < 8) {
     problems.push('BOOTSTRAP_ADMIN_PASSWORD must be at least 8 characters');
   }
-  if (!/^\d{4,8}$/.test(pin!)) {
-    problems.push('BOOTSTRAP_ADMIN_PIN must be 4-8 digits');
-  }
 
-  return { username: username!, password: password!, pin: pin!, name };
+  return { username, password, name };
 }
 
 /**

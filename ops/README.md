@@ -31,7 +31,7 @@ the UI pass has to change here.
 ## First run
 
 ```bash
-cp .env.example .env         # then fill in POSTGRES_PASSWORD and the three BOOTSTRAP_ADMIN_* values
+cp .env.example .env         # then fill in POSTGRES_PASSWORD and the BOOTSTRAP_ADMIN_USERNAME/_PASSWORD pair
 docker compose up -d
 docker compose logs -f migrate     # "Created the first admin account: <username>"
 curl -s http://127.0.0.1:3000/readyz

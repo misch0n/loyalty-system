@@ -240,22 +240,19 @@ describe('PostgresStore — beyond the prototype', () => {
   });
 
   describe('credentials at rest (BACKEND-PLAN §4-A)', () => {
-    it('hashes a password and a PIN with argon2id, never storing what it was given', async () => {
+    it('hashes a password with argon2id, never storing what it was given', async () => {
       const created = await store.createStaff({
         username: 'cashier',
         password: 'hunter2',
         role: 'staff',
-        pin: '4321',
       });
 
-      const { rows } = await db.query<{ password_hash: string; pin_hash: string | null }>(
-        'SELECT password_hash, pin_hash FROM staff_accounts WHERE id = $1',
+      const { rows } = await db.query<{ password_hash: string }>(
+        'SELECT password_hash FROM staff_accounts WHERE id = $1',
         [created.id],
       );
       expect(rows[0]?.password_hash).toMatch(/^\$argon2id\$/);
       expect(rows[0]?.password_hash).not.toBe('hunter2');
-      expect(rows[0]?.pin_hash).toMatch(/^\$argon2id\$/);
-      expect(rows[0]?.pin_hash).not.toBe('4321');
       // …and the digest is not a usable credential: `routes/auth.test.ts` sends
       // the stored hash as the password and expects 401, which is the whole of
       // §4-A in one assertion.

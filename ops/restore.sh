@@ -79,5 +79,5 @@ psql --quiet --tuples-only --command "
 
 echo
 echo "Sessions restored from the dump are stale but harmless — they expire, and"
-echo "the epoch check and the idle lock apply to them as normal."
+echo "their absolute expiry and the epoch check apply to them as normal."
 echo "Start the API again: docker compose start api"

@@ -33,9 +33,11 @@
 > [`UI-PLAN.md`](UI-PLAN.md) is the live plan and [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md)
 > its specification. `@cafe/web` is red on purpose until UI-2 lands. **Every blocking decision was
 > answered on 2026-10-03** — notably that the staff device is a shared till and **the PIN and the
-> idle lock are being removed** by a new server + port phase, **UI-1b**, ahead of UI-2
-> ([`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) §6.3–§6.7). Until it lands, the PIN, `/auth/unlock`
-> and the idle lock described below are still real code.
+> idle lock are being removed**. The server + port half, **UI-1b, landed 2026-10-04** (branch tagged
+> `backend-v1`; [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md) §6.3–§6.7): the server and the shared
+> port no longer have a PIN, `/auth/unlock` or an idle lock, and older passages below that describe
+> them are history. The PIN, Unlock screen and idle-lock *UI* are still real SPA code until UI-2 and
+> UI-3.
 >
 > **▶ Completed initiative — the production backend.** [`BACKEND-PLAN.md`](BACKEND-PLAN.md) is the
 > live phase-by-phase plan (Fastify + PostgreSQL + Docker Compose; **Phases 0–6 and 10 done**;
@@ -66,7 +68,43 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-10-03 (**Docs only — the maintainer's first answers to the UI reconciliation
+**Last updated:** 2026-10-04 (**UI pass — UI-1b: retire the PIN and the idle lock, server + port**
+(branch `claude/backend-implementation-2kqb08`, tagged **`backend-v1`**)). The server half of
+decision **S1**. **Removed from the server and the port:** `POST /auth/unlock`, `PATCH
+/staff/:id/pin`, the `pin` field on `POST /staff`, `IDLE_LOCK_MS`, `SessionState` and the `locked`
+session state (`GET /auth/session` is now `'active' | 'anon'`), `pinLimiter` and the `401 locked`
+refusal in `auth/guards.ts` (`GET /events` no longer refuses idle-locked callers — there are none),
+`DataStore.setStaffPin`, `CreateStaffInput.pin`, `StaffAccount.pin`, and `BOOTSTRAP_ADMIN_PIN`
+(`env.ts`, `bootstrap.ts`, `migrate.ts`, both `.env.example` files, `compose.yml`, CI, `ops/`). The
+bootstrap admin is now username + password (+ optional name); a leftover `BOOTSTRAP_ADMIN_PIN` in an
+old `.env` is ignored (tested). **Sessions** now end only at their absolute TTL
+(`REMEMBERED_TTL_MS` 30 days / `EPHEMERAL_TTL_MS` 12 hours, kept), on account disable/delete, or on
+epoch revocation ("Sign out all devices"); a remembered session survives any idle time (tested).
+`last_seen_at` is still written each request but is bookkeeping only, kept for the deferred
+remember-me hardening round. **Storage:** forward-only migration
+`packages/server/migrations/002_retire_pin.sql` drops `staff_accounts.pin_hash` and re-comments
+`sessions.remembered` / `last_seen_at`; snapshot import ignores a legacy `pin` on staff, so old
+backups still restore (tested). **Compatibility:** Fastify strips a `pin` sent to `POST /staff`
+silently rather than answering 400, so the current SPA's Add-profile form keeps working (a test
+asserts it). Log redaction still treats `pin` / `pinHash` / `pin_hash` as sensitive keys, because
+the SPA and old snapshots can still send one. **Attribution:** audit rows, "your last hour" and
+both alert detectors are **per account, not per person at the till** (stated in code comments).
+**Verification (2026-10-04):** `@cafe/server` **442 → 439 tests**, all green against real Postgres
+and none skipped (removed: 7 unlock, 3 + 3 idle-lock, "signs a locked terminal out" and the
+`/staff/:id/pin` authz row; added: 4 + 4 TTL tests, the 002 upgrade-path test, the leftover-env
+test and the legacy-snapshot test); `@cafe/shared` **73** green; both typechecks clean.
+`@cafe/web` **14 → 16 TypeScript errors** — both new ones are `setStaffPin` callers
+(`src/services/StaffService.ts`, `tests/adapters/ApiStore.test.ts`); its test files are unchanged
+(6 of 44 not loading, 180 tests pass). **Live check:** the devbox bundle was rebuilt, `migrate`
+applied 002 to the existing database, `pin_hash` is gone, `ops/smoke.sh` passes and `POST
+/auth/unlock` returns 404. **Still in the SPA** (UI-2 / UI-3): `ApiStore.setStaffPin`,
+`StaffService` PIN logic, `AuthContext.unlock` and its `'locked'` status, `session.ts`,
+`EntryResolver`, `useStaffGuard`, `PinPad`, `Unlock`, `StepUp` and the `ProgramEdit` PIN paths.
+Divergences **p** and **q** are resolved on the server side (below); **j** and the SPA acceptance
+rows retire with UI-3. Not re-verified this pass: CI itself (the `ci.yml` edit is untested on a
+runner).
+
+**Prior:** 2026-10-03 (**Docs only — the maintainer's first answers to the UI reconciliation
 register** (branch `claude/backend-implementation-2kqb08`)). This pass changed docs only and ran no
 tests, so the counts are UI-0's, unchanged and not re-verified: **442 server**, **73 shared**, and
 `@cafe/web` at 14 errors with 6 of 44 files not loading. **Six register rows are
@@ -635,15 +673,16 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
   `IndexedDbStore`, the suite's former second adapter; the `@cafe/conformance` alias is gone.
 - **`@cafe/web` is red on purpose** (Phase 6; the counts moved in Phase 10 without any new
   failure, and UI-0 cut them down): **6 of 44 test files fail to load, 38 pass (180 tests)**, and
-  **14 `tsc` errors** remain, all in `services/` or `tests/helpers/` — every one a Phase 6 deletion
-  that UI-2 resolves. Before UI-0 it was 9 of 47 with 39 errors.
+  **16 `tsc` errors** remain, all in `services/` or `tests/` — 14 are Phase 6 deletions and 2 are
+  `setStaffPin` callers left by UI-1b; UI-2 resolves all of them. Before UI-0 it was 9 of 47 with
+  39 errors.
   **`@cafe/shared` is green independently — 73 tests** (the six domain suites, moved out
   of the SPA's run in Phase 10). **`@cafe/server`: 390 tests** pass, `tsc` green, `dist/` emits and
   runs on plain `node`, all against a **real** Postgres at `TEST_DATABASE_URL` (default
   `postgres://cafe:cafe@localhost:5432/cafe_loyalty_test`; the run **aborts** in `globalSetup` if
   none is reachable — **a skip is not a pass**). The release gate is `@cafe/shared` +
   `@cafe/server`; a red `@cafe/web` is expected until the UI pass. *(Counts are Phase 10's;
-  Phase 8 took the server suite to **442**.)*
+  Phase 8 took the server suite to **442**; UI-1b took it to **439** — see "Last updated".)*
 - **Puppeteer e2e suite** (`packages/web/e2e/`, run with `npm run e2e`) drives the built app in
   headless Chrome: welcome, register→card, staff PIN, and the reference bug-list regressions. It
   still builds against the deleted GitHub Pages target and **does not run** — UI-6 repoints it at
@@ -687,7 +726,7 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
 | Deletion/opt-out — customer self-delete from card menu; staff-confirmed also available | ✅ | `CustomerService.selfDelete(token)` ← `ui/screens/customer/CardMenu/CardMenu.tsx`; `IndexedDbStore.softDeleteCustomer` |
 | Admin: account CRUD (**Add profile** staff/admin with name/username/password/PIN; per-profile popover = enable/disable, reset password, reset PIN, **delete** — un-gated) + "Sign out all devices"; config (step-up PIN re-auth on save), stats, audit viewer, alerts, activity export *(the PIN, "reset PIN" and the step-up gate are **superseded by S1/A7, 2026-10-03** — step-up becomes a plain "Are you sure?"; stats and activity export were already retired by UI-0)*; admin is a **superset of staff** (counter/scan access, both views have Sign out) | ✅ | `ui/screens/admin/Admin/Admin.tsx`, `ui/screens/admin/_parts/AccountSheet/`; `StaffService.remove` → `DataStore.deleteStaff`; staff `name` shown in panel + activity. Per-profile activity history moved out of `AccountSheet` — reachable only via the audited Export workflow (Appendix E, Phase 3/4) |
 | Staff/admin session never auto-displays customer card (entry routing) | ✅ | `ui/app/EntryResolver.tsx` — any active staff/admin (trusted or ephemeral)→**counter** `/staff` (admins reach `/admin` via the counter's "Go to admin" button); trusted+locked→`/staff/unlock`; remembered card→`/card/:token`; else→`/welcome` |
-| Inactivity lock (5 min) → PIN re-auth at `/staff/unlock` — **superseded by S1 (2026-10-03): no idle lock, no PIN; the row retires when UI-1b lands.** Sessions will run to their TTL (30 days remembered / 12 hours) | ✅ | `ui/app/AuthContext.tsx`, `ui/screens/staff/Unlock/Unlock.tsx`, `StaffService.loginWithPin` |
+| Inactivity lock (5 min) → PIN re-auth at `/staff/unlock` — **superseded by S1 (2026-10-03): no idle lock, no PIN. The server half landed in UI-1b (2026-10-04): sessions run to their TTL (30 days remembered / 12 hours). The row's SPA code survives until UI-2 / UI-3, and the row retires with it.** | ✅ (SPA code only; the server no longer has `/auth/unlock`) | `ui/app/AuthContext.tsx`, `ui/screens/staff/Unlock/Unlock.tsx`, `StaffService.loginWithPin` |
 | Epoch-based "Sign out all devices" revocation | ✅ | `StaffService.revokeAllSessions`, `ProgramConfig.sessionEpoch` |
 | Suspicious-activity alerts — monitoring only | ✅ pruned to **two** attributed detectors (Appendix E, Phase 2): **self-dealing proximity** (same staff accrues then redeems on the same card within a window, repeatedly) and **repeat-target** (same customer credited repeatedly in a window); thresholds are admin-configurable; no role exemption | `domain/alerts.ts`, `LoyaltyService.getAlerts()`, `ui/screens/admin/_parts/Alert/Alert.tsx`, `ui/screens/admin/Admin/Admin.tsx` (Configure → "Activity alerts") |
 | WalletProvider seam; OS-detected wallet button inside enlarged-QR overlay; links to walletwallet.dev pre-generated passes | ❌ **removed** — the port and both adapters went in the triage (SCOPE-DECISIONS §1); UI-0 removed the button, `WalletButton` and `EnlargedQr`'s pass resolution. The web card is the only card |
@@ -1149,10 +1188,11 @@ unit tests cannot.
   Per-row staff mutations (create/reset-password/set-PIN/toggle-active) are not
   step-up gated — deliberate tuning decision, flagged here for future review.
   **Superseded 2026-10-03 (register A7, S1):** the server never enforced the gate
-  (`PATCH /config` and `POST /auth/logout-all` only `requireAdmin`), and the PIN is being
-  removed, so both become a plain "Are you sure?" confirmation with no credential.
+  (`PATCH /config` and `POST /auth/logout-all` only `requireAdmin`), and the PIN is gone from the
+  server (UI-1b, 2026-10-04), so in UI-3 both become a plain "Are you sure?" confirmation with no credential.
 - **Remember-me hardening is deferred, not dropped** (S1, 2026-10-03). A remembered till stays
-  signed in for 30 days with no idle rule; the security round on that has no phase yet.
+  signed in for 30 days with no idle rule (true on the server since UI-1b, 2026-10-04); the
+  security round on that has no phase yet.
 - **B4 (review prompt)** was dropped in the Ckyka rebuild — the old `ReviewPrompt`
   is gone and the new UI spec doesn't include it. Re-add to the customer card flow
   if the café still wants the post-redemption Google-review nudge.
@@ -1454,11 +1494,14 @@ p. **PIN sign-in stops being a global PIN lookup (BACKEND-PLAN §4-B, Phase 3).*
    route, and `packages/server/src/routes/guardrails.test.ts` fails if one
    appears. This is a genuine behaviour change, not a refactor.
 
-   **Superseded 2026-10-03 (register S1).** The question this divergence posed — what PIN
-   sign-in becomes — is answered by removing the PIN: the staff device is a shared till, there
-   is no idle lock to re-auth after, and UI-1b deletes `POST /auth/unlock` together with the
-   rest of the PIN machinery (`setStaffPin`, the `pin` column, PIN verification). What stays
-   true: attribution comes from the session, so it is the signed-in **account**.
+   **Superseded 2026-10-03 (register S1) — resolved on the server 2026-10-04 (UI-1b).** The
+   question this divergence posed — what PIN sign-in becomes — is answered by removing the PIN:
+   the staff device is a shared till and there is no idle lock to re-auth after. UI-1b deleted
+   `POST /auth/unlock` together with the rest of the PIN machinery (`setStaffPin`, the
+   `pin_hash` column via migration `002_retire_pin.sql`, PIN verification, the PIN rate limiter).
+   What stays true: attribution comes from the session, so it is the signed-in **account** —
+   audit rows, "your last hour" and both detectors are per account, not per person at the till.
+   Only the SPA's PIN code remains, for UI-2 / UI-3.
 
 q. **The staff session moves server-side: real idle lock, real revocation
    (BACKEND-PLAN Phase 3).** The prototype keeps the staff session in
@@ -1481,11 +1524,13 @@ q. **The staff session moves server-side: real idle lock, real revocation
    staff terminals. The client-side timer in `AuthContext` stays as the immediate
    UI affordance; it is no longer what decides.
 
-   **Partly superseded 2026-10-03 (register S1, X1).** The idle lock is retired — UI-1b removes
-   `IDLE_LOCK_MS` and the idle check, and the client timer goes with it. Revocation is
-   unchanged, and so are the TTLs (`REMEMBERED_TTL_MS` 30 days, `EPHEMERAL_TTL_MS` 12 hours): a
-   session now lives until its TTL, sign-out, "sign out all devices", or its account being
-   disabled or deleted.
+   **Partly superseded 2026-10-03 (register S1, X1) — server half done 2026-10-04 (UI-1b).** The
+   idle lock is retired — UI-1b removed `IDLE_LOCK_MS`, `SessionState` and the `locked` state, and
+   `GET /auth/session` answers `'active' | 'anon'`; the client timer in `AuthContext` goes in
+   UI-3. Revocation is unchanged, and so are the TTLs (`REMEMBERED_TTL_MS` 30 days,
+   `EPHEMERAL_TTL_MS` 12 hours): a session now lives until its TTL, sign-out, "sign out all
+   devices", or its account being disabled or deleted. `last_seen_at` is still written but is
+   bookkeeping only.
 
 r. **Four `DataStore` methods change shape at the HTTP boundary (BACKEND-PLAN
    §4-C/D/E, Phase 4).** The port is unchanged and every UI call site still

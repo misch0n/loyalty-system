@@ -72,8 +72,6 @@ export interface AuthDeps {
   loginUserLimiter: AttemptLimiter;
   /** Failed sign-ins per source address, across all accounts. */
   loginIpLimiter: AttemptLimiter;
-  /** Failed PIN unlocks per account. */
-  pinLimiter: AttemptLimiter;
   /**
    * Failed registrations per source address. Registration answers `email_in_use`
    * so the page can offer recovery instead of a second card (SCOPE-DECISIONS
@@ -133,7 +131,7 @@ export interface CreateAuthDepsInput {
   appUrl?: string;
 }
 
-/** Failure window and lockout, shared by all three buckets. */
+/** Failure window and lockout, shared by every bucket. */
 const LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
 
 /**
@@ -144,9 +142,6 @@ const LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
  *     under attack and a real person rarely misses five in a row.
  *   • **20** failed sign-ins per *source address* — looser, because a whole café
  *     shares one NAT address and locking it out would lock out the till.
- *   • **5** failed PIN unlocks per account. Tightest in effect, since the PIN is
- *     four digits and an attacker reaching that route already knows whose
- *     account it is (BACKEND-PLAN §4-B).
  *   • **5** failed registrations per source address — enough for a customer
  *     mistyping their address, not enough to enumerate one.
  *   • **20** failed commits per staff account — loose, because a genuine till
@@ -170,7 +165,6 @@ export function createAuthDeps(input: CreateAuthDepsInput): AuthDeps {
     allowedOrigins: input.allowedOrigins ?? [],
     loginUserLimiter: new AttemptLimiter({ limit: 5, ...shared }),
     loginIpLimiter: new AttemptLimiter({ limit: 20, ...shared }),
-    pinLimiter: new AttemptLimiter({ limit: 5, ...shared }),
     registerLimiter: new AttemptLimiter({ limit: 5, ...shared }),
     commitLimiter: new AttemptLimiter({ limit: 20, ...shared }),
     recoveryRequestAddressLimiter: new AttemptLimiter({ limit: 3, ...shared }),
@@ -276,30 +270,27 @@ export function installSessionHooks(app: FastifyInstance, deps: AuthDeps): void 
       }
     }
 
-    // Activity is recorded on the way in, not on the way out: it is what the
-    // idle lock measures, and a request that errors is still the staff member
-    // being present at the till.
-    if (request.auth?.state === 'active') {
+    // Activity is recorded on the way in, not on the way out: a request that
+    // errors is still someone at the till. Bookkeeping only — no session ends
+    // on idleness (SCOPE-DECISIONS §6.3).
+    if (request.auth) {
       await deps.sessions.touch(request.auth.record.id);
     }
   });
 }
 
 /**
- * Route guard: an active staff (or admin) session.
+ * Route guard: a staff (or admin) session.
  *
- * A locked session is refused as `locked`, not `unauthorized`, so the SPA knows
- * to show the PIN unlock rather than the full sign-in form — that distinction is
- * the whole point of a remembered terminal. Sending a reply from a `preHandler`
- * stops the chain, which is how {@link requireAdmin} composes on top.
+ * There is no locked state to refuse: the staff device is a shared till, a
+ * session lasts until its TTL, and the actor is whichever **account** is signed
+ * in (SCOPE-DECISIONS §6.3). Sending a reply from a `preHandler` stops the
+ * chain, which is how {@link requireAdmin} composes on top.
  */
 export async function requireStaff(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const auth = request.auth;
   if (!auth || auth.record.kind !== 'staff' || !auth.actor) {
     return reply.code(401).send({ error: 'unauthorized' });
-  }
-  if (auth.state === 'locked') {
-    return reply.code(401).send({ error: 'locked' });
   }
 }
 

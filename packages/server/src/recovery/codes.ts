@@ -60,8 +60,8 @@ export const RECOVERY_CODE_LENGTH = 6;
 export const RECOVERY_EXPIRY_MINUTES = 15;
 
 /**
- * Wrong guesses a code survives. Five is the PIN limiter's number, for the same
- * reason: a person who has the mail open in front of them does not miss five
+ * Wrong guesses a code survives. Five is the per-account sign-in limiter's
+ * number, for the same reason: a person who has the mail open in front of them does not miss five
  * times, and at 30 bits five guesses is not a dent in the keyspace.
  */
 export const RECOVERY_MAX_ATTEMPTS = 5;

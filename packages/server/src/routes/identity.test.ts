@@ -19,7 +19,7 @@ import { buildServer } from '../server.js';
 import { resetSchema, testPool } from '../testing/database.js';
 import { send, signIn, type Jar } from '../testing/http.js';
 
-const STAFF = { username: 'barista', password: 'barista-password-1', pin: '2222' };
+const STAFF = { username: 'barista', password: 'barista-password-1' };
 
 let db: Db;
 let store: PostgresStore;

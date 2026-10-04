@@ -9,7 +9,7 @@ concrete subagent definitions live in `.claude/agents/`.
 
 > ### ⚠ ACTIVE INITIATIVE — the UI pass
 > **The backend is COMPLETE.** Every [`docs/BACKEND-PLAN.md`](docs/BACKEND-PLAN.md) phase is done —
-> Fastify + PostgreSQL + Docker Compose, CI green, 442 server tests, 0 type errors in
+> Fastify + PostgreSQL + Docker Compose, CI green, 439 server tests, 0 type errors in
 > `@cafe/shared` and `@cafe/server`. The architecture sections below now describe what is
 > **actually built**; they were rewritten in Phase 11 and no longer need a warning.
 >
@@ -18,14 +18,17 @@ concrete subagent definitions live in `.claude/agents/`.
 > (35 rows of backend-vs-UI conflict). **The maintainer answered the open decisions on 2026-10-03**
 > — S1, X2, P6, P7, X5, X7 are all Settled and a new row, A7, was added — so nothing blocks the
 > plan; a fresh session picks up the first unchecked box in UI-PLAN §2. The headline decision: the
-> staff device is a **shared till**, so **the PIN and the idle lock are being removed** (a new
-> server + port phase, **UI-1b**, lands before UI-2). The branch is **tagged, not merged**, once
-> UI-1b is in (SCOPE-DECISIONS §6.6).
+> staff device is a **shared till**, so **the PIN and the idle lock are removed** — the **server
+> and port half is done (UI-1b, 2026-10-04)**: no `/auth/unlock`, no `IDLE_LOCK_MS`, no `pin_hash`,
+> no `BOOTSTRAP_ADMIN_PIN`; a session ends only at its TTL, on disable/delete, or on "Sign out all
+> devices". The branch is **tagged `backend-v1`** (tagged, not merged — SCOPE-DECISIONS §6.6). The
+> SPA half is UI-2/UI-3.
 >
-> **`@cafe/web` is red on purpose** — **14 TypeScript errors, 6 of 44 test files not loading**
-> after UI-0 (it was 39 errors and 9 of 47), every one traceable to a Phase 6 deletion and all of
-> them now in `services/` or `tests/helpers/`. Do not chase it outside the UI plan. The gate is the
-> server suite until UI-2 lands.
+> **`@cafe/web` is red on purpose** — **16 TypeScript errors, 6 of 44 test files not loading**
+> after UI-1b (39 errors and 9 of 47 at the start; 14 after UI-0, then +2 from UI-1b removing
+> `setStaffPin` while its callers remain), every one traceable to a Phase 6 deletion or a UI-1b port
+> removal and all of them in `services/` or `tests/`. Do not chase it outside the UI plan. The gate
+> is the server suite until UI-2 lands.
 >
 > **⚠ The `## UI` section below still describes deleted things.** UI-0 (done, 2026-09-16) deleted
 > the **Prototype panel and its `DevTrigger`**, the **pairing flow** (`PairingContext`,
@@ -33,11 +36,11 @@ concrete subagent definitions live in `.claude/agents/`.
 > admin **stat tiles** — the bullets below about them are history, not instructions, and the files
 > they name are gone. Two of the section's wrong bullets are still live code awaiting **UI-3**: the
 > **two-entry card menu** (C6 — becomes one entry, delete) and **auto-advancing to the scanner**
-> after a commit (S2 — becomes a return to the counter). **Superseded by S1/A7 (2026-10-03), code
-> still live until UI-1b/UI-3:** the **PIN**, `PinPad`, the **Unlock screen**, `AuthContext.unlock`,
-> the **5-minute idle lock**, "reset PIN", the PIN on Add profile, and **step-up PIN re-auth** on
-> program-config save / "Sign out all devices" (that becomes a plain confirmation). UI-9 rewrites
-> the section.
+> after a commit (S2 — becomes a return to the counter). **Superseded by S1/A7 (2026-10-03) — the server
+> no longer has any of it (UI-1b), SPA code still live until UI-2/UI-3:** the **PIN**, `PinPad`, the
+> **Unlock screen**, `AuthContext.unlock`, the **5-minute idle lock**, "reset PIN", the PIN on Add
+> profile, and **step-up PIN re-auth** on program-config save / "Sign out all devices" (that becomes
+> a plain confirmation). UI-9 rewrites the section.
 >
 > **Scope is [`docs/SCOPE-DECISIONS.md`](docs/SCOPE-DECISIONS.md)** — the 123-feature triage
 > (2026-09-02, questions closed 2026-09-15) plus the later decisions in its §6: the two from
@@ -93,7 +96,7 @@ A single-café digital loyalty system. Staff scan a customer's QR and commit loy
 
 The SPA talks to the API over HTTP and nothing else. **`ApiStore` is the only `DataStore`**; there is no local database, no peer-to-peer channel and no device pairing — the server coordinates state centrally, which is what the pairing layer was standing in for.
 
-- **Sessions are cookies.** HttpOnly, `SameSite=Lax`, server-side rows. Lifetime is the TTL — 30 days "remember me", 12 hours otherwise (`auth/sessions.ts`) — enforced **server-side**, not by a client timer. CSRF is a double-submit token on every mutating request. *The 5-minute idle lock and the PIN are retired (S1, 2026-10-03) but still in the code until UI-1b; a remember-me hardening round is deferred.*
+- **Sessions are cookies.** HttpOnly, `SameSite=Lax`, server-side rows. Lifetime is the TTL — 30 days "remember me", 12 hours otherwise (`auth/sessions.ts`) — enforced **server-side**, not by a client timer. CSRF is a double-submit token on every mutating request. *The 5-minute idle lock and the PIN are gone from the server (S1; UI-1b, 2026-10-04) — a remembered session survives any amount of idle time — and survive only in SPA code until UI-2/UI-3; a remember-me hardening round is deferred.*
 - **The actor comes from the session, never the request body.** "Staff initiates the credit" is enforced, not trusted.
 - **Liveness is `GET /events`** — a one-way SSE stream carrying a `changed` signal scoped per customer and per till, with subjects derived from the session. It replaces the pairing layer's `dataVersion`.
 - **Deleted in Phase 6, do not restore:** `IndexedDbStore`, `adapters/sync/` (PeerJS pairing), `adapters/transport/`, `adapters/wallet/`, `EmailJsMailer`, `demoSeed`, the preset card tokens, the `VITE_TRANSPORT`/`VITE_DATASTORE`/`VITE_WALLET` flags, `isPrototype`, and the GitHub Pages workflow.

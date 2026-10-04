@@ -35,9 +35,9 @@ import { buildServer } from '../server.js';
 import { resetSchema, testPool } from '../testing/database.js';
 import { send, signIn, type Jar } from '../testing/http.js';
 
-const ADMIN = { username: 'owner', password: 'owner-password-1', pin: '1111' };
-const STAFF = { username: 'barista', password: 'barista-password-1', pin: '2222' };
-const SPARE = { username: 'spare', password: 'spare-password-1', pin: '3333' };
+const ADMIN = { username: 'owner', password: 'owner-password-1' };
+const STAFF = { username: 'barista', password: 'barista-password-1' };
+const SPARE = { username: 'spare', password: 'spare-password-1' };
 
 /** Who is asking. `customer` is bound to card A, `other` to card B. */
 type Caller = 'anon' | 'customer' | 'other' | 'staff' | 'admin';
@@ -152,7 +152,6 @@ const ROUTES: RouteCase[] = [
     payload: { password: 'replacement-password-1' },
     allow: ['admin'],
   },
-  { method: 'PATCH', path: '/staff/:staffId/pin', payload: { pin: '9876' }, allow: ['admin'] },
   { method: 'DELETE', path: '/staff/:staffId', allow: ['admin'] },
   { method: 'PATCH', path: '/config', payload: { pointsPerReward: 8 }, allow: ['admin'] },
   { method: 'GET', path: '/alerts', allow: ['admin'] },

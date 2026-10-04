@@ -7,9 +7,8 @@
  *   • **The actor is the session's** (BACKEND-PLAN §2, §4-D). Every handler that
  *     attributes an action reads it from {@link requireActor}, never from a body.
  *   • **A staff account never leaves the server whole** ({@link publicStaff}).
- *     `StaffAccount` carries the argon2id digest of the password and of the PIN;
- *     the admin panel needs the name, username, role and active flag and nothing
- *     else.
+ *     `StaffAccount` carries the argon2id digest of the password; the admin
+ *     panel needs the name, username, role and active flag and nothing else.
  *   • **Reads are bounded at the boundary, not in the store** (§4-E). The store
  *     deliberately clamps nothing — the same calls feed the detectors, where a
  *     silent truncation would make them quietly wrong — so the ceiling belongs
@@ -49,10 +48,10 @@ export function sessionCustomerId(request: FastifyRequest): string | null {
   return auth?.record.kind === 'customer' ? auth.record.customerId : null;
 }
 
-/** True for an active (not idle-locked) staff or admin session. */
+/** True for a signed-in staff or admin session. */
 export function isActiveStaff(request: FastifyRequest): boolean {
   const auth = request.auth;
-  return auth?.record.kind === 'staff' && auth.state === 'active' && auth.actor !== null;
+  return auth?.record.kind === 'staff' && auth.actor !== null;
 }
 
 /**
@@ -60,9 +59,7 @@ export function isActiveStaff(request: FastifyRequest): boolean {
  *
  * `passwordHash` is emptied rather than deleted: the field is required by the
  * shared `StaffAccount` type, and blanking it keeps one type across the seam
- * while guaranteeing the digest never crosses the wire. `pin` is dropped
- * entirely — its presence alone says whether the account can PIN-unlock, which
- * the admin panel does not need and an attacker would like.
+ * while guaranteeing the digest never crosses the wire.
  */
 export function publicStaff(account: StaffAccount): StaffAccount {
   return {

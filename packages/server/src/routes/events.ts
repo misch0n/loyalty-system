@@ -61,17 +61,16 @@ const MAX_BUFFERED_BYTES = 64 * 1024;
 /**
  * The subjects a session may hear about — its own, and only its own.
  *
- * `null` means "nothing to listen to", which covers both an anonymous caller and
- * a staff session that has idled into `locked`. A locked terminal is showing the
- * PIN pad; it has no feed to keep fresh, and the stream would otherwise be the
- * one part of the session the idle lock did not reach.
+ * `null` means "nothing to listen to": an anonymous caller. A till's topic is
+ * the signed-in **account**, not the person standing at it — the staff device
+ * is a shared till (SCOPE-DECISIONS §6.3).
  */
 function topicsFor(auth: AuthState | null): Topic[] | null {
   if (!auth) return null;
   if (auth.record.kind === 'customer') {
     return auth.record.customerId ? [topicOf('customer', auth.record.customerId)] : null;
   }
-  if (auth.state !== 'active' || !auth.actor) return null;
+  if (!auth.actor) return null;
   return [topicOf('staff', auth.actor.id)];
 }
 
@@ -89,11 +88,6 @@ export function registerEventRoutes(app: FastifyInstance, deps: AuthDeps): void 
 
   app.get('/events', async (request, reply) => {
     const auth = request.auth;
-    if (auth?.record.kind === 'staff' && auth.state === 'locked') {
-      // The same distinction `requireStaff` draws: `locked` tells the SPA to
-      // show the PIN pad, `unauthorized` to show the full sign-in form.
-      return reply.code(401).send({ error: 'locked' });
-    }
     const topics = topicsFor(auth);
     if (!auth || !topics) return reply.code(401).send({ error: 'unauthorized' });
 

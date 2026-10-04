@@ -29,9 +29,14 @@ working rules for agents in [`CLAUDE.md`](CLAUDE.md); current build status in
 > architecture section and diagram *have* been corrected and describe what is really there.
 >
 > **One decision changes the sign-in rows below:** the staff device is a shared till, so the
-> **PIN, the Unlock screen and the 5-minute idle lock are being removed**, attribution is the
-> signed-in account, and admin step-up becomes a plain confirmation (UI-PLAN's UI-1b and UI-3;
-> SCOPE-DECISIONS §6.3–§6.4). Rows that mention a PIN describe code that is going.
+> **PIN, the Unlock screen and the 5-minute idle lock are removed**, attribution is the
+> signed-in account, and admin step-up becomes a plain confirmation (SCOPE-DECISIONS §6.3–§6.4).
+> **The server and port half landed in UI-1b (2026-10-04, tag `backend-v1`):** no `/auth/unlock`, no
+> idle lock, no PIN column, no `BOOTSTRAP_ADMIN_PIN`; a session ends only at its TTL (30 days
+> remembered, 12 hours otherwise), on account disable/delete, or on "Sign out all devices". Audit
+> rows, "your last hour" and both detectors are **per account, not per person at the till**. The SPA
+> half (Unlock, `PinPad`, `AuthContext.unlock`, step-up) goes in UI-2 and UI-3, so rows that mention
+> a PIN describe SPA code that is going and a server that no longer has it.
 
 ---
 
@@ -285,7 +290,6 @@ erDiagram
         string username
         string role "admin | staff"
         boolean active
-        string pin "optional 4-8 digit PIN (never logged)"
     }
     Customer {
         string id PK
@@ -361,7 +365,7 @@ packages/
 │   │                           #   via its own package.json `exports` map (not a path alias)
 │   ├── src/
 │   │   ├── domain/                # pure logic, fully unit-tested
-│   │   │   ├── models.ts          # entity types; StaffAccount.pin?, ProgramConfig.sessionEpoch?
+│   │   │   ├── models.ts          # entity types; ProgramConfig.sessionEpoch? (StaffAccount.pin removed in UI-1b)
 │   │   │   ├── loyalty.ts         # balance derivation (settles 0..threshold-1)
 │   │   │   ├── rewards.ts         # rewards-as-objects: mintFold, unspentRewards, cardProgress,
 │   │   │   │                      #   validateRedemption, isOverCap (no undo decision — retired)
@@ -370,8 +374,8 @@ packages/
 │   │   │   └── alerts.ts          # self-dealing + repeat-target detectors, thresholds on ProgramConfig
 │   │   └── ports/                 # the seams (interfaces)
 │   │       ├── DataStore.ts       # commitCounterTransaction / listRewards / getCustomerState,
-│   │       │                      #   listAudit(AuditFilter: actions[]/actorIds[]/from/to),
-│   │       │                      #   setStaffPin. Split by trust: TrustedStore holds appendAudit +
+│   │       │                      #   listAudit(AuditFilter: actions[]/actorIds[]/from/to).
+│   │       │                      #   No PIN methods (setStaffPin removed in UI-1b). Split by trust: TrustedStore holds appendAudit +
 │   │       │                      #   the recovery-code pair, which only the server may call
 │   │       ├── Mailer.ts          # email abstraction (NoopMailer only client-side; routes send)
 │   │       └── IdentityStore.ts   # browser identity — superseded by the server session cookie
@@ -401,7 +405,7 @@ packages/
     │   ├── services/              # orchestrate domain + ports
     │   │   ├── CustomerService.ts      # selfRegister, provisionFromToken, selfDelete(token), reissue…
     │   │   ├── LoyaltyService.ts       # commit (accrue+mint+redeem), getState, reverse, getAlerts()
-    │   │   ├── StaffService.ts         # loginWithPin, setPin, revokeAllSessions, currentSessionEpoch
+    │   │   ├── StaffService.ts         # loginWithPin, setPin (dead — UI-2 deletes), revokeAllSessions, currentSessionEpoch
     │   │   ├── ConfigService.ts        # incl. alert-detector thresholds
     │   │   ├── AuditService.ts         # list, exportActivity (reason-gated, writes audit.export)
     │   │   ├── RecoveryService.ts      # self-service recovery (single-use expiring codes)
@@ -476,8 +480,8 @@ on their own phone — and device pairing was only ever a stand-in for a server,
 What replaced pairing's live refresh is **`GET /events`**: a one-way SSE stream carrying a
 `changed` signal (`{scope, id, reason}`) scoped per customer and per till, with the subjects
 derived from the session rather than named by the client. A screen hears that something it cares
-about moved, then re-reads through the routes it already had. Anonymous and idle-locked callers are
-refused; three streams per session.
+about moved, then re-reads through the routes it already had. Anonymous callers are refused (there
+is no idle-locked state any more); three streams per session.
 
 ### CI
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs four jobs on every push:
@@ -534,12 +538,13 @@ Every migration step is **built**. What remains is the UI pass
 flowchart LR
     A["IndexedDbStore to ApiStore"]:::done --> B["Fastify + PostgreSQL behind<br/>the same DataStore contract"]:::done
     E["EmailJsMailer to SMTP"]:::done --> F["Transactional email sent<br/>only by the routes"]:::done
-    K["Mocked auth to argon2id"]:::done --> L["Server sessions, server-side<br/>idle lock, epoch revocation"]:::done
+    K["Mocked auth to argon2id"]:::done --> L["Server sessions to their TTL,<br/>epoch revocation"]:::done
     M["Drop the pairing layer"]:::done --> N["Server coordinates state;<br/>liveness is GET /events"]:::done
     O["Transport + WalletProvider"]:::cut --> P["Ports deleted — registration is<br/>a URL, wallet dropped"]:::cut
     G["localStorage to session cookie"]:::todo --> H["Identity that survives iOS ITP"]:::todo
     Q["services/ reshaped to the routes"]:::todo --> R["@cafe/web compiles again"]:::todo
-    S["PIN + idle lock<br/>(UI-1b)"]:::todo --> T["Retired — shared till;<br/>attribution is the signed-in account"]:::todo
+    S["PIN + idle lock"]:::cut --> T["Retired on the server (UI-1b, tag backend-v1) —<br/>shared till; attribution is the signed-in account"]:::done
+    T --> U["SPA half: Unlock, PinPad,<br/>step-up (UI-2 / UI-3)"]:::todo
 
     classDef done fill:#eef,stroke:#5b6cc0;
     classDef cut fill:#eee,stroke:#888,stroke-dasharray:3;

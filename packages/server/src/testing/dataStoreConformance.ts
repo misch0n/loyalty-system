@@ -443,13 +443,10 @@ export function describeDataStoreConformance(harness: StoreHarness): void {
 
         await expect(store.setStaffActive('nope', false)).rejects.toThrow();
         await expect(store.setStaffPassword('nope', 'pw')).rejects.toThrow();
-        await expect(store.setStaffPin('nope', '6666')).rejects.toThrow();
       });
 
-      // There is no "find the account with this PIN" test, because Phase 6 took
-      // `getStaffByPin` off the port: a global PIN search is a credential oracle
-      // over HTTP (BACKEND-PLAN §4-B). PIN re-auth is verified against a named
-      // account by `POST /auth/unlock`, and `routes/auth.test.ts` owns it.
+      // There is no PIN to test: the port carries none (SCOPE-DECISIONS §6.3).
+      // A staff account is a username, a password and a role.
 
       it('deletes an account', async () => {
         const s = await addStaff();

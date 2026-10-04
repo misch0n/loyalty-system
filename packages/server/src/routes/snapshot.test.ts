@@ -19,7 +19,7 @@ import { buildServer } from '../server.js';
 import { resetSchema, testPool } from '../testing/database.js';
 import { send, signIn, type Jar } from '../testing/http.js';
 
-const ADMIN = { username: 'owner', password: 'owner-password-1', pin: '1111' };
+const ADMIN = { username: 'owner', password: 'owner-password-1' };
 
 let db: Db;
 let store: PostgresStore;
@@ -69,9 +69,10 @@ describe('GET /export', () => {
     const stored = await store.listStaff();
     for (const account of stored) {
       expect(response.body).not.toContain(account.passwordHash);
-      if (account.pin) expect(response.body).not.toContain(account.pin);
     }
     expect((response.json() as Snapshot).staff[0]?.passwordHash).toBe('');
+    // The PIN is gone (SCOPE-DECISIONS §6.3): no staff record carries one.
+    expect((response.json() as Snapshot).staff[0]).not.toHaveProperty('pin');
   });
 
   it('records that it happened', async () => {
@@ -94,6 +95,23 @@ describe('POST /import', () => {
 
     const customers = (await store.exportAll()).customers;
     expect(customers.map((c) => c.id)).toEqual([original.id]);
+  });
+
+  it('restores a legacy snapshot whose staff records still carry a PIN', async () => {
+    // Snapshots exported before UI-1b could carry `pin` on a staff record. The
+    // field has no column any more; it is ignored, and the rest restores.
+    const snapshot = (await send(app, admin, { method: 'GET', url: '/export' })).json() as Snapshot;
+    const legacy = {
+      ...snapshot,
+      staff: snapshot.staff.map((account) => ({ ...account, pin: '$argon2id$legacy-digest' })),
+    };
+
+    const response = await send(app, admin, { method: 'POST', url: '/import', payload: legacy });
+    expect(response.statusCode).toBe(204);
+
+    const restored = await store.listStaff();
+    expect(restored.map((account) => account.username)).toEqual([ADMIN.username]);
+    expect(restored[0]).not.toHaveProperty('pin');
   });
 
   it('refuses a body that is not a snapshot', async () => {

@@ -65,7 +65,9 @@ export interface StaffAccount {
    * Display name used for staff attribution in the activity log, the staff
    * panel "on shift" line, and admin analytics. Distinct from `username` (the
    * sign-in handle). Optional for backward compatibility with seed/legacy
-   * records; display falls back to `username` when absent.
+   * records; display falls back to `username` when absent. It names the
+   * **account**, not the person at the till: the staff device is a shared till
+   * (SCOPE-DECISIONS §6.3), so attribution is per signed-in account.
    */
   name?: string;
   /**
@@ -74,13 +76,6 @@ export interface StaffAccount {
    * never hold a real credential.
    */
   passwordHash: string;
-  /**
-   * Optional individual PIN for the staff sign-in screen (§6). Like
-   * `passwordHash`, the prototype stores a plain value purely so the PIN pad has
-   * something to compare against; production stores a hash verified server-side.
-   * Absent for accounts created without a PIN.
-   */
-  pin?: string;
   role: StaffRole;
   active: boolean;
   createdAt: string;

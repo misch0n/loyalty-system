@@ -32,19 +32,16 @@ export async function bootstrap(db: Db, admin: BootstrapAdmin | null): Promise<B
   if (rows[0]?.exists) return { status: 'already-bootstrapped' };
   if (!admin) return { status: 'not-configured' };
 
-  const [passwordHash, pinHash] = await Promise.all([
-    hashSecret(admin.password),
-    hashSecret(admin.pin),
-  ]);
+  const passwordHash = await hashSecret(admin.password);
 
   const staffId = generateId();
   // ON CONFLICT covers two containers racing this on a cold start: the loser
   // finds the username taken and writes nothing.
   const inserted = await db.query(
-    `INSERT INTO staff_accounts (id, username, name, password_hash, pin_hash, role, active)
-     VALUES ($1, $2, $3, $4, $5, 'admin', true)
+    `INSERT INTO staff_accounts (id, username, name, password_hash, role, active)
+     VALUES ($1, $2, $3, $4, 'admin', true)
      ON CONFLICT DO NOTHING`,
-    [staffId, admin.username, admin.name ?? null, passwordHash, pinHash],
+    [staffId, admin.username, admin.name ?? null, passwordHash],
   );
   if (inserted.rowCount === 0) return { status: 'already-bootstrapped' };
 
@@ -69,8 +66,7 @@ async function main(): Promise<void> {
       case 'not-configured':
         console.warn(
           'No admin account exists and no bootstrap credentials are set. ' +
-            'Set BOOTSTRAP_ADMIN_USERNAME, BOOTSTRAP_ADMIN_PASSWORD and ' +
-            'BOOTSTRAP_ADMIN_PIN, then run this again.',
+            'Set BOOTSTRAP_ADMIN_USERNAME and BOOTSTRAP_ADMIN_PASSWORD, then run this again.',
         );
         break;
     }

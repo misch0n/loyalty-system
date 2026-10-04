@@ -9,7 +9,6 @@ import { resetSchema, testPool } from './testing/database.js';
 const ADMIN = {
   username: 'manager',
   password: 'correct-horse',
-  pin: '4321',
   name: 'Manager',
 };
 
@@ -38,21 +37,18 @@ describe('bootstrap', () => {
     expect(rows[0]).toMatchObject({ username: 'manager', name: 'Manager', role: 'admin', active: true });
   });
 
-  it('hashes the password and the PIN with argon2id — never stores the plaintext', async () => {
+  it('hashes the password with argon2id — never stores the plaintext', async () => {
     await bootstrap(db, ADMIN);
-    const { rows } = await db.query<{ password_hash: string; pin_hash: string }>(
-      'SELECT password_hash, pin_hash FROM staff_accounts',
+    const { rows } = await db.query<{ password_hash: string }>(
+      'SELECT password_hash FROM staff_accounts',
     );
     const stored = rows[0]!;
 
     expect(stored.password_hash).not.toBe(ADMIN.password);
-    expect(stored.pin_hash).not.toBe(ADMIN.pin);
     expect(stored.password_hash.startsWith('$argon2id$')).toBe(true);
-    expect(stored.pin_hash.startsWith('$argon2id$')).toBe(true);
 
     expect(await verifySecret(stored.password_hash, ADMIN.password)).toBe(true);
     expect(await verifySecret(stored.password_hash, 'wrong')).toBe(false);
-    expect(await verifySecret(stored.pin_hash, ADMIN.pin)).toBe(true);
   });
 
   it('is a no-op once an admin exists — it can never reset a live credential', async () => {

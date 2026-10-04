@@ -190,8 +190,8 @@ async function main(): Promise<void> {
         // screen with no way forward.
         console.warn(
           'WARNING: no admin account exists and no bootstrap credentials are set. ' +
-            'Nobody can sign in. Set BOOTSTRAP_ADMIN_USERNAME, BOOTSTRAP_ADMIN_PASSWORD ' +
-            'and BOOTSTRAP_ADMIN_PIN, then run this again.',
+            'Nobody can sign in. Set BOOTSTRAP_ADMIN_USERNAME and BOOTSTRAP_ADMIN_PASSWORD, ' +
+            'then run this again.',
         );
         break;
     }

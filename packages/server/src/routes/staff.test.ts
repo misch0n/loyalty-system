@@ -19,8 +19,8 @@ import { buildServer } from '../server.js';
 import { resetSchema, testPool } from '../testing/database.js';
 import { send, signIn, type Jar } from '../testing/http.js';
 
-const ADMIN = { username: 'owner', password: 'owner-password-1', pin: '1111' };
-const STAFF = { username: 'barista', password: 'barista-password-1', pin: '2222' };
+const ADMIN = { username: 'owner', password: 'owner-password-1' };
+const STAFF = { username: 'barista', password: 'barista-password-1' };
 
 let db: Db;
 let store: PostgresStore;
@@ -61,14 +61,13 @@ describe('GET /staff', () => {
 
     for (const account of accounts) {
       expect(account.passwordHash).toBe('');
-      expect(account.pin).toBeUndefined();
+      expect(account).not.toHaveProperty('pin');
     }
     // Belt and braces: the argon2id digests are in the database, and not one
-    // character of either appears in what went over the wire.
+    // character of them appears in what went over the wire.
     const stored = await store.listStaff();
     for (const account of stored) {
       expect(response.body).not.toContain(account.passwordHash);
-      if (account.pin) expect(response.body).not.toContain(account.pin);
     }
   });
 
@@ -84,7 +83,7 @@ describe('GET /staff', () => {
     const response = await send(app, admin, {
       method: 'POST',
       url: '/staff/by-pin',
-      payload: { pin: ADMIN.pin },
+      payload: { pin: '1111' },
     });
     expect(response.statusCode).toBe(404);
   });
@@ -100,7 +99,6 @@ describe('POST /staff', () => {
         password: 'newhire-password-1',
         role: 'staff',
         name: 'New Hire',
-        pin: '4321',
       },
     });
     expect(response.statusCode).toBe(201);
@@ -141,20 +139,23 @@ describe('POST /staff', () => {
     expect(response.json()).toEqual({ error: 'username_taken' });
   });
 
-  it('allows a PIN another account already uses (SCOPE-DECISIONS §3.6)', async () => {
-    // Uniqueness is not implementable against hashed PINs and is no longer
-    // needed: `/auth/unlock` verifies against an account the session names.
+  it('stores no PIN when a pre-UI-1b client still sends one', async () => {
+    // SCOPE-DECISIONS §6.3: there is no PIN. The schema strips the unknown
+    // field (Fastify's default `removeAdditional`), so an old Add-profile form
+    // still creates the account — with a password and nothing else.
     const response = await send(app, admin, {
       method: 'POST',
       url: '/staff',
       payload: {
-        username: 'twin',
-        password: 'twin-password-1',
+        username: 'legacy',
+        password: 'legacy-password-1',
         role: 'staff',
-        pin: STAFF.pin,
+        pin: '4321',
       },
     });
     expect(response.statusCode).toBe(201);
+    expect(response.json()).not.toHaveProperty('pin');
+    expect(await store.getStaffByUsername('legacy')).not.toHaveProperty('pin');
   });
 
   it('audits the creation from the session actor', async () => {
@@ -237,7 +238,7 @@ describe('PATCH /staff/:id', () => {
   });
 });
 
-describe('PATCH /staff/:id/password and /pin', () => {
+describe('PATCH /staff/:id/password', () => {
   it('replaces the password with one that works', async () => {
     const response = await send(app, admin, {
       method: 'PATCH',
@@ -258,26 +259,24 @@ describe('PATCH /staff/:id/password and /pin', () => {
     expect(stale.statusCode).toBe(401);
   });
 
-  it('audits a PIN reset without recording the PIN', async () => {
+  it('audits a password reset from the session actor', async () => {
     await send(app, admin, {
+      method: 'PATCH',
+      url: `/staff/${staffId}/password`,
+      payload: { password: 'brand-new-password-1' },
+    });
+    const rows = await auditRows('staff.resetPassword');
+    expect(rows[0]).toMatchObject({ actorId: adminId, targetId: staffId });
+    expect(JSON.stringify(rows[0])).not.toContain('brand-new-password-1');
+  });
+
+  it('has no PIN to reset — the route is gone (SCOPE-DECISIONS §6.3)', async () => {
+    const response = await send(app, admin, {
       method: 'PATCH',
       url: `/staff/${staffId}/pin`,
       payload: { pin: '8888' },
     });
-    const rows = await auditRows('staff.resetPassword');
-    expect(rows[0]?.details).toBe('pin');
-    expect(rows[0]?.details).not.toContain('8888');
-  });
-
-  it('refuses a PIN that is not 4–8 digits', async () => {
-    for (const pin of ['12', 'abcd', '1234567890']) {
-      const response = await send(app, admin, {
-        method: 'PATCH',
-        url: `/staff/${staffId}/pin`,
-        payload: { pin },
-      });
-      expect(response.statusCode).toBe(400);
-    }
+    expect(response.statusCode).toBe(404);
   });
 });
 

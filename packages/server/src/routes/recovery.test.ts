@@ -22,7 +22,7 @@ import { resetSchema, testPool } from '../testing/database.js';
 import { send, signIn, type Jar } from '../testing/http.js';
 import { CollectingMailer } from '../testing/mail.js';
 
-const STAFF = { username: 'barista', password: 'barista-password-1', pin: '2222' };
+const STAFF = { username: 'barista', password: 'barista-password-1' };
 const EMAIL = 'lost@example.test';
 const UNKNOWN = 'nobody@example.test';
 

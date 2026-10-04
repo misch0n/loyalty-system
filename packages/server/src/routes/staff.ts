@@ -55,7 +55,6 @@ const CREATE_SCHEMA = {
       password: { type: 'string', minLength: 8, maxLength: 256 },
       role: { type: 'string', enum: ['admin', 'staff'] },
       name: { type: 'string', maxLength: 80 },
-      pin: { type: 'string', pattern: '^\\d{4,8}$' },
     },
   },
 };
@@ -78,15 +77,6 @@ const PASSWORD_SCHEMA = {
   },
 };
 
-const PIN_SCHEMA = {
-  body: {
-    type: 'object',
-    required: ['pin'],
-    additionalProperties: false,
-    properties: { pin: { type: 'string', pattern: '^\\d{4,8}$' } },
-  },
-};
-
 interface IdParams {
   id: string;
 }
@@ -96,7 +86,6 @@ interface CreateBody {
   password: string;
   role: StaffRole;
   name?: string;
-  pin?: string;
 }
 
 export function registerStaffRoutes(app: FastifyInstance, deps: AuthDeps): void {
@@ -108,12 +97,10 @@ export function registerStaffRoutes(app: FastifyInstance, deps: AuthDeps): void 
   );
 
   /**
-   * Create a staff or admin account. `pin` is optional (a password-only account
-   * simply cannot use the quick unlock) and is **not** checked for uniqueness —
-   * SCOPE-DECISIONS §3.6 retired that rule, and against argon2id-hashed PINs it
-   * is not implementable anyway. It stopped being needed when `/auth/unlock`
-   * began verifying a PIN against an account the session already names, rather
-   * than searching every account for a match.
+   * Create a staff or admin account: name, username, password, role. There is
+   * no PIN (SCOPE-DECISIONS §6.3). A `pin` left in the body by a pre-UI-1b
+   * client is stripped by the schema (Fastify's default `removeAdditional`)
+   * and never stored.
    */
   app.post<{ Body: CreateBody }>(
     '/staff',
@@ -132,7 +119,6 @@ export function registerStaffRoutes(app: FastifyInstance, deps: AuthDeps): void 
         password: request.body.password,
         role: request.body.role,
         name: request.body.name?.trim() || undefined,
-        pin: request.body.pin,
       });
 
       await store.appendAudit({
@@ -198,31 +184,6 @@ export function registerStaffRoutes(app: FastifyInstance, deps: AuthDeps): void 
         actorRole: actor.role,
         action: 'staff.resetPassword',
         targetId: request.params.id,
-      });
-      return reply.code(204).send();
-    },
-  );
-
-  /**
-   * Reset a PIN. Audited as `staff.resetPassword` with the detail `pin` — the
-   * same pair `StaffService.setPin` writes, so the trail keeps its shape. The
-   * PIN itself is never audited and never logged: it is a credential.
-   */
-  app.patch<{ Params: IdParams; Body: { pin: string } }>(
-    '/staff/:id/pin',
-    { schema: PIN_SCHEMA, preHandler: requireAdmin },
-    async (request, reply) => {
-      const actor = requireActor(request);
-      const accounts = await store.listStaff();
-      if (!accounts.some((account) => account.id === request.params.id)) return notFound(reply);
-
-      await store.setStaffPin(request.params.id, request.body.pin);
-      await store.appendAudit({
-        actorId: actor.id,
-        actorRole: actor.role,
-        action: 'staff.resetPassword',
-        targetId: request.params.id,
-        details: 'pin',
       });
       return reply.code(204).send();
     },

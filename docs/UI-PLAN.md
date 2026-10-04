@@ -5,7 +5,8 @@
 > its **47** test files failing to load (this plan first said 53; 47 is the count STATUS has
 > carried since Phase 10 moved the domain suites into `@cafe/shared`) — every one traceable to a
 > Phase 6 deletion. This plan makes it green again *against the API*, not against the store that
-> was deleted. **UI-0 is done: 14 errors and 6 non-loading files remain**, all of them UI-2's.
+> was deleted. **UI-0 and UI-1b are done: 16 errors and 6 non-loading files remain**, all of them
+> UI-2's.
 >
 > **Input:** [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md) — 35 rows saying what the backend does,
 > what the UI does today, and the gap. That register is the specification; this file is the
@@ -24,7 +25,7 @@
 **Resume protocol for a new session:**
 1. Work on branch **`claude/backend-implementation-2kqb08`** (or a `claude/ui-pass-*` branch cut
    from it). **It is not merged into `main` yet** — `main` has none of this work — and will be
-   **tagged** when UI-1b lands (SCOPE-DECISIONS §6.6).
+   **tagged `backend-v1`** on the commit that landed UI-1b (SCOPE-DECISIONS §6.6).
 2. Read [`STATUS.md`](STATUS.md), [`SCOPE-DECISIONS.md`](SCOPE-DECISIONS.md),
    [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md), then this file.
 3. Find the first **unchecked** box in §2 — that's the next task.
@@ -37,7 +38,8 @@
 6. Tick the box, add any new conflict as a register row, refresh `STATUS.md`, commit + push.
 
 **The error count is the progress bar.** `npm run typecheck -w @cafe/web 2>&1 | grep -c "error TS"`
-started at **39**; it reads **14** after UI-0. Each phase below states what it should read
+started at **39**; it read **14** after UI-0 and reads **16** after UI-1b (the two new ones are
+`setStaffPin` callers, which UI-2 deletes). Each phase below states what it should read
 afterwards. A number that does not
 drop as predicted means the phase found something the register missed — add a row.
 
@@ -71,7 +73,7 @@ and ride along in UI-2; neither blocks anything.
 
 - [x] **UI-0** — Delete what is already decided dead → **39 errors became 14** ✅ 2026-09-16
 - [ ] **UI-1** — `ApiStore.request` + the error surface
-- [ ] **UI-1b** — Retire the PIN and the idle lock (server + port) → **tag the branch**
+- [x] **UI-1b** — Retire the PIN and the idle lock (server + port) → tagged `backend-v1` ✅ 2026-10-04
 - [ ] **UI-2** — Services reshaped to the routes, and their tests rebuilt → **0 errors**
 - [ ] **UI-3** — Screens whose behaviour the backend changed
 - [ ] **UI-4** — Error and offline states on screen
@@ -177,8 +179,37 @@ here, but removing port methods that `StaffService` and `ApiStore` still referen
 error count — record the new number in this file; UI-2 deletes the callers. **Then the branch is
 tagged** (SCOPE-DECISIONS §6.6).
 
+**As built (2026-10-04).** Tagged **`backend-v1`**. Server: **439 tests** (was 442), green against
+real Postgres with none skipped; `@cafe/shared` 73; both typechecks clean. Removed: 7 unlock tests,
+3 + 3 idle-lock tests, "signs a locked terminal out" and the `/staff/:id/pin` authz row. Added: 4 + 4
+TTL tests (including a remembered session surviving more than 5 minutes idle), the 002 upgrade-path
+test, a leftover-`BOOTSTRAP_ADMIN_PIN` test and a legacy-snapshot test.
+- **Sessions** end only at their absolute TTL (`REMEMBERED_TTL_MS` / `EPHEMERAL_TTL_MS`, kept), on
+  account disable or delete, or on epoch revocation. `IDLE_LOCK_MS`, `SessionState` and the
+  `locked` state are gone; `GET /auth/session` now returns `'active' | 'anon'`. `last_seen_at` is
+  still written each request but is bookkeeping only, kept for the deferred remember-me round.
+- **API:** `POST /auth/unlock`, `PATCH /staff/:id/pin`, `pinLimiter` and the `401 locked` refusal
+  are gone. `POST /staff` still *accepts* a `pin` field — Fastify strips it silently rather than
+  returning 400, so the current SPA's Add-profile form keeps working (a test asserts this).
+- **Storage:** forward-only migration `002_retire_pin.sql` drops `staff_accounts.pin_hash`.
+  Snapshot import ignores a legacy `pin` on staff, so old backups still restore.
+- **Env:** `BOOTSTRAP_ADMIN_PIN` is out of `env.ts`, `bootstrap.ts`, `migrate.ts`, both
+  `.env.example` files, `compose.yml`, CI and `ops/`; the bootstrap admin is username + password
+  (+ optional name). A leftover `BOOTSTRAP_ADMIN_PIN` in an old `.env` is ignored (tested). That
+  test in `env.test.ts` is the one deliberate source hit on the removal grep.
+- **Log redaction** still treats `pin` / `pinHash` / `pin_hash` as sensitive keys, because the
+  current SPA and old snapshots can still send one.
+- **`@cafe/web` errors 14 → 16.** Both new ones are `setStaffPin`: `src/services/StaffService.ts`
+  and `tests/adapters/ApiStore.test.ts`. Test files unchanged: 6 of 44 not loading, 180 tests pass.
+- **Live check:** the devbox bundle was rebuilt, `migrate` applied 002 to the existing database,
+  `pin_hash` is gone, `ops/smoke.sh` passes and `POST /auth/unlock` returns 404.
+- **Still in the SPA** (UI-2 / UI-3): `ApiStore.setStaffPin`, `StaffService` PIN logic,
+  `AuthContext.unlock` and its `'locked'` status, `session.ts`, `EntryResolver`, `useStaffGuard`,
+  `PinPad`, `Unlock`, `StepUp`, and the `ProgramEdit` PIN paths.
+
 ### UI-2 — Services reshaped, tests rebuilt  ⟵ the real work
-The 14 remaining errors are all here (UI-1b may have moved the count). Rows C3, A3, P6, P7, S1.
+The 16 remaining errors are all here (the 14 UI-0 left, plus the two `setStaffPin` callers UI-1b
+left behind). Rows C3, A3, P6, P7, S1.
 
 - **`RecoveryService`** (C3) → `POST /recovery/request` then `POST /recovery/consume(email, code)`.
   It no longer mints codes or sends mail.
@@ -285,7 +316,7 @@ and A7 superseded on 2026-10-03. Then README architecture, SPEC §15 rows, and S
 ## 4 · Risk notes
 
 - **The port is now editable, and the server depends on it.** `packages/shared/src/ports/` is
-  shared. A change made to please a screen can break 442 server tests. Run both suites, every phase.
+  shared. A change made to please a screen can break 439 server tests. Run both suites, every phase.
 - **UI-0 deletes a lot at once.** That is the point — it is all **Settled**, and doing it first
   means UI-2 reshapes services without dead callers confusing the picture. But it is the phase most
   likely to take something still wanted: check the register before deleting anything not listed.

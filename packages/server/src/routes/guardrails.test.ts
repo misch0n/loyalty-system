@@ -67,9 +67,9 @@ describe('§4-B — the PIN is never searched for globally', () => {
     // routes away. The port no longer demands it, so the method is gone and the
     // guard can say the stronger thing — over the network "which account has
     // this PIN?" is an unauthenticated credential oracle across the whole staff
-    // table at four digits, and there is now nothing to reach. `POST
-    // /auth/unlock` verifies a PIN against the account the session already
-    // names.
+    // table at four digits, and there is now nothing to reach. Since UI-1b there
+    // is no PIN at all (SCOPE-DECISIONS §6.3); the route inventory below is what
+    // keeps an unlock route from coming back.
     expect(sourcesMatching(/getStaffByPin/)).toEqual([]);
   });
 });
@@ -234,7 +234,6 @@ describe('§6 — the API surface is exactly this', () => {
 ├── /auth/login (POST)
 ├── /auth/logout (POST)
 │   └── -all (POST)
-├── /auth/unlock (POST)
 ├── /audit (GET, HEAD, POST)
 ├── /alerts (GET, HEAD)
 ├── /me (GET, HEAD, PUT, DELETE)
@@ -255,8 +254,7 @@ describe('§6 — the API surface is exactly this', () => {
 ├── /config (GET, HEAD, PATCH)
 ├── /staff (GET, HEAD, POST)
 │   └── /:id (PATCH, DELETE)
-│       ├── /password (PATCH)
-│       └── /pin (PATCH)
+│       └── /password (PATCH)
 ├── /stats/active-customers (GET, HEAD)
 ├── /transactions (GET, HEAD)
 ├── /export (GET, HEAD)

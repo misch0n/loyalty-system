@@ -26,8 +26,8 @@ import { resetSchema, testPool } from '../testing/database.js';
 import { cookieHeader, send, signIn, type Jar } from '../testing/http.js';
 import { listen, openSse, type SseClient } from '../testing/sse.js';
 
-const ADMIN = { username: 'owner', password: 'owner-password-1', pin: '1111' };
-const STAFF = { username: 'barista', password: 'barista-password-1', pin: '2222' };
+const ADMIN = { username: 'owner', password: 'owner-password-1' };
+const STAFF = { username: 'barista', password: 'barista-password-1' };
 
 let db: Db;
 let store: PostgresStore;
@@ -403,28 +403,33 @@ describe('a stream never outlives its session', () => {
     });
   });
 
-  it('refuses a terminal that has idled into the lock', async () => {
-    // A locked till is showing the PIN pad; it has no feed to keep fresh, and
-    // the stream would otherwise be the one part of the session the idle lock
-    // did not reach.
+  it('keeps serving a till that has sat idle — there is no idle lock', async () => {
+    // SCOPE-DECISIONS §6.3: the staff device is a shared till and a session
+    // lasts until its TTL. A till idle for longer than the retired 5-minute
+    // lock still opens its feed, scoped to the signed-in account.
     let clock = Date.now();
-    const lockedDeps = createAuthDeps({
+    const idleDeps = createAuthDeps({
       db,
       store,
       cookieSecure: false,
       now: () => clock,
     });
-    const lockedApp = buildServer({ logLevel: 'silent', auth: lockedDeps });
-    const lockedOrigin = await listen(lockedApp);
+    const idleApp = buildServer({ logLevel: 'silent', auth: idleDeps });
+    const idleOrigin = await listen(idleApp);
     try {
-      const jar = await signIn(lockedApp, STAFF.username, STAFF.password, true);
+      const jar = await signIn(idleApp, STAFF.username, STAFF.password, true);
       clock += 6 * 60 * 1000;
-      const client = await openSse(lockedOrigin, '/events', { cookie: cookieHeader(jar) });
+      const client = await openSse(idleOrigin, '/events', { cookie: cookieHeader(jar) });
       streams.push(client);
-      expect(client.statusCode).toBe(401);
-      expect(JSON.parse(await client.body())).toEqual({ error: 'locked' });
+      expect(client.statusCode).toBe(200);
+      await expect(client.next()).resolves.toEqual({
+        event: 'hello',
+        data: { scopes: [`staff:${staffId}`] },
+      });
     } finally {
-      await lockedApp.close();
+      for (const client of streams) client.close();
+      streams = [];
+      await idleApp.close();
     }
   });
 });

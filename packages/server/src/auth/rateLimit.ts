@@ -1,10 +1,10 @@
 /**
  * Failed-attempt limiting with lockout.
  *
- * This is the control that actually protects a PIN. A four-digit PIN has no
- * entropy worth the name — `hashing.ts` says so, SCOPE-DECISIONS §2.3 says the
- * same about a typed recovery code — so what stands between an attacker and the
- * whole keyspace is how many guesses they get, not how the guess is hashed.
+ * This is the control that actually protects a short credential. A six-character
+ * recovery code has no entropy worth the name — SCOPE-DECISIONS §2.3 says so —
+ * so what stands between an attacker and the whole keyspace is how many guesses
+ * they get, not how the guess is hashed.
  *
  * Deliberately counts **failures**, not requests: a till signing in correctly all
  * day is never throttled, while an attacker is locked out after `limit` misses.

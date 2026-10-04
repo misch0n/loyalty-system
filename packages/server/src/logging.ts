@@ -26,6 +26,8 @@ export const SENSITIVE_KEYS = [
   'password',
   'passwordHash',
   'password_hash',
+  // The PIN is retired (SCOPE-DECISIONS §6.3), but a pre-UI-1b client or a
+  // legacy snapshot can still send one, so its redaction stays.
   'pin',
   'pinHash',
   'pin_hash',

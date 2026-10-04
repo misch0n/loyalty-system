@@ -12,7 +12,7 @@
  *     `POST /recovery/request`               email in, a code goes to the inbox
  *     `POST /recovery/consume`               email + code in, card bound here
  *     `GET  /auth/session`                   am I signed in? (Phase 3)
- *     `POST /auth/login` · `/auth/unlock` · `/auth/logout`
+ *     `POST /auth/login` · `/auth/logout`
  *
  *   **any session** — a customer's device or a till, listening to its own
  *   subject and no other (Phase 7):
@@ -23,7 +23,7 @@
  *     `POST /customers/:id/consent`
  *     `DELETE /customers/:id`                the card's own device, or an admin
  *
- *   **staff** — an active staff or admin session:
+ *   **staff** — a signed-in staff or admin session:
  *     `GET  /customers/by-code/:shortCode`   camera-fail fallback
  *     `POST /customers/search`               PII in a body, never a URL
  *     `PATCH /customers/:id`                 staff-mediated correction
@@ -33,7 +33,7 @@
  *     `POST /audit`                          accepted, writes nothing (§4-C)
  *
  *   **admin** — everything staff can, plus:
- *     `GET|POST /staff` · `PATCH /staff/:id` · `/password` · `/pin` · `DELETE`
+ *     `GET|POST /staff` · `PATCH /staff/:id` · `/password` · `DELETE`
  *     `PATCH /config`
  *     `GET  /alerts` · `/transactions` · `/stats/active-customers`
  *     `GET  /export` · `POST /import`
@@ -41,6 +41,10 @@
  *
  * And, as load-bearing as any route above, what is **absent**:
  *     no `POST /staff/by-pin`                 a credential oracle (§4-B)
+ *     no PIN anywhere — no unlock route, no   the staff device is a shared till;
+ *     `PATCH /staff/:id/pin`, no idle lock    a login lasts until its TTL and
+ *                                             attribution is the signed-in
+ *                                             account (SCOPE-DECISIONS §6.3)
  *     no `GET  /staff/by-username/:username`  returns the credential digests
  *     no `POST /customers/:id/redeem`         retired by rewards-as-objects
  *     no `POST /recovery/codes`               minting a code is an internal step

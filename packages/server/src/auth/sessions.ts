@@ -8,8 +8,14 @@
  * large part of why this backend is worth building.
  *
  * What moves here:
- *   • **The idle lock.** 5 minutes of inactivity, enforced against
- *     `last_seen_at` rather than a number the client keeps about itself.
+ *   • **Absolute lifetimes.** A session ends at its `expires_at` — 30 days for
+ *     a remembered till, 12 hours otherwise — decided here, not by a timer the
+ *     client keeps about itself. There is **no idle lock** (SCOPE-DECISIONS
+ *     §6.3): the staff device is a shared till, a remembered login stays signed
+ *     in until its TTL, and attribution is the signed-in *account* — audit rows,
+ *     the counter's "your last hour" and both alert detectors are per account,
+ *     not per person at the till. A remember-me hardening round is deferred,
+ *     not dropped.
  *   • **Epoch revocation.** "Sign out all devices" deletes rows, so it is true
  *     the instant it runs rather than true once each device notices.
  *   • **Recognition that survives.** A server-set HttpOnly cookie is not
@@ -25,13 +31,6 @@ import { generateId } from '@cafe/shared/domain/tokens';
 import type { Db } from '../db.js';
 import { withTransaction } from '../db.js';
 
-/**
- * Inactivity before a staff session locks. Mirrors `INACTIVITY_MS` in
- * `src/ui/app/session.ts` — the client still runs its own timer for the
- * immediate UI transition, but this is the one that decides.
- */
-export const IDLE_LOCK_MS = 5 * 60 * 1000;
-
 /** Absolute lifetime of a remembered terminal's session ("this is our till"). */
 export const REMEMBERED_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Absolute lifetime of a one-off sign-in on a borrowed device. */
@@ -44,8 +43,6 @@ export const EPHEMERAL_TTL_MS = 12 * 60 * 60 * 1000;
 export const CUSTOMER_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
 export type SessionKind = 'staff' | 'customer';
-/** `'locked'` is a staff-only state: identity kept, PIN needed to act. */
-export type SessionState = 'active' | 'locked';
 
 /**
  * The staff identity behind a session.
@@ -68,17 +65,21 @@ export interface SessionRecord {
   kind: SessionKind;
   staffId: string | null;
   customerId: string | null;
-  /** "Remember this device" — a trusted terminal that PIN-unlocks after idling. */
+  /** "Remember this device" — a till that stays signed in for the long TTL. */
   remembered: boolean;
   sessionEpoch: number;
   createdAt: Date;
+  /**
+   * Last request made on this session. Nothing decides on it any more — the
+   * idle lock it used to drive is gone — but it is kept truthful for the
+   * deferred remember-me hardening round, which is the obvious reader.
+   */
   lastSeenAt: Date;
   expiresAt: Date;
 }
 
 export interface ResolvedSession {
   record: SessionRecord;
-  state: SessionState;
   /** The staff account, for a staff session. `null` for a customer session. */
   actor: StaffActor | null;
 }
@@ -176,8 +177,9 @@ export class SessionStore {
 
   /**
    * Issues a staff session. `remembered` is the "remember this device" flag: it
-   * buys a long absolute lifetime and, after the idle window, a PIN unlock
-   * instead of a full sign-out.
+   * buys the long absolute lifetime ({@link REMEMBERED_TTL_MS}) instead of the
+   * short one. Either way the session lasts until its TTL, however long the
+   * till sits idle.
    */
   async issueStaff(staffId: string, remembered: boolean): Promise<IssuedSession> {
     const ttl = remembered ? REMEMBERED_TTL_MS : EPHEMERAL_TTL_MS;
@@ -237,15 +239,12 @@ export class SessionStore {
    * Every way a session can be over is applied here rather than at call sites,
    * and each one **deletes the row** so a dead session cannot be resolved twice:
    *
-   *   • past its absolute `expires_at`                        → gone
-   *   • staff, and its account is missing or disabled         → gone
-   *   • staff, and its epoch is behind the program's          → gone (revoked)
-   *   • staff, idle past {@link IDLE_LOCK_MS}, not remembered → gone
-   *   • staff, idle past {@link IDLE_LOCK_MS}, remembered     → `'locked'`
+   *   • past its absolute `expires_at`                → gone
+   *   • staff, and its account is missing or disabled → gone
+   *   • staff, and its epoch is behind the program's  → gone (revoked)
    *
-   * The idle rule and the epoch check are staff-only. A customer's card must
-   * still be recognised after a fortnight of not visiting — that recognition *is*
-   * the feature — and "sign out all devices" is an admin action about staff
+   * Idleness is not one of them (SCOPE-DECISIONS §6.3). The epoch check is
+   * staff-only: "sign out all devices" is an admin action about staff
    * terminals, not a way to un-issue every customer's card.
    */
   async resolve(token: string): Promise<ResolvedSession | null> {
@@ -263,7 +262,7 @@ export class SessionStore {
     if (row.expires_at.getTime() <= now) return expire();
 
     if (row.kind === 'customer') {
-      return { record: toRecord(row), state: 'active', actor: null };
+      return { record: toRecord(row), actor: null };
     }
 
     const actor = toActor(row);
@@ -272,10 +271,7 @@ export class SessionStore {
     if (!actor || row.active !== true) return expire();
     if (row.session_epoch < (row.config_epoch ?? 0)) return expire();
 
-    const idle = now - row.last_seen_at.getTime() > IDLE_LOCK_MS;
-    if (idle && !row.remembered) return expire();
-
-    return { record: toRecord(row), state: idle ? 'locked' : 'active', actor };
+    return { record: toRecord(row), actor };
   }
 
   /**
@@ -297,7 +293,7 @@ export class SessionStore {
     return expected.length === presented.length && timingSafeEqual(expected, presented);
   }
 
-  /** Records activity, which is what the idle lock is measured against. */
+  /** Records activity in `last_seen_at`. Bookkeeping only — nothing expires on it. */
   async touch(sessionId: string): Promise<void> {
     await this.db.query('UPDATE sessions SET last_seen_at = $2 WHERE id = $1', [
       sessionId,
