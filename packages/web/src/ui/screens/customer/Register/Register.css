@@ -55,8 +55,18 @@
   color: var(--ink);
 }
 
-.register-caveat {
-  margin: -6px 0 16px;
+/* `email_in_use`: the address already has a card — offer recovery instead. */
+.register-taken {
+  margin: -4px 0 16px;
+  padding: 12px 14px;
+  border-radius: 13px;
+  background: var(--blush-200);
+}
+.register-taken p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink);
 }
 
 .register-field-error,

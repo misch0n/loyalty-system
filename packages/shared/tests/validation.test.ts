@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   validateRegistration,
-  isTokenOnly,
   findDuplicates,
-  isRecoverable,
   normalizePhone,
 } from '../src/domain/validation.js';
 import type { Customer } from '../src/domain/models.js';
@@ -20,34 +18,58 @@ function customer(over: Partial<Customer>): Customer {
 }
 
 describe('validateRegistration', () => {
+  const valid = { displayName: 'Maria', email: 'maria@cafe.test', consent: true };
+
+  it('accepts a name, an email and consent', () => {
+    expect(validateRegistration(valid)).toEqual([]);
+  });
+
   it('requires consent', () => {
-    const errors = validateRegistration({ consent: false });
-    expect(errors.some((e) => e.field === 'consent')).toBe(true);
+    const errors = validateRegistration({ ...valid, consent: false });
+    expect(errors.map((e) => e.field)).toEqual(['consent']);
   });
 
-  it('allows a token-only account (no PII) with consent', () => {
-    expect(validateRegistration({ consent: true })).toEqual([]);
+  it('requires a name — blank counts as missing', () => {
+    expect(validateRegistration({ ...valid, displayName: undefined }).map((e) => e.field)).toEqual([
+      'displayName',
+    ]);
+    expect(validateRegistration({ ...valid, displayName: '   ' }).map((e) => e.field)).toEqual([
+      'displayName',
+    ]);
   });
 
-  it('rejects a malformed email but accepts a blank one', () => {
-    expect(validateRegistration({ consent: true, email: 'nope' })).toHaveLength(1);
-    expect(validateRegistration({ consent: true, email: '   ' })).toEqual([]);
-    expect(validateRegistration({ consent: true, email: 'a@b.co' })).toEqual([]);
+  it('rejects a name over 80 characters', () => {
+    expect(validateRegistration({ ...valid, displayName: 'x'.repeat(80) })).toEqual([]);
+    const errors = validateRegistration({ ...valid, displayName: 'x'.repeat(81) });
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toContain('too long');
   });
 
-  it('rejects a malformed phone but accepts a blank one', () => {
-    expect(validateRegistration({ consent: true, phone: 'abc' })).toHaveLength(1);
-    expect(validateRegistration({ consent: true, phone: '+1 (555) 123-4567' })).toEqual([]);
+  it('requires an email — blank counts as missing', () => {
+    expect(validateRegistration({ ...valid, email: undefined }).map((e) => e.field)).toEqual([
+      'email',
+    ]);
+    expect(validateRegistration({ ...valid, email: '   ' }).map((e) => e.field)).toEqual([
+      'email',
+    ]);
   });
-});
 
-describe('isTokenOnly', () => {
-  it('is true when no PII is provided', () => {
-    expect(isTokenOnly({ consent: true })).toBe(true);
-    expect(isTokenOnly({ consent: true, displayName: '  ' })).toBe(true);
+  it('rejects a malformed email', () => {
+    expect(validateRegistration({ ...valid, email: 'nope' }).map((e) => e.field)).toEqual([
+      'email',
+    ]);
+    expect(validateRegistration({ ...valid, email: ' a@b.co ' })).toEqual([]);
   });
-  it('is false when any field is provided', () => {
-    expect(isTokenOnly({ consent: true, email: 'a@b.co' })).toBe(false);
+
+  it('no longer accepts a token-only registration', () => {
+    const fields = validateRegistration({ consent: true }).map((e) => e.field);
+    expect(fields).toEqual(['displayName', 'email']);
+  });
+
+  it('keeps phone optional but rejects a malformed one', () => {
+    expect(validateRegistration({ ...valid, phone: 'abc' })).toHaveLength(1);
+    expect(validateRegistration({ ...valid, phone: '+1 (555) 123-4567' })).toEqual([]);
+    expect(validateRegistration({ ...valid, phone: '  ' })).toEqual([]);
   });
 });
 
@@ -77,15 +99,6 @@ describe('findDuplicates', () => {
 
   it('returns nothing for empty input', () => {
     expect(findDuplicates({}, existing)).toEqual([]);
-  });
-});
-
-describe('isRecoverable', () => {
-  it('is false for token-only customers', () => {
-    expect(isRecoverable(customer({}))).toBe(false);
-  });
-  it('is true when any contact detail exists', () => {
-    expect(isRecoverable(customer({ phone: '555' }))).toBe(true);
   });
 });
 

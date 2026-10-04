@@ -7,11 +7,7 @@
   padding: 0 4px;
 }
 
-.card-menu-context {
-  margin-top: 14px;
-}
-
-/* Confirmation block (remove / delete) — centred, icon-badge led (option C). */
+/* Delete confirmation block — centred, icon-badge led (option C). */
 .card-confirm {
   padding: 4px 2px 6px;
   text-align: center;

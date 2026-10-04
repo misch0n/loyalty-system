@@ -1,14 +1,27 @@
 /**
  * Register — self-service "Join the club" (Ckyka reference view 02).
  *
- * One-step registration: optional name + email (NO phone), a consent row
- * linking the privacy notice, and the honest device-only caveat. On submit it
- * calls `customers.selfRegister`; field errors map back to the relevant inputs.
- * On success the new token is written to `IdentityStore` (remember = ON by
- * default) and we navigate to the card. PII never enters the QR or logs — only
- * the opaque token reaches IdentityStore.
+ * One-step registration: name and email, **both required** (SCOPE-DECISIONS
+ * §2.1 — a card without a contact address could not be recovered, so token-only
+ * cards are gone; NO phone), plus a consent row linking the privacy notice. On
+ * submit it calls `customers.selfRegister`; field errors map back to the
+ * relevant inputs.
  *
- * A discreet gesture-bearing LogoMark sits in the header so home/proto/staff
+ * `POST /customers` binds this device to the new card itself (an HttpOnly
+ * cookie), so on success we only navigate to the card — nothing is written to
+ * `IdentityStore` from here. PII never enters the QR, the URL or logs.
+ *
+ * The server's refusals land on the field that needs fixing, never as a toast:
+ *   - `409 email_in_use` — one card per address (§3.4). The email field says so
+ *     and offers "Get my card back", which opens `/lost` with the address
+ *     prefilled (router location state, never the URL).
+ *   - `400 invalid_details` — a blank name or a malformed address the form's
+ *     own checks missed; both fields are flagged, since the server does not say
+ *     which.
+ * Anything else keeps the generic form error (the rest of the error matrix —
+ * rate limits included — is UI-4's).
+ *
+ * A discreet gesture-bearing LogoMark sits in the header so the home/staff
  * gestures stay reachable on a screen the reference renders mark-less.
  */
 
@@ -23,14 +36,16 @@ import { GestureLogo } from '../../../app/LogoGestures';
 import { ROUTES, cardPath } from '../../../app/routes';
 import { useServices } from '../../../common/ServicesContext';
 import { PrivacyNotice } from '../../../common/PrivacyNotice';
+import { isApiError } from '../../../../services/errors';
 import { isValidEmail, type FieldError } from '@cafe/shared/domain/validation';
+import type { LostCardState } from '../LostCard/LostCard';
 import './Register.css';
 
 type FieldName = FieldError['field'];
 
 export function Register() {
   const navigate = useNavigate();
-  const { customers, identity } = useServices();
+  const { customers } = useServices();
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -38,11 +53,13 @@ export function Register() {
   const [consent, setConsent] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<FieldName, string>>>({});
+  // The server said this address already has a card (`409 email_in_use`).
+  const [emailTaken, setEmailTaken] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Inline email-format validation (email is optional, but if entered it must be
-  // a plausible address before we let them submit).
+  // Inline email-format validation: a typed address must be plausible before we
+  // let them submit. A blank one is caught on submit, as a required field.
   const emailInvalid = email.trim() !== '' && !isValidEmail(email);
 
   // Debounced red-border feedback: while typing, flag an invalid address only
@@ -64,12 +81,13 @@ export function Register() {
       return;
     }
     setErrors({});
+    setEmailTaken(false);
     setFormError(null);
     setSubmitting(true);
     try {
       const result = await customers.selfRegister({
-        displayName: displayName.trim() || undefined,
-        email: email.trim() || undefined,
+        displayName: displayName.trim(),
+        email: email.trim(),
         consent,
       });
 
@@ -80,16 +98,35 @@ export function Register() {
         return;
       }
 
-      // Remember = ON by default (no card saved yet): only the opaque token is
-      // persisted, never PII.
-      await identity.set(result.customer.token);
+      // `POST /customers` has already bound this device to the card.
       navigate(cardPath(result.customer.token), { replace: true });
-    } catch {
-      setFormError('Could not create your card. Check your connection and try again.');
+    } catch (err) {
+      if (isApiError(err) && err.failure.kind === 'email_in_use') {
+        setEmailTaken(true);
+      } else if (isApiError(err) && err.failure.kind === 'rejected' && err.failure.code === 'invalid_details') {
+        setErrors({
+          displayName: 'Check your name, then try again.',
+          email: 'Check your email address, then try again.',
+        });
+      } else {
+        setFormError('Could not create your card. Check your connection and try again.');
+      }
     } finally {
       setSubmitting(false);
     }
   }
+
+  function recoverCard() {
+    const state: LostCardState = { email: email.trim() };
+    navigate(ROUTES.lost, { state });
+  }
+
+  const emailHint = emailTaken
+    ? 'This email already has a card.'
+    : errors.email ??
+      (showEmailError
+        ? 'Enter a valid email address.'
+        : 'For a code to get your card back, and to tell you when a free coffee is ready.');
 
   return (
     <div className="screen bg-cream">
@@ -109,45 +146,51 @@ export function Register() {
 
         <Eyebrow>Ckyka rewards</Eyebrow>
         <Title>Join the club</Title>
-        <Sub>
-          One tap is enough. Add details only if you&apos;d like reminders and a way to get
-          your card back.
-        </Sub>
+        <Sub>Your name and email make the card yours, and let you get it back.</Sub>
 
         <Field
           label="Name"
-          optional
           type="text"
           autoComplete="name"
           placeholder="Your name"
+          required
           value={displayName}
-          onChange={setDisplayName}
+          onChange={(next) => {
+            setDisplayName(next);
+            if (errors.displayName) setErrors((e) => ({ ...e, displayName: undefined }));
+          }}
+          aria-invalid={Boolean(errors.displayName)}
           hint={errors.displayName}
           disabled={submitting}
         />
 
         <Field
           label="Email"
-          optional
           type="email"
           inputMode="email"
           autoComplete="email"
           placeholder="Your email address"
+          required
           value={email}
           onChange={(next) => {
             setEmail(next);
+            setEmailTaken(false);
             if (errors.email) setErrors((e) => ({ ...e, email: undefined }));
           }}
           onBlur={() => setShowEmailError(emailInvalid)}
-          aria-invalid={showEmailError}
-          hint={
-            errors.email ??
-            (showEmailError
-              ? 'Enter a valid email, or leave it blank.'
-              : 'So we can tell you when a free coffee is ready.')
-          }
+          aria-invalid={showEmailError || emailTaken || Boolean(errors.email)}
+          hint={emailHint}
           disabled={submitting}
         />
+
+        {emailTaken && (
+          <div className="register-taken" role="alert">
+            <p>One card per email. If it&apos;s yours, we can send a code to bring it back.</p>
+            <Button variant="line" onClick={recoverCard}>
+              Get my card back
+            </Button>
+          </div>
+        )}
 
         <Consent checked={consent} onChange={setConsent}>
           I agree to the{' '}
@@ -165,11 +208,6 @@ export function Register() {
             {errors.consent}
           </p>
         )}
-
-        <p className="hint register-caveat">
-          No email means your card lives only on this device — we can&apos;t restore it if
-          it&apos;s lost.
-        </p>
 
         {formError && (
           <p className="register-form-error" role="alert">

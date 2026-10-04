@@ -84,21 +84,25 @@ export interface ToggleProps {
   on: boolean;
   onChange: (on: boolean) => void;
   label?: ReactNode;
+  /** Shown but not switchable — e.g. an action the signed-in account may not take. */
+  disabled?: boolean;
 }
 
 /** The small reusable toggle box (`.toggle-box`, `.on` when active). */
-export function Toggle({ on, onChange, label }: ToggleProps) {
+export function Toggle({ on, onChange, label, disabled }: ToggleProps) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
       aria-label={typeof label === 'string' ? label : undefined}
+      disabled={disabled}
       onClick={() => onChange(!on)}
       style={{
         background: 'transparent',
         border: 0,
-        cursor: 'pointer',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.5 : undefined,
         padding: 0,
         display: 'inline-flex',
         alignItems: 'center',

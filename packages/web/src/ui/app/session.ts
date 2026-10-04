@@ -2,9 +2,9 @@
  * Pure, framework-free staff/admin session logic (UX-SPEC §6).
  *
  * This module owns the *decisions* — parsing persisted blobs and the boot
- * reconciliation against the server's session epoch — with no React or browser
- * dependency, so it can be unit-tested in isolation. `AuthContext.tsx` wires
- * them into state + storage I/O and is the single consumer.
+ * reconciliation against `GET /auth/session` (register X1) — with no React or
+ * browser dependency, so it can be unit-tested in isolation. `AuthContext.tsx`
+ * wires them into state + storage I/O and is the single consumer.
  *
  * There is no inactivity rule (SCOPE-DECISIONS §6.3, register S1): the staff
  * device is a shared till, and a login lasts until its server-side TTL — 30
@@ -19,6 +19,7 @@
  *   persisted.
  */
 
+import type { StaffSession } from '../../services/StaffService';
 import type { Actor } from '../../services/types';
 import type { StaffRole } from '@cafe/shared/domain/models';
 
@@ -85,21 +86,60 @@ export interface Reconciliation {
   actor: Actor | null;
   /** Session to keep, or null when it should be cleared. */
   session: PersistedSession | null;
+  /**
+   * Whether the login is remembered, as the server reports it — or `null` when
+   * the server did not answer, meaning "keep what was persisted, where it was".
+   */
+  trusted: boolean | null;
 }
 
-const ANON: Reconciliation = { status: 'anon', actor: null, session: null };
+const ANON: Reconciliation = { status: 'anon', actor: null, session: null, trusted: null };
 
 /**
- * Boot decision (UX-SPEC §2 staff branch). Pure: callers handle the storage
- * side-effect a null `session` implies (clear).
+ * Boot decision (register X1). Pure: callers handle the storage side-effects a
+ * null `session` (clear) or a non-null `trusted` (re-persist) implies.
  *
- *   - nothing persisted                   → 'anon'
- *   - stored epoch < serverEpoch          → REVOKED → 'anon' (clear)
- *   - else                                → 'active'
+ * `server` is what `GET /auth/session` answered, or `null` when it could not be
+ * asked — offline, the server down. The server is the ground truth; the
+ * persisted blob is only what lets the screens render before it answers.
+ *
+ *   - nothing persisted        → 'anon' (the caller need not ask at all)
+ *   - server unreachable       → 'active' from the persisted blob. Not being
+ *                                able to ask is not being signed out; the
+ *                                connectivity banner owns that (register X2).
+ *   - server says 'anon'       → 'anon' (clear). Covers every way a session ends
+ *                                while the page is closed: its TTL, sign-out on
+ *                                another tab, the account disabled or deleted,
+ *                                and "Sign out all devices".
+ *   - server says 'active'     → 'active' as the server's account — name, role
+ *                                and epoch refreshed from the answer, and
+ *                                "remembered" as the cookie says.
+ *
+ * There is no client-side epoch comparison any more. The server checks each
+ * session's epoch against the program's on every request and answers `anon`
+ * for one that "Sign out all devices" revoked, so a stored epoch could only ever
+ * agree with it — or, after a newer sign-in in another tab, wrongly disagree.
  */
-export function reconcile(session: PersistedSession | null, serverEpoch: number): Reconciliation {
+export function reconcile(
+  session: PersistedSession | null,
+  server: StaffSession | null,
+): Reconciliation {
   if (!session) return ANON;
-  // Revoked: admin bumped the epoch past this device's stored one.
-  if (serverEpoch > session.epoch) return ANON;
-  return { status: 'active', actor: actorFrom(session), session };
+  if (server === null) {
+    return { status: 'active', actor: actorFrom(session), session, trusted: null };
+  }
+  if (server.status === 'anon') return ANON;
+  const refreshed: PersistedSession = {
+    actorId: server.actor.id,
+    username: server.actor.username,
+    name: server.actor.name,
+    role: server.actor.role,
+    epoch: server.epoch,
+  };
+  return {
+    status: 'active',
+    actor: actorFrom(refreshed),
+    session: refreshed,
+    trusted: server.remembered,
+  };
 }

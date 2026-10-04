@@ -72,13 +72,16 @@ function state(current: number, rewards: Reward[]): CustomerState {
 
 // The Card resolves token → id via getStateByToken, then reads the reward-aware
 // view via getState(id) — both return the same fake state here.
-function fakeServices(cs: CustomerState): Services {
+function fakeServices(
+  cs: CustomerState,
+  get: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue('tok-card-1'),
+): Services {
   return {
     loyalty: {
       getStateByToken: vi.fn().mockResolvedValue(cs),
       getState: vi.fn().mockResolvedValue(cs),
     },
-    identity: { get: vi.fn().mockResolvedValue('tok-card-1'), set: vi.fn(), clear: vi.fn() },
+    identity: { get, set: vi.fn(), clear: vi.fn() },
   } as unknown as Services;
 }
 
@@ -117,5 +120,34 @@ describe('Card', () => {
   it('shows the multi-reward count badge for 2+ unspent rewards', async () => {
     await mount(fakeServices(state(2, [reward(1), reward(2)])));
     expect(container.querySelector('.ready-badge')?.textContent).toContain('2');
+  });
+
+  it('shows no "viewing someone else’s card" banner — opening a card link binds it', async () => {
+    // Even a device that remembers a different card: the server rebinds on view.
+    const services = fakeServices(state(3, []), vi.fn().mockResolvedValue('tok-other'));
+    await mount(services);
+    expect(container.textContent).not.toContain('Viewing');
+    expect(container.querySelector('.context-banner')).toBeNull();
+    expect(services.identity.get).not.toHaveBeenCalled();
+  });
+
+  describe('/card self-resolve', () => {
+    it('opens the card this device is bound to', async () => {
+      params = {};
+      await mount(fakeServices(state(0, []), vi.fn().mockResolvedValue('tok-bound')));
+      expect(navigate).toHaveBeenCalledWith('/card/tok-bound', { replace: true });
+    });
+
+    it('goes to welcome when the device is not bound', async () => {
+      params = {};
+      await mount(fakeServices(state(0, []), vi.fn().mockResolvedValue(null)));
+      expect(navigate).toHaveBeenCalledWith('/welcome', { replace: true });
+    });
+
+    it('goes to welcome when the server cannot be asked', async () => {
+      params = {};
+      await mount(fakeServices(state(0, []), vi.fn().mockRejectedValue(new Error('offline'))));
+      expect(navigate).toHaveBeenCalledWith('/welcome', { replace: true });
+    });
   });
 });

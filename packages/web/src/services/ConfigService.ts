@@ -2,10 +2,18 @@
  * ConfigService — read the program config; admin edits it.
  *
  * `PATCH /config` clamps and audits server-side (`config/clamp.ts`); the
- * arithmetic here is presentation — it keeps a spinner's value sensible before
- * it is sent — and the server's answer is the config that was actually saved.
+ * clamping here is presentation — it applies the server's own bounds table
+ * before the value is sent, so what the admin sees is what will be saved — and
+ * the server's answer is the config that was actually saved. A refusal comes
+ * back as the `ApiError` the client threw (`services/errors.ts`); the Configure
+ * editor reports it on the editor.
  */
 
+import {
+  CONFIG_NUMERIC_FIELDS,
+  clampConfigValue,
+  normalizeRewardDescription,
+} from '@cafe/shared/domain/config';
 import type { ProgramConfig } from '@cafe/shared/domain/models';
 import type { DataStore } from '@cafe/shared/ports/DataStore';
 
@@ -22,32 +30,23 @@ export class ConfigService {
 }
 
 /**
- * Keep config values sane (positive integers, non-empty reward text).
+ * Keep config values inside the bounds the server clamps to — the same table,
+ * `CONFIG_BOUNDS` in `@cafe/shared/domain/config` (register A4) — and the
+ * reward text non-blank. Only the fields sent are touched, so a patch never
+ * resets a field nobody mentioned.
  *
  * `sessionEpoch` is not passed through: the server refuses it by name, because
  * revocation is `POST /auth/logout-all` (`StaffService.revokeAllSessions`).
  */
-function sanitizeConfig(patch: Partial<ProgramConfig>): Partial<ProgramConfig> {
+export function sanitizeConfig(patch: Partial<ProgramConfig>): Partial<ProgramConfig> {
   const out: Partial<ProgramConfig> = {};
-  if (patch.pointsPerReward !== undefined)
-    out.pointsPerReward = Math.max(1, Math.floor(patch.pointsPerReward));
-  if (patch.pointsPerPurchase !== undefined)
-    out.pointsPerPurchase = Math.max(1, Math.floor(patch.pointsPerPurchase));
-  if (patch.maxPointsPerTransaction !== undefined)
-    out.maxPointsPerTransaction = Math.max(1, Math.floor(patch.maxPointsPerTransaction));
-  if (patch.cardInactivityDays !== undefined)
-    out.cardInactivityDays = Math.max(0, Math.floor(patch.cardInactivityDays));
+  for (const field of CONFIG_NUMERIC_FIELDS) {
+    const value = patch[field];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      out[field] = clampConfigValue(field, value);
+    }
+  }
   if (patch.rewardDescription !== undefined)
-    out.rewardDescription = patch.rewardDescription.trim() || 'Free regular coffee';
-  // Detector thresholds (Appendix E). All are positive whole numbers; a count of
-  // 0 would flag on every single action, so the floor is 1.
-  if (patch.selfDealWindowSec !== undefined)
-    out.selfDealWindowSec = Math.max(1, Math.floor(patch.selfDealWindowSec));
-  if (patch.selfDealCount !== undefined)
-    out.selfDealCount = Math.max(1, Math.floor(patch.selfDealCount));
-  if (patch.repeatCount !== undefined)
-    out.repeatCount = Math.max(1, Math.floor(patch.repeatCount));
-  if (patch.repeatWindowMin !== undefined)
-    out.repeatWindowMin = Math.max(1, Math.floor(patch.repeatWindowMin));
+    out.rewardDescription = normalizeRewardDescription(patch.rewardDescription);
   return out;
 }

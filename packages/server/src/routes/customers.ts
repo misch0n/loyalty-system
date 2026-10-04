@@ -60,10 +60,9 @@ import {
 
 /**
  * SCOPE-DECISIONS §2.1: name and email are **required**, which deletes the
- * prototype's token-only account. `domain/validation.ts` still describes all PII
- * as optional — it is a shared file Phase 11 reconciles — so the requirement is
- * stated here, where the database's `customers_active_fields_present` CHECK
- * backs it up.
+ * prototype's token-only account. `domain/validation.ts` states the same rule
+ * for the SPA's form (UI-3); it is enforced here, and the database's
+ * `customers_active_fields_present` CHECK backs it up.
  */
 const REGISTER_SCHEMA = {
   body: {

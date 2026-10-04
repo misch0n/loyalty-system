@@ -44,22 +44,44 @@ import { AlertDetail } from '../_parts/AlertDetail/AlertDetail';
 import { usePager } from '../../../common/usePager';
 import { PersonIcon } from '../_parts/feedIcons';
 import { alertKey, DEFAULT_THRESHOLDS } from '@cafe/shared/domain/alerts';
+import { CONFIG_BOUNDS, type ConfigNumericField } from '@cafe/shared/domain/config';
 import { relativeTime } from './format';
 import './Admin.css';
 
 const ALERT_PAGE = 4;
 
+/** The numeric settings Configure offers (a subset of the bounded ones). */
+type ProgramField = Extract<
+  ConfigNumericField,
+  | 'pointsPerReward'
+  | 'maxPointsPerTransaction'
+  | 'selfDealWindowSec'
+  | 'selfDealCount'
+  | 'repeatWindowMin'
+  | 'repeatCount'
+>;
+
 /**
  * Numeric program-config fields the Configure panel can edit. Each carries the
  * copy for the `ProgramEdit` value sheet and how the current value reads on
- * the row. Add a field here and it appears in Configure — nothing else to wire.
+ * the row; the floor and ceiling come from `CONFIG_BOUNDS`, the table the
+ * server clamps with (register A4), so a new field needs no bounds of its own.
+ *
+ * `pointsPerReward` is named for what it does (register A5): it is the number
+ * of drinks that earn a free one, and the card's cup grid follows it as
+ * `threshold + 1` — those cups plus the pre-stamped free one. There is no
+ * separate grid size to set.
  */
-const PROGRAM_FIELDS = {
+const PROGRAM_FIELDS: Record<
+  ProgramField,
+  { rowLabel: string; title: string; fieldLabel: string; hint?: string; format: (v: number) => string }
+> = {
   pointsPerReward: {
-    rowLabel: 'Reward earned at',
-    title: 'Reward threshold',
-    fieldLabel: 'Reward earned at how many coffees?',
-    format: (v: number) => `${v} coffees`,
+    rowLabel: 'Drinks for a free one',
+    title: 'Drinks for a free one',
+    fieldLabel: 'How many drinks earn a free one?',
+    hint: 'Each customer’s card shows this many cups, plus the free one.',
+    format: (v: number) => `${v} ${v === 1 ? 'drink' : 'drinks'}`,
   },
   maxPointsPerTransaction: {
     rowLabel: 'Max coffees per scan',
@@ -91,9 +113,7 @@ const PROGRAM_FIELDS = {
     fieldLabel: 'Flag above how many credits to the same card?',
     format: (v: number) => `${v} times`,
   },
-} as const;
-
-type ProgramField = keyof typeof PROGRAM_FIELDS;
+};
 
 const ALERT_FIELDS: ProgramField[] = [
   'selfDealWindowSec',
@@ -217,18 +237,15 @@ function AdminScreen({ actor }: { actor: Actor }) {
   };
 
   // Program config save — the value is collected in-app by ProgramEdit (no
-  // window.prompt, which mobile Safari suppresses); this just persists it.
+  // window.prompt, which mobile Safari suppresses); this just persists it. A
+  // failure is rethrown, not toasted: ProgramEdit stays open with the admin's
+  // value and says what went wrong on the editor (A4, X2).
   const saveProgram = async (value: number) => {
     if (!edit || edit.kind === 'revokeAll') return;
-    try {
-      const saved = await services.config.update({ [edit.kind]: value });
-      setConfig(saved);
-      toast.show('Program updated.');
-    } catch {
-      toast.show('Couldn’t make that change. Try again.');
-    } finally {
-      setEdit(null);
-    }
+    const saved = await services.config.update({ [edit.kind]: value });
+    setConfig(saved);
+    setEdit(null);
+    toast.show('Program updated.');
   };
 
   const programField: ProgramField | null =
@@ -499,7 +516,13 @@ function AdminScreen({ actor }: { actor: Actor }) {
         onClose={() => setEdit(null)}
         title={programEditCopy.title}
         fieldLabel={programEditCopy.fieldLabel}
-        current={(programField && fieldValue(programField)) || 1}
+        hint={programEditCopy.hint}
+        min={CONFIG_BOUNDS[programField ?? 'pointsPerReward'].min}
+        max={CONFIG_BOUNDS[programField ?? 'pointsPerReward'].max}
+        current={
+          (programField && fieldValue(programField)) ||
+          CONFIG_BOUNDS[programField ?? 'pointsPerReward'].min
+        }
         onConfirm={saveProgram}
       />
 

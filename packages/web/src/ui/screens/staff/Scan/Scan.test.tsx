@@ -94,7 +94,11 @@ afterEach(() => {
 
 function fakeServices(overrides: Partial<Record<string, unknown>> = {}): Services {
   return {
-    staff: { currentSessionEpoch: vi.fn().mockResolvedValue(1) },
+    staff: {
+      session: vi
+        .fn()
+        .mockResolvedValue({ status: 'active', actor: STAFFER, epoch: 1, remembered: false }),
+    },
     loyalty: {
       getStateByToken: vi.fn().mockResolvedValue(stateFor(7)),
       getStateByShortCode: vi.fn().mockResolvedValue(stateFor(7)),
@@ -247,7 +251,7 @@ describe('Staff Scan', () => {
     expect(forestButton('Add 1 coffee')).toBeDefined();
   });
 
-  it('commits once when the hold elapses and returns to the scanner', async () => {
+  it('commits once when the hold elapses and returns to the counter', async () => {
     vi.useFakeTimers();
     try {
       const services = fakeServices();
@@ -271,9 +275,12 @@ describe('Staff Scan', () => {
       });
       expect(typeof commit.mock.calls[0][1].idempotencyKey).toBe('string');
 
-      // Terminal auto-advances back to the scanner — no card left on screen.
-      expect(container.querySelector('.scanview')).not.toBeNull();
+      // S2: the terminal returns to the counter, not to the camera — and says
+      // what was saved on the way.
+      expect(container.textContent).toContain('STAFF PANEL');
+      expect(container.querySelector('.scanview')).toBeNull();
       expect(container.querySelector('.cust')).toBeNull();
+      expect(container.querySelector('.toast')?.textContent).toContain('Maria: Added 1');
     } finally {
       vi.useRealTimers();
     }
@@ -288,7 +295,7 @@ describe('Staff Scan', () => {
     await click(forestButton('Commit now'));
 
     expect(services.loyalty.commit).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.scanview')).not.toBeNull();
+    expect(container.textContent).toContain('STAFF PANEL');
   });
 
   it('offers no post-commit reversal affordance', async () => {
@@ -356,6 +363,22 @@ describe('Staff Scan', () => {
       'earns 1 free coffee',
     );
     expect(services.loyalty.commit).not.toHaveBeenCalled();
+  });
+
+  it('keeps the customer on screen when a commit cannot be saved', async () => {
+    const services = fakeServices({
+      commit: vi.fn().mockRejectedValue(new Error('offline')),
+    });
+    await mountScan(services);
+    await inject('PROTOcard0000000000001');
+
+    await click(forestButton('Add 1 coffee'));
+    await click(forestButton('Commit now'));
+
+    // Only a saved commit leaves the screen; a failed one keeps the card up.
+    expect(container.textContent).not.toContain('STAFF PANEL');
+    expect(container.querySelector('.cust .cn')?.textContent).toBe('Maria');
+    expect(container.querySelector('.staff-scan__error')?.textContent).toContain('Could not save');
   });
 
   it('surfaces an over_cap rejection as an error', async () => {

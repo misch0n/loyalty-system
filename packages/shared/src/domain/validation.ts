@@ -1,8 +1,12 @@
 /**
  * Input validation + duplicate detection — pure functions.
  *
- * All registration PII is optional (a fully token-only account is valid), so
- * these checks only reject values that are present AND malformed.
+ * Name and email are **required** to register (SCOPE-DECISIONS §2.1): a card
+ * without a contact address could not be recovered, so token-only accounts are
+ * gone. Phone stays optional and is only rejected when present AND malformed.
+ * These are the checks a form shows before it submits; `POST /customers`
+ * enforces the same requirement (`400 invalid_details`) and the database backs
+ * it with a CHECK.
  */
 
 import type { Customer } from './models.js';
@@ -38,8 +42,8 @@ export function normalizePhone(phone: string): string {
 }
 
 /**
- * Validate registration input. Consent is required; everything else is only
- * checked when provided.
+ * Validate registration input. Name, email and consent are required; phone is
+ * only checked when provided.
  */
 export function validateRegistration(input: RegistrationInput): FieldError[] {
   const errors: FieldError[] = [];
@@ -48,24 +52,25 @@ export function validateRegistration(input: RegistrationInput): FieldError[] {
     errors.push({ field: 'consent', message: 'Consent is required to create a card.' });
   }
 
-  if (input.email && input.email.trim() && !EMAIL_RE.test(input.email.trim())) {
-    errors.push({ field: 'email', message: 'Enter a valid email, or leave it blank.' });
+  const name = input.displayName?.trim() ?? '';
+  if (!name) {
+    errors.push({ field: 'displayName', message: 'Enter your name.' });
+  } else if (name.length > 80) {
+    errors.push({ field: 'displayName', message: 'Name is too long (max 80 characters).' });
+  }
+
+  const email = input.email?.trim() ?? '';
+  if (!email) {
+    errors.push({ field: 'email', message: 'Enter your email address.' });
+  } else if (!EMAIL_RE.test(email)) {
+    errors.push({ field: 'email', message: 'Enter a valid email address.' });
   }
 
   if (input.phone && input.phone.trim() && !PHONE_RE.test(input.phone.trim())) {
     errors.push({ field: 'phone', message: 'Enter a valid phone number, or leave it blank.' });
   }
 
-  if (input.displayName && input.displayName.trim().length > 80) {
-    errors.push({ field: 'displayName', message: 'Name is too long (max 80 characters).' });
-  }
-
   return errors;
-}
-
-/** True when registration input carries no recoverable PII at all. */
-export function isTokenOnly(input: RegistrationInput): boolean {
-  return !input.displayName?.trim() && !input.email?.trim() && !input.phone?.trim();
 }
 
 /**
@@ -92,10 +97,3 @@ export function findDuplicates(
   });
 }
 
-/**
- * Whether a customer can ever be recovered by staff search. Token-only
- * customers (no PII) cannot — this tradeoff is disclosed at registration.
- */
-export function isRecoverable(customer: Customer): boolean {
-  return Boolean(customer.displayName || customer.email || customer.phone);
-}

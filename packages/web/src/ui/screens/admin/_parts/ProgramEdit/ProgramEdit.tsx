@@ -6,25 +6,79 @@
  * sheet's own Save is the confirmation: it used to ask for the PIN as well, and
  * register A7 (2026-10-03) dropped that with the PIN — the server never
  * enforced it. On Save it calls `onConfirm`.
+ *
+ * **Bounds (register A4).** `min` and `max` come from the same table the server
+ * clamps with (`CONFIG_BOUNDS`, `@cafe/shared/domain/config`), so the field
+ * cannot hold a value the server would silently change: the range is printed
+ * under the field, an out-of-range number says so as it is typed, and Save stays
+ * disabled until the value is a whole number inside it.
+ *
+ * **Errors stay on the editor.** If `onConfirm` throws, the sheet stays open
+ * with the admin's value still in the field and a sentence saying what went
+ * wrong — never a toast (X2: an action failure belongs on the control that
+ * caused it). A server refusal names nothing but its code, so the sentence for
+ * a `rejected` answer restates the range this editor enforces.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Button } from '../../../../components/Button/Button';
 import { Field } from '../../../../components/Field/Field';
 import { Sheet } from '../../../../components/Sheet/Sheet';
+import { isApiError } from '../../../../../services/errors';
 import './ProgramEdit.css';
 
 export interface ProgramEditProps {
   open: boolean;
   onClose: () => void;
   title: string;
-  /** Label for the value field, e.g. "Reward earned at how many coffees?". */
+  /** Label for the value field, e.g. "Drinks for a free one". */
   fieldLabel: string;
+  /** Optional line under the field explaining what the value controls. */
+  hint?: ReactNode;
   /** Current value, pre-filled. */
   current: number;
-  /** Smallest allowed value (default 1). */
-  min?: number;
-  /** Called with the validated new value on Save. */
+  /** Smallest allowed value — the server's floor for this field. */
+  min: number;
+  /** Largest allowed value — the server's ceiling for this field. */
+  max: number;
+  /**
+   * Called with the validated new value on Save. Resolve to close; throw to keep
+   * the sheet open and report the failure on it.
+   */
   onConfirm: (value: number) => void | Promise<void>;
+}
+
+/** The range, as a sentence fragment. */
+/** The same pause Register waits before flagging a half-typed email. */
+const RANGE_MESSAGE_DELAY_MS = 600;
+
+function rangeText(min: number, max: number): string {
+  return `${min} to ${max}`;
+}
+
+/** What went wrong with a save, in words the admin can act on. */
+export function describeSaveError(err: unknown, min: number, max: number): string {
+  if (isApiError(err)) {
+    const { failure } = err;
+    switch (failure.kind) {
+      case 'offline':
+        return 'Couldn’t reach the server, so nothing was saved. Check the connection and try again.';
+      case 'server':
+        return 'The server couldn’t save that just now. Try again in a moment.';
+      case 'signed_out':
+        return 'You’ve been signed out, so nothing was saved. Sign in again to make this change.';
+      case 'forbidden':
+        return 'Only an admin account can change the program.';
+      case 'rate_limited':
+        return 'Too many changes in a row. Wait a moment, then save again.';
+      case 'rejected':
+        return failure.code === 'rejected_field'
+          ? 'That setting can’t be changed here.'
+          : `The server didn’t accept that value. Enter a whole number from ${rangeText(min, max)}.`;
+      default:
+        break;
+    }
+  }
+  return 'Couldn’t save that change. Try again.';
 }
 
 export function ProgramEdit({
@@ -32,8 +86,10 @@ export function ProgramEdit({
   onClose,
   title,
   fieldLabel,
+  hint,
   current,
-  min = 1,
+  min,
+  max,
   onConfirm,
 }: ProgramEditProps) {
   const [value, setValue] = useState('');
@@ -49,25 +105,46 @@ export function ProgramEdit({
     }
   }, [open, current]);
 
-  const parsed = Number(value.trim());
-  const valueOk = Number.isFinite(parsed) && parsed >= min;
+  const trimmed = value.trim();
+  const parsed = Number(trimmed);
+  const valueOk = trimmed !== '' && Number.isInteger(parsed) && parsed >= min && parsed <= max;
+
+  // Said after a short pause in typing, so the admin never has to press Save to
+  // find out — but typing "15" against a floor of 2 does not flash (and a screen
+  // reader does not announce) an error after the "1". Save is disabled meanwhile.
+  const [showRange, setShowRange] = useState(false);
+  useEffect(() => {
+    if (trimmed === '' || valueOk) {
+      setShowRange(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowRange(true), RANGE_MESSAGE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [trimmed, valueOk]);
+  const message =
+    error ?? (showRange && !valueOk ? `Enter a whole number from ${rangeText(min, max)}.` : null);
 
   async function save() {
     if (busy) return;
     if (!valueOk) {
-      setError(`Enter a whole number of at least ${min}.`);
+      setError(`Enter a whole number from ${rangeText(min, max)}.`);
       return;
     }
     setBusy(true);
     setError(null);
     try {
       await onConfirm(parsed);
+    } catch (err) {
+      // Keep the sheet and the typed value; say what happened here.
+      setError(describeSaveError(err, min, max));
     } finally {
       setBusy(false);
     }
   }
 
   if (!open) return null;
+
+  const rangeHint = `From ${rangeText(min, max)}.`;
 
   return (
     <Sheet open={open} onClose={onClose} label={title}>
@@ -77,16 +154,27 @@ export function ProgramEdit({
           label={fieldLabel}
           type="text"
           inputMode="numeric"
+          // A digit more than the ceiling has can only be out of range.
+          maxLength={String(max).length}
           value={value}
           onChange={(v) => {
             setError(null);
             setValue(v.replace(/[^\d]/g, ''));
           }}
           disabled={busy}
+          hint={
+            hint ? (
+              <>
+                {hint} {rangeHint}
+              </>
+            ) : (
+              rangeHint
+            )
+          }
         />
-        {error && (
+        {message && (
           <p className="progedit-error" role="alert">
-            {error}
+            {message}
           </p>
         )}
         <div className="progedit-actions">

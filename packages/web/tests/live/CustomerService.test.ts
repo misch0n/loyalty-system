@@ -50,12 +50,17 @@ describe('self-registration', () => {
     expect(result.errors?.map((e) => e.field).sort()).toEqual(['consent', 'email']);
   });
 
-  it('needs a name and an email — the server refuses a card without them', async () => {
+  it('needs a name and an email — the form says so, and the server refuses a card without them', async () => {
     const phone = await device();
+    const result = await phone.services.customers.selfRegister({ displayName: 'Tom', consent: true });
+    expect(result.ok).toBe(false);
+    expect(result.errors?.map((e) => e.field)).toEqual(['email']);
+
+    // Past the service's own check, the route refuses a blank name too.
     const failure = await failureOf(
-      phone.services.customers.selfRegister({ displayName: 'Tom', consent: true }),
+      phone.services.store.createCustomer({ token: '', displayName: '   ', email: `tom-${unique()}@example.test` }),
     );
-    expect(failure.kind).toBe('rejected');
+    expect(failure).toEqual({ kind: 'rejected', code: 'invalid_details' });
   });
 
   it('answers an address that already has a card with email_in_use', async () => {
@@ -117,12 +122,6 @@ describe('staff corrections', () => {
     expect(reissued.token).not.toBe(customer.token);
     expect(await counter.services.customers.getByToken(customer.token)).toBeNull();
     expect((await counter.services.customers.getByToken(reissued.token))?.id).toBe(customer.id);
-  });
-
-  it('reports whether a card can be recovered', async () => {
-    const { customer } = await customerPhone();
-    const counter = await signedIn('staff');
-    expect(counter.services.customers.canRecover(customer)).toBe(true);
   });
 });
 

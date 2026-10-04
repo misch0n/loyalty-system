@@ -10,9 +10,9 @@ import type { ReactNode } from 'react';
 import './Stat.css';
 
 export interface StatWideProps {
-  /** Setting label, e.g. "Reward earned at". */
+  /** Setting label, e.g. "Drinks for a free one". */
   setLabel: ReactNode;
-  /** Setting value, e.g. "10 coffees". */
+  /** Setting value, e.g. "9 drinks". */
   setVal: ReactNode;
   /** Opens the step-up confirm to change this setting. */
   onEdit: () => void;

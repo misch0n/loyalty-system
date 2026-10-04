@@ -90,4 +90,15 @@ describe('Toggle', () => {
     });
     expect(onChange).toHaveBeenCalledWith(false);
   });
+
+  it('does not switch when disabled', async () => {
+    const onChange = vi.fn();
+    await mount(<Toggle on onChange={onChange} label="Active" disabled />);
+    const button = container.querySelector('[role="switch"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });

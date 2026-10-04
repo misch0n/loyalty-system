@@ -5,10 +5,10 @@
 > its **47** test files failing to load (this plan first said 53; 47 is the count STATUS has
 > carried since Phase 10 moved the domain suites into `@cafe/shared`) — every one traceable to a
 > Phase 6 deletion. This plan makes it green again *against the API*, not against the store that
-> was deleted. **UI-0, UI-1, UI-1b and UI-2 are done: 0 errors, all 44 test files load and pass
-> (310 tests), and `npm run build -w @cafe/web` produces a bundle for the first time since Phase 6.**
-> What is left is behaviour, not compilation: screens (UI-3, UI-4), liveness (UI-5), environment
-> and e2e (UI-6), install (UI-7), the gates (UI-8) and the docs (UI-9).
+> was deleted. **UI-0, UI-1, UI-1b, UI-2 and UI-3 are done: 0 errors, all 47 test files load and pass
+> (360 tests), and `npm run build -w @cafe/web` produces a bundle (the first since Phase 6 came with UI-2).**
+> What is left is behaviour, not compilation: error and offline states on screen (UI-4), liveness
+> (UI-5), environment and e2e (UI-6), install (UI-7), the gates (UI-8) and the docs (UI-9).
 >
 > **Input:** [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md) — 35 rows saying what the backend does,
 > what the UI does today, and the gap. That register is the specification; this file is the
@@ -45,8 +45,9 @@
 **The error count was the progress bar, and it reads 0.** `npm run typecheck -w @cafe/web 2>&1 |
 grep -c "error TS"` started at **39**; it read **14** after UI-0, **16** after UI-1b (the two new
 ones were `setStaffPin` callers), **15** after UI-1 (whose rewritten `ApiStore` test dropped one of
-them) and **0** after UI-2, which deleted the rest. From here the bar is the test shape: **44 files,
-310 tests** — 38 `ui` files and 6 `live` files (64 tests). A later phase that moves the typecheck off
+them) and **0** after UI-2, which deleted the rest. From here the bar is the test shape: **47 files,
+360 tests** — 40 `ui` files (293 tests) and 7 `live` files (67 tests); `@cafe/shared` is 7 files / 85
+tests and `@cafe/server` 439. (UI-2 ended at 44 files / 310 tests = 38 `ui` + 6 `live` / 64.) A later phase that moves the typecheck off
 0 or drops a file has broken something, and a number that does not move as a phase predicts means the
 phase found something the register missed — add a row.
 
@@ -83,7 +84,7 @@ rode along in UI-2 (done 2026-10-04); neither blocked anything.
 - [x] **UI-1** — `ApiStore.request` + the error surface → **16 errors became 15** ✅ 2026-10-04
 - [x] **UI-1b** — Retire the PIN and the idle lock (server + port) → tagged `backend-v1` ✅ 2026-10-04
 - [x] **UI-2** — Services reshaped to the routes, and their tests rebuilt → **15 errors became 0**, first bundle since Phase 6 ✅ 2026-10-04
-- [ ] **UI-3** — Screens whose behaviour the backend changed
+- [x] **UI-3** — Screens whose behaviour the backend changed → Register, LostCard, card menu, Scan, config bounds, account sheet and the boot reconcile now match the server; 47 files / 360 tests ✅ 2026-10-04
 - [ ] **UI-4** — Error and offline states on screen
 - [ ] **UI-5** — Liveness: the SSE subscriber replaces `dataVersion`
 - [ ] **UI-6** — Environment, serving, e2e
@@ -376,8 +377,8 @@ clean (this phase did edit the port — P9 below).
   until you sign out."
 - **C2, half.** `RecoverConsume` (the `/recover/:code` landing) is deleted with `ROUTES.recoverWithCode`
   and `recoverPath` — the server mails a six-character code, so no link exists to land from;
-  `/recover` still redirects to `/lost`. **Interim gap until UI-3:** `LostCard` requests a code but
-  there is no screen to type it into, and its copy still promises a "restore link".
+  `/recover` still redirects to `/lost`. *(The interim gap — `LostCard` requested a code with no
+  screen to type it into — was closed by UI-3.)*
 - **Review follow-ups.** `StaffService.login` returns the session `epoch` from `POST /auth/login`,
   so `AuthContext` no longer makes a second `GET /auth/session` after signing in — a request that
   could fail after the cookie was set and report a sign-in that worked as one that did not.
@@ -386,14 +387,13 @@ clean (this phase did edit the port — P9 below).
   all devices" ends the caller's own session; deleting an account ends its sessions; a till cannot
   consume a recovery code (`403 staff_device`); staff cannot delete a customer (`404`); the server
   clamps `repeatCount` 1 → 2.
-- **Still open, owned by the next phases:** no recovery code-entry screen and stale "link" copy on
-  `LostCard` (UI-3 / C2); `Register`
-  still treats name and email as optional and does not handle `email_in_use` (UI-3 / C1); X1's boot
-  reconcile against `GET /auth/session` (UI-3); error states are not on screen (UI-4).
+- **Still open, owned by the next phases:** error states are not on screen (UI-4). *(The recovery
+  code-entry screen, `Register`'s optional name and email and the boot reconcile against
+  `GET /auth/session` were closed by UI-3.)*
 
 ### UI-3 — Screens whose behaviour the backend changed
-All **Settled**; no new decisions. **UI-2 already did the S1 and A7 deletions (below), so UI-3's
-remaining scope is the list that follows.** C1 (name + email required, handle `409 email_in_use` by
+**Done 2026-10-04 — see the as-built below.** All **Settled**; no new decisions. **UI-2 already did
+the S1 and A7 deletions (below), so UI-3's remaining scope was the list that follows.** C1 (name + email required, handle `409 email_in_use` by
 offering recovery — `Register` is still optional-everything), C2 (recovery becomes request → wait →
 **type code** → bound; the `/recover/:code` landing is already gone, the code-entry step is not
 built), C4 (drop the recovery-tier warning), C5 (deletion copy says the address frees up), C6 (card
@@ -410,6 +410,91 @@ its route, `PinPad`, `AuthContext.unlock` (and the `'locked'` status and idle ti
 PIN field on Add profile are deleted. **Step-up (A7):** `StepUp` is now `ConfirmSheet`, and
 `ProgramEdit` saves on its own confirmation; no credential anywhere. Nothing of this is left for
 UI-3.
+
+**As built (2026-10-04).** `@cafe/web` stays at **0** TypeScript errors and the bundle builds. Test
+shape **47 files / 360 tests** = **40 `ui` files (293 tests) + 7 `live` files (67 tests)**, from 44 /
+310 (38 + 6 / 64). `@cafe/shared` **7 files / 85 tests** (was 73: new `config.test.ts`, rewritten
+`validation.test.ts`); `@cafe/server` **439**, unchanged and green.
+
+*Customer half*
+- **C1 `Register`.** Name and email are required: no `optional` markers, no device-only caveat. It
+  no longer calls `identity.set` — `POST /customers` binds the device. `409 email_in_use` is its own
+  `ApiError` kind (`{ kind: 'email_in_use' }`): the email field says "This email already has a
+  card." and offers "Get my card back", which navigates to `/lost` with the email in react-router
+  location state (not the URL); editing the email clears the offer. `400 invalid_details` flags both
+  fields (the server does not say which). Other failures keep the generic error (UI-4). Shared
+  `validateRegistration` requires a non-blank name and a valid email; `isTokenOnly`, `isRecoverable`
+  and `CustomerService.canRecover` are deleted. `routes/customers.ts` changed by a comment only.
+- **C2 `LostCard`.** Two steps. Email step (prefilled from location state; "Send me a code"), then
+  the code step: "If <email> is on a card, we've sent it a 6-character code… expires in 15
+  minutes" (the 15 is a local constant mirroring the server's `RECOVERY_EXPIRY_MINUTES`). The code
+  field is `one-time-code` and upper-cased as typed; "Restore my card" calls `RecoveryService.consume`
+  and, on a token, navigates to the card (the server already bound the device); `null` shows "That
+  code didn't work. Check it, or send a new one." — no attempt count or lockout hint. Also "Send a
+  new code" and "Use a different email". All "link" copy and the "No email on your card?" banner are
+  gone. The rate-limit countdown is UI-4's.
+- **C4 `PrivacyNotice`.** We collect name and email, both needed, nothing else; the name greets you
+  and lets staff find your card, the email carries recovery codes and reward notices. The
+  "optional / stay anonymous" line and the Wallet bullet are gone; the rights text mentions
+  self-delete from the card menu.
+- **C5 + C6 `CardMenu`.** One entry, "Delete my card" → red confirmation, 3-second `HoldButton`.
+  Copy: erases the card, its cups and rewards, and your name and email; the email is then free to
+  start a new card from zero. The remember/remove row, recovery-aware remove copy, remove
+  confirmation and "remember on this device?" banner are deleted; props are `{ open, onClose, token }`.
+- **C6 identity swap.** New `packages/web/src/adapters/identity/ServerIdentityStore.ts` (`get` →
+  `GET /me`, `set` → `PUT /me`, `clear` → `DELETE /me`, over the `ApiClient`), wired in
+  `services/Services.ts`. `LocalStorageIdentityStore` and its test are deleted; the `IdentityStore`
+  port's doc comment is updated, its signature unchanged. `Card` drops `savedToken` / `owned` and the
+  "Viewing X's card…" banner — opening a card link binds the device (`GET
+  /customers/by-token/:token`), and `/card` self-resolve falls back to welcome on failure. New tests:
+  `tests/adapters/ServerIdentityStore.test.ts` (`ui`, 5) and `tests/live/ServerIdentityStore.test.ts`
+  (`live`, 3). `Field`'s `optional` prop is unused by any screen and left on the component.
+
+*Staff/admin half*
+- **S2 `Scan`.** A saved commit shows the one-line toast and goes to `/staff` (the counter), not the
+  camera. Hold, stage-time `idempotencyKey` and no-undo are unchanged; "Scan next" remains the
+  deliberate path to another scan; a failed commit stays on the card with its error.
+- **A4 config bounds.** New pure `packages/shared/src/domain/config.ts`: `CONFIG_BOUNDS` (the
+  server's former private table, values unchanged), `CONFIG_NUMERIC_FIELDS`,
+  `REJECTED_CONFIG_FIELDS` (`sessionEpoch`), `clampConfigValue`, `isWithinBounds`,
+  `normalizeRewardDescription` and friends, tested in `packages/shared/tests/config.test.ts`. Server
+  `config/clamp.ts` imports it (behaviour identical). `ConfigService.sanitizeConfig` applies the
+  same table (detector counts floor at 2, was 1; every field has a ceiling), tested in
+  `tests/services/sanitizeConfig.test.ts`. `ProgramEdit` takes `min` / `max` from the table, shows
+  "From X to Y.", says "Enter a whole number from X to Y." for out-of-range input and keeps Save
+  disabled. **Error path:** `Admin.saveProgram` rethrows; `ProgramEdit` keeps the sheet open with the
+  typed value and shows the failure on the editor (offline, server, signed out, forbidden, rate
+  limited, `rejected_field`, other `rejected`), no toast. The live `ConfigAndAudit.test.ts` now
+  asserts the shared floor of 2 and a ceiling (`pointsPerReward: 1000` → 100).
+- **A5.** `pointsPerReward` is labelled "Drinks for a free one"; field "How many drinks earn a free
+  one?", hint "Each customer's card shows this many cups, plus the free one."; value "N drinks". No
+  new field.
+- **A6 `AccountSheet`.** On the signed-in account's own sheet the Active toggle **and** Delete are
+  disabled with "You can't disable or delete the account you're signed in with." (delete is guarded
+  too, for symmetry with the server's `cannot_delete_self`). Every failure in the sheet shows inside
+  it (`role="alert"`), not as a toast; successes still toast. `Toggle` gained an optional `disabled`.
+- **X1 `AuthContext`.** At boot, and only when a staff session is persisted, it calls
+  `staff.session()` (`GET /auth/session`). Server says signed out → anon, stored copy cleared;
+  signed in → active as the server's account, stored copy rewritten (and moved between
+  localStorage / sessionStorage per `remembered`); unreachable → keep the persisted session
+  (previously a failed boot signed the device out). `ready` flips only after the check. `session.ts`
+  `reconcile(session, server: StaffSession | null)` replaces `reconcile(session, serverEpoch)` — **the
+  client no longer compares epochs**; the server checks the epoch on every request and answers anon
+  for a revoked one. `StaffService.currentSessionEpoch()` is now used only by live tests. New
+  `AuthContext.test.tsx` (5).
+- **Review follow-ups.** `CardMenu`'s `identity.clear()` after a self-delete is best-effort (it is
+  a request now, and failing it after the erase used to report a deletion that worked as one that
+  did not). `AuthContext` keeps a sign-in generation, so a boot check still in flight when the user
+  signs in or out cannot overwrite what they just did. `Scan` navigates to the counter only while
+  still mounted, with `replace` so Back does not reopen a finished scan. `LostCard` says a
+  `rate_limited` refusal is a wait and a `staff_device` refusal means "use your own phone" instead
+  of blaming the connection (the countdown stays UI-4's). `ProgramEdit`'s range message waits
+  600 ms after typing, like Register's email check, so "15" against a floor of 2 does not flash
+  an error after the "1". +4 `ui` tests.
+- **Left for later phases.** Per-screen error mapping (`describeSaveError` in `ProgramEdit`,
+  `describeFailure` in `AccountSheet`) — UI-4 may consolidate. "Reset password" still uses
+  `window.prompt` and admin Delete `window.confirm`. A device with a live cookie but nothing
+  persisted is not adopted at boot.
 
 ### UI-4 — Error and offline states on screen
 Row S3 and the screen half of X2. The staff matrix is already written (SCOPE-DECISIONS §2.4): no

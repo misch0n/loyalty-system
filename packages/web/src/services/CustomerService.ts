@@ -18,7 +18,6 @@ import type { Customer } from '@cafe/shared/domain/models';
 import type { CustomerPatch, DataStore } from '@cafe/shared/ports/DataStore';
 import {
   findDuplicates,
-  isRecoverable,
   validateRegistration,
   type FieldError,
   type RegistrationInput,
@@ -97,10 +96,6 @@ export class CustomerService {
   reissue(customerId: string): Promise<Customer> {
     // As in `selfRegister`, the port's token argument is not sent.
     return this.store.rotateToken(customerId, '');
-  }
-
-  canRecover(customer: Customer): boolean {
-    return isRecoverable(customer);
   }
 
   /**

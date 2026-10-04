@@ -10,7 +10,6 @@ vi.mock('react-router-dom', () => ({
 import { CardMenu } from './CardMenu';
 import { ServicesProvider } from '../../../common/ServicesContext';
 import type { Services } from '../../../../services/Services';
-import type { Customer } from '@cafe/shared/domain/models';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -25,24 +24,6 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const withRecovery: Customer = {
-  id: 'c1',
-  token: 'tok-abc',
-  shortCode: 'ABCD1234',
-  displayName: 'Maria',
-  email: 'maria@example.com',
-  status: 'active',
-  createdAt: new Date().toISOString(),
-};
-
-const tokenOnly: Customer = {
-  id: 'c2',
-  token: 'tok-xyz',
-  shortCode: 'EFGH5678',
-  status: 'active',
-  createdAt: new Date().toISOString(),
-};
-
 function fakeServices(selfDelete = vi.fn().mockResolvedValue(undefined)): Services {
   return {
     customers: { selfDelete },
@@ -54,34 +35,23 @@ function fakeServices(selfDelete = vi.fn().mockResolvedValue(undefined)): Servic
   } as unknown as Services;
 }
 
-async function mount(services: Services, customer: Customer, saved = true) {
+const TOKEN = 'tok-abc';
+
+async function mount(services: Services) {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
     root.render(
       <ServicesProvider value={services}>
-        <CardMenu
-          open
-          onClose={() => {}}
-          customer={customer}
-          saved={saved}
-          onSavedChange={() => {}}
-          token={customer.token}
-        />
+        <CardMenu open onClose={() => {}} token={TOKEN} />
       </ServicesProvider>,
     );
   });
 }
 
-const deleteRow = () =>
-  Array.from(container.querySelectorAll('button.menu-row')).find((b) =>
-    b.classList.contains('danger'),
-  ) as HTMLButtonElement;
-const deviceRow = () =>
-  Array.from(container.querySelectorAll('button.menu-row')).find(
-    (b) => !b.classList.contains('danger'),
-  ) as HTMLButtonElement;
+const rows = () => Array.from(container.querySelectorAll('button.menu-row'));
+const deleteRow = () => rows().find((b) => b.classList.contains('danger')) as HTMLButtonElement;
 const holdBtn = () => container.querySelector('.hold-btn') as HTMLButtonElement;
 const tap = (el: Element) =>
   act(async () => {
@@ -89,15 +59,33 @@ const tap = (el: Element) =>
   });
 
 describe('CardMenu', () => {
+  it('has exactly one entry — delete; no remember/remove-from-device row or banner', async () => {
+    await mount(fakeServices());
+    expect(rows()).toHaveLength(1);
+    expect(deleteRow().textContent).toContain('Delete my card');
+    expect(container.textContent).not.toMatch(/remember|remove/i);
+    expect(container.querySelector('.context-banner, [role="switch"]')).toBeNull();
+  });
+
+  it('delete: says what is erased and that the email frees up', async () => {
+    await mount(fakeServices());
+    await tap(deleteRow());
+    const msg = container.querySelector('.card-confirm-msg')?.textContent ?? '';
+    expect(msg).toContain('PERMANENTLY erases your card');
+    expect(msg).toContain('cups and rewards');
+    expect(msg).toContain('your name and email');
+    expect(msg).toContain('free to start a new card, from zero');
+  });
+
   it('delete: redraws a hold-to-confirm; the 3s hold erases + clears + routes home', async () => {
     vi.useFakeTimers();
     const services = fakeServices();
-    await mount(services, withRecovery);
+    await mount(services);
 
     await tap(deleteRow());
-    // Confirmation copy + a hold button appear; nothing deleted on the tap.
-    expect(container.textContent).toContain('PERMANENTLY delete');
+    // Confirmation + a hold button appear; nothing deleted on the tap.
     expect(holdBtn()).not.toBeNull();
+    expect(holdBtn().classList.contains('hold')).toBe(true);
     expect(services.customers.selfDelete).not.toHaveBeenCalled();
 
     // A short hold released early does NOT delete.
@@ -117,32 +105,36 @@ describe('CardMenu', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
-    expect(services.customers.selfDelete).toHaveBeenCalledWith(withRecovery.token);
+    expect(services.customers.selfDelete).toHaveBeenCalledWith(TOKEN);
     expect(services.identity.clear).toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledWith('/welcome', { replace: true });
   });
 
-  it('remove (recoverable card): single-tap REMOVE clears the device identity', async () => {
+  it('delete: a failed un-bind after the erase still routes home, with no error', async () => {
+    vi.useFakeTimers();
     const services = fakeServices();
-    await mount(services, withRecovery);
+    (services.identity.clear as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('offline'));
+    await mount(services);
 
-    await tap(deviceRow());
-    // Recoverable: explains email recovery, no hold fineprint, single-tap button.
-    expect(container.textContent).toContain('I already have one');
-    expect(container.querySelector('.card-confirm-fine')).toBeNull();
-    expect(holdBtn().classList.contains('tap')).toBe(true);
-
-    await tap(holdBtn());
-    expect(services.identity.clear).toHaveBeenCalled();
+    await tap(deleteRow());
+    await act(async () => {
+      holdBtn().dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(services.customers.selfDelete).toHaveBeenCalledWith(TOKEN);
+    expect(navigate).toHaveBeenCalledWith('/welcome', { replace: true });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
-  it('remove (token-only card): warns of loss and gates REMOVE behind a hold', async () => {
+  it('"Keep my card" returns to the menu without deleting', async () => {
     const services = fakeServices();
-    await mount(services, tokenOnly);
-
-    await tap(deviceRow());
-    expect(container.textContent).toContain('permanently lost');
-    expect(container.querySelector('.card-confirm-fine')?.textContent).toContain('hold button');
-    expect(holdBtn().classList.contains('hold')).toBe(true);
+    await mount(services);
+    await tap(deleteRow());
+    const keep = container.querySelector('.card-confirm-cancel') as HTMLButtonElement;
+    await tap(keep);
+    expect(rows()).toHaveLength(1);
+    expect(services.customers.selfDelete).not.toHaveBeenCalled();
   });
 });

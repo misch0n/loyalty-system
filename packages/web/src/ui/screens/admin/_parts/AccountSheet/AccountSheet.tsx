@@ -5,20 +5,32 @@
  * profile (name · username · role), the actions an admin can take on it —
  * enable/disable, reset password, delete. (There is no PIN to reset — S1.)
  *
+ * **Your own account (register A6).** The server refuses both disabling
+ * (`cannot_disable_self`) and deleting (`cannot_delete_self`) the account the
+ * request is signed in with — it is the one guard that keeps an admin from
+ * locking the shop out of its own panel. So on the signed-in account's own
+ * sheet neither control is offered: the toggle and the delete button are shown
+ * disabled, with one line saying why, rather than inviting a tap the server
+ * will refuse.
+ *
+ * **Failures stay in the sheet.** A refusal — from `StaffService`, which turns
+ * the server's codes into sentences, or a connectivity failure — is shown inside
+ * the sheet, beside the controls, and never as a toast (X2: an action failure
+ * belongs on the control that caused it). Success still confirms with a toast.
+ *
  * Appendix E: the profile's action-history list was REMOVED. Reading one
- * person's activity is an investigation, not a casual glance, so it is reachable
- * only through the admin export workflow — which requires a stated reason and is
- * itself audited.
+ * person's activity is an investigation, not a casual glance.
  *
  * Per the current product decision these actions are NOT step-up gated: a
  * signed-in admin on the device can perform them directly. Password entry uses
  * prompt() (the prototype's lightweight input, matching the rest of admin).
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Sheet } from '../../../../components/Sheet/Sheet';
 import { Toggle } from '../../../../components/Field/Field';
 import { useServices } from '../../../../common/ServicesContext';
 import { useToast } from '../../../../components/Toast/Toast';
+import { isApiError } from '../../../../../services/errors';
 import type { Actor } from '../../../../../services/types';
 import type { StaffAccount } from '@cafe/shared/domain/models';
 import './AccountSheet.css';
@@ -32,32 +44,64 @@ export interface AccountSheetProps {
   onChanged: () => void;
 }
 
+/** The note on the signed-in account's own sheet. */
+export const SELF_NOTE = 'You can’t disable or delete the account you’re signed in with.';
+
+/** What went wrong, as a sentence the admin can act on. */
+function describeFailure(err: unknown): string {
+  if (isApiError(err)) {
+    switch (err.failure.kind) {
+      case 'offline':
+        return 'Couldn’t reach the server, so nothing changed. Check the connection and try again.';
+      case 'server':
+        return 'The server couldn’t make that change just now. Try again in a moment.';
+      case 'not_found':
+        return 'That account no longer exists.';
+      default:
+        return 'Couldn’t make that change. Try again.';
+    }
+  }
+  // `StaffService` turns the refusals an admin can act on into a sentence.
+  if (err instanceof Error && err.message) return err.message;
+  return 'Couldn’t make that change. Try again.';
+}
+
 export function AccountSheet({ account, actor, onClose, onChanged }: AccountSheetProps) {
   const services = useServices();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // A different profile (or a closed sheet) starts with a clean slate.
+  const accountId = account?.id ?? null;
+  useEffect(() => setError(null), [accountId]);
 
   if (!account) return null;
+
+  const isSelf = account.id === actor.id;
 
   const run = async (fn: () => Promise<void>, done: string) => {
     if (busy) return;
     setBusy(true);
+    setError(null);
     try {
       await fn();
       toast.show(done);
       onChanged();
     } catch (err) {
-      toast.show(err instanceof Error ? err.message : 'Couldn’t make that change.');
+      setError(describeFailure(err));
     } finally {
       setBusy(false);
     }
   };
 
-  const onToggleActive = () =>
-    run(
+  const onToggleActive = () => {
+    if (isSelf) return;
+    void run(
       () => services.staff.setActive(account.id, !account.active),
       account.active ? 'Profile disabled.' : 'Profile enabled.',
     );
+  };
 
   const onResetPassword = () => {
     const next = window.prompt(`New password for ${account.name ?? account.username}`);
@@ -66,6 +110,7 @@ export function AccountSheet({ account, actor, onClose, onChanged }: AccountShee
   };
 
   const onDelete = () => {
+    if (isSelf) return;
     const ok = window.confirm(
       `Delete ${account.name ?? account.username}? This removes the account permanently.`,
     );
@@ -85,6 +130,7 @@ export function AccountSheet({ account, actor, onClose, onChanged }: AccountShee
             <div className="acct-meta">
               {account.username} · <span className="acct-role">{account.role}</span>
               {!account.active && <span className="acct-disabled"> · disabled</span>}
+              {isSelf && <span className="acct-self"> · you</span>}
             </div>
           </div>
         </div>
@@ -92,7 +138,12 @@ export function AccountSheet({ account, actor, onClose, onChanged }: AccountShee
         <div className="acct-actions">
           <div className="acct-row">
             <span>Active</span>
-            <Toggle on={account.active} onChange={onToggleActive} label="Active" />
+            <Toggle
+              on={account.active}
+              onChange={onToggleActive}
+              label="Active"
+              disabled={busy || isSelf}
+            />
           </div>
           <button type="button" className="acct-btn" onClick={onResetPassword} disabled={busy}>
             Reset password
@@ -101,12 +152,17 @@ export function AccountSheet({ account, actor, onClose, onChanged }: AccountShee
             type="button"
             className="acct-btn danger"
             onClick={onDelete}
-            disabled={busy}
+            disabled={busy || isSelf}
           >
             Delete profile
           </button>
+          {isSelf && <p className="acct-note">{SELF_NOTE}</p>}
+          {error && (
+            <p className="acct-error" role="alert">
+              {error}
+            </p>
+          )}
         </div>
-
       </div>
     </Sheet>
   );

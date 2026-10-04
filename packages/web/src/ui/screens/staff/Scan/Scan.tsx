@@ -14,8 +14,14 @@
  * The hold replaces the old post-commit Undo: errors are caught in the seconds
  * BEFORE the ledger is touched, so there is no staff-reachable path that
  * reverses an already-committed transaction. Cancel discards the staged
- * transaction and writes nothing; on commit the terminal auto-advances to the
- * scanner so every customer starts from a fresh scan.
+ * transaction and writes nothing.
+ *
+ * After a successful commit the terminal returns to the **counter** (`/staff`,
+ * the Panel) with a one-line toast of what was saved — not straight back to the
+ * camera (register S2; triage Q6, FE-S-12). The counter is where the next
+ * customer is started from, and its "your last hour" list now shows the commit
+ * that was just made. "Scan next" on this screen is still the deliberate way to
+ * go straight to another scan.
  *
  * Every commit is staff-initiated, passes the authenticated `actor`, and is
  * append-only. A scan resolves a uniform `{customerToken, rewardTokens, source}`
@@ -109,6 +115,14 @@ export function Scan(): JSX.Element {
   const commitRef = useRef<((staged: Staged) => Promise<void>) | null>(null);
   /** Guards the one-commit-per-staged-transaction rule (timeout vs "Commit now"). */
   const firedRef = useRef(false);
+  /** A staffer who left while a commit was in flight is not pulled back to the counter. */
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const stopCamera = useCallback(async () => {
     const handle = scannerRef.current;
@@ -334,10 +348,11 @@ export function Scan(): JSX.Element {
         );
         return;
       }
+      // The toast is app-level, so it outlives this screen. S2: back to the
+      // counter, not the camera — no card lingers on screen either way.
       toast.show(commitConfirmation(customerName, pending.pointsDelta, result));
-      // Appendix E: the terminal returns to idle after every commit, so each
-      // customer starts from a fresh scan and no card lingers on screen.
-      scanNext();
+      // Replace, so Back from the counter does not reopen a finished scan.
+      if (mountedRef.current) navigate(ROUTES.staff, { replace: true });
     } catch {
       firedRef.current = false;
       setStaged(null);

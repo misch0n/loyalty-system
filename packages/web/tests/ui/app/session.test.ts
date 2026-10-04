@@ -99,27 +99,56 @@ describe('actorFrom', () => {
   });
 });
 
-describe('reconcile', () => {
-  const serverEpoch = 5;
+describe('reconcile (against GET /auth/session)', () => {
+  const ANON = { status: 'anon', actor: null, session: null, trusted: null };
 
-  it('reconciles a null session to anon', () => {
-    expect(reconcile(null, serverEpoch)).toEqual({
-      status: 'anon',
-      actor: null,
-      session: null,
-    });
+  it('reconciles a null session to anon, whatever the server says', () => {
+    expect(reconcile(null, null)).toEqual(ANON);
+    expect(reconcile(null, { status: 'anon', epoch: 5 })).toEqual(ANON);
   });
 
-  it('equal epoch → active (identity restored)', () => {
-    const session = makeSession({ epoch: 5 });
-    const out = reconcile(session, serverEpoch);
+  it('server unreachable → stays active on the persisted session', () => {
+    const session = makeSession();
+    const out = reconcile(session, null);
     expect(out.status).toBe('active');
     expect(out.session).toEqual(session);
     expect(out.actor).toEqual(actorFrom(session));
+    // Nothing to re-persist: the server did not answer.
+    expect(out.trusted).toBeNull();
   });
 
-  it('revoked (stored epoch < server) → anon', () => {
-    const session = makeSession({ epoch: 4 });
-    expect(reconcile(session, serverEpoch)).toEqual({ status: 'anon', actor: null, session: null });
+  it('server says signed out → anon (ended while the page was closed)', () => {
+    expect(reconcile(makeSession(), { status: 'anon', epoch: 5 })).toEqual(ANON);
+  });
+
+  it('server says signed in → active, refreshed from the server’s answer', () => {
+    const session = makeSession({ epoch: 4, name: 'Old name' });
+    const out = reconcile(session, {
+      status: 'active',
+      actor: { id: 'actor-1', username: 'Sam', name: 'Samira', role: 'admin' },
+      epoch: 6,
+      remembered: true,
+    });
+    expect(out.status).toBe('active');
+    expect(out.actor).toEqual({ id: 'actor-1', username: 'Sam', name: 'Samira', role: 'admin' });
+    expect(out.session).toEqual({
+      actorId: 'actor-1',
+      username: 'Sam',
+      name: 'Samira',
+      role: 'admin',
+      epoch: 6,
+    });
+    expect(out.trusted).toBe(true);
+  });
+
+  it('a newer epoch on an active answer is not a revocation — the server checked it', () => {
+    const out = reconcile(makeSession({ epoch: 1 }), {
+      status: 'active',
+      actor: { id: 'actor-1', username: 'Sam', role: 'staff' },
+      epoch: 9,
+      remembered: false,
+    });
+    expect(out.status).toBe('active');
+    expect(out.trusted).toBe(false);
   });
 });

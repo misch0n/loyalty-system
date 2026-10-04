@@ -1,9 +1,10 @@
 /**
  * IdentityStore — "this browser remembers which customer it belongs to".
  * Stores ONLY the opaque customer token, never PII.
- * Async to keep call sites identical to the production adapter (a first-party
- * server-set HttpOnly cookie / session), which is necessarily async over HTTP.
- * Prototype: localStorage. Production: server cookie/session.
+ * Async because the adapter is a round trip: the SPA's `ServerIdentityStore`
+ * reads and writes a server-set HttpOnly cookie through `/me`, the recognition
+ * that survives iOS tracking prevention. Registration, opening a card link and
+ * a completed recovery also bind the device server-side, without this port.
  */
 export interface IdentityStore {
   /** The remembered customer token, or null if this browser isn't recognized. */

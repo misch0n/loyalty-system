@@ -19,13 +19,16 @@ working rules for agents in [`CLAUDE.md`](CLAUDE.md); current build status in
 >
 > **`@cafe/web` compiles and builds again (UI-2, 2026-10-04)** — it was deliberately red from
 > Phase 6 until then ([`docs/SCOPE-DECISIONS.md`](docs/SCOPE-DECISIONS.md) §6: the backend was built
-> first and the UI is being rewritten against it). It now has 0 TypeScript errors, 310 tests in 44
-> files all passing, and `npm run build -w @cafe/web` produces a bundle. The rewrite continues in
-> [`docs/UI-PLAN.md`](docs/UI-PLAN.md) (UI-3 next) against the 35 conflicts in
-> [`docs/UI-RECONCILIATION.md`](docs/UI-RECONCILIATION.md). **Green is not "works":** some screens
-> still disagree with the backend (registration still treats name and email as optional, there is
-> no recovery code-entry screen yet), so **there is no demoable build until the screen phases
-> land**, and the live-demo link is gone with the Pages workflow.
+> first and the UI is being rewritten against it). After UI-3 (2026-10-04) it has 0 TypeScript
+> errors, 360 tests in 47 files all passing (40 `ui` files and 7 `live` files that run against a
+> real server), and `npm run build -w @cafe/web` produces a bundle. The rewrite continues in
+> [`docs/UI-PLAN.md`](docs/UI-PLAN.md) (UI-4 next) against the 35 conflicts in
+> [`docs/UI-RECONCILIATION.md`](docs/UI-RECONCILIATION.md). UI-3 made registration require name and
+> email, replaced the recovery link with a typed code, reduced the card menu to a single delete, and
+> swapped the identity adapter for `ServerIdentityStore` over `/me`. **Green is not "works":** error
+> and offline states are not on screen yet (UI-4) and nobody has driven the SPA through a browser
+> against the real server, so **there is no demoable build until the remaining phases land**, and
+> the live-demo link is gone with the Pages workflow.
 >
 > **The feature table and screen descriptions below still describe the pre-migration SPA** —
 > several rows no longer match the tree. They are rewritten in UI-PLAN's UI-9. The
@@ -62,8 +65,9 @@ The trust anchor is **staff-side**: only staff can commit points or redemptions,
 because staff presence confirms a real transaction happened. Customers can only
 *display* their card. Identity is a **random 128-bit opaque token** (in the QR) —
 never derived from name/phone — so a screenshotted card leaks no personal data.
-Personal details are **optional**; a fully anonymous (token-only) account is
-valid.
+A card needs a **name and an email** (both required, SCOPE-DECISIONS §2.1) and
+nothing else; token-only cards no longer exist, because a card with no address
+could never be recovered.
 
 Points live in an **append-only ledger**. Balance is *derived* by summing entries
 (it settles to `0..threshold−1`) — never stored as a counter. Crossing the
@@ -85,12 +89,12 @@ pre-commit-hold models.
 | Area | Capabilities |
 |---|---|
 | **Auth — staff/admin sign-in + session** | Accounts carry **name + username + password** — no PIN, no idle lock (S1; the shared till is signed in as an account, and audit is per account). Sign-in is **username/password** (`POST /auth/login`; dev accounts are the bootstrap admin plus `npm run seed:dev -w @cafe/web`); on success the visitor routes to their role home (admin → `/admin`, staff → `/staff`). "Remember this device" keeps the login for 30 days, until sign-out (12 hours otherwise). A non-remembered device prefills the last username. Admin can end every session with "Sign out all devices" (`POST /auth/logout-all`, a plain confirmation; it ends the admin's own session too). `StaffService.login` / `logout` / `session` / `revokeAllSessions`; `AuthContext.loginWithPassword` / `logout` (`src/ui/app/AuthContext.tsx`). |
-| **Self-service registration** | PRIMARY path: customer visits `/register`, creates their own card in one step — remembered on the browser via `IdentityStore`. No approval queue, no staff involvement. Recovery tier disclosed at registration (email → self-recovery link; name-only → staff best-effort; neither → not recoverable). |
+| **Self-service registration** | PRIMARY path: customer visits `/register`, creates their own card in one step. **Name and email are required**; the server binds the device on `POST /customers` (HttpOnly cookie, read back through `IdentityStore` → `ServerIdentityStore` over `/me`). An email that already has a card (`409 email_in_use`) gets "This email already has a card." and an offer to recover it. No approval queue, no staff involvement. There is no recovery-tier disclosure any more — every card has an address. |
 | **Staff-initiated registration** | SECONDARY path: staff start a card over real PeerJS; customer joins on their own device. Duplicate details **warn before** a second card is created. |
 | **Auto-provision on scan** | Scanning an unknown-but-valid token creates a token-only card on the staff device so accrual can proceed immediately. Staff still initiates the credit. |
-| **Unified commit (accrue + mint + redeem)** | Staff scan → see customer state → the counter **stages** the transaction behind a **3-second pre-commit hold** (countdown summarizing points/redemptions/mints-to-come; Cancel or "Commit now"; idempotency key allocated at stage time). On timeout/commit, a single **atomic, idempotent** `commit` adds points (default `pointsPerPurchase`, **capped** at `maxPointsPerTransaction` → `over_cap` reject), **mints** one `Reward` per threshold crossing (`mintFold`), and **redeems** any pre-checked rewards in the same call. Appends `accrual`/`reward_issue` ledger entries + reward events + audit. Sends a best-effort reward-available email only when the commit minted ≥1 reward. Terminal auto-advances to the scanner after each commit. Seed threshold: **9 purchases** (`pointsPerReward: 9`) — the card shows a fixed 10-cup grid whose last (FREE) cup is pre-stamped, so the tenth coffee is the free one. |
+| **Unified commit (accrue + mint + redeem)** | Staff scan → see customer state → the counter **stages** the transaction behind a **3-second pre-commit hold** (countdown summarizing points/redemptions/mints-to-come; Cancel or "Commit now"; idempotency key allocated at stage time). On timeout/commit, a single **atomic, idempotent** `commit` adds points (default `pointsPerPurchase`, **capped** at `maxPointsPerTransaction` → `over_cap` reject), **mints** one `Reward` per threshold crossing (`mintFold`), and **redeems** any pre-checked rewards in the same call. Appends `accrual`/`reward_issue` ledger entries + reward events + audit. Sends a best-effort reward-available email only when the commit minted ≥1 reward. After a saved commit the terminal returns to the counter (`/staff`); "Scan next" is the deliberate path to another scan. Seed threshold: **9 purchases** (`pointsPerReward: 9`) — the card shows a fixed 10-cup grid whose last (FREE) cup is pre-stamped, so the tenth coffee is the free one. |
 | **Redemption (multi-reward, subset)** | Redeemed inside the unified `commit` — every reward id is re-validated at commit (`not_owner`/`already_spent`/`reward_invalid` → `rejected[]`, valid ones still redeem); a customer can compose **multiple** rewards into one reward QR. **Atomic + idempotent** (single IDB-tx scope) — no double-spend. |
-| **Self-service recovery** | Customer visits `/lost`, enters their registered email → single-use link (15-min expiry) via EmailJS → opening the link re-establishes identity on the browser. Token-only customers remain unrecoverable by design. Uniform response (no account enumeration). *In the server build this is a **typed code**, not a link (SCOPE-DECISIONS §2.3): a link opens on whichever device reads the mail, so the customer types a six-character code on the device in their hand and that device is what gets bound. Built in `packages/server/src/recovery/` + `routes/recovery.ts`; see STATUS divergence **x**.* |
+| **Self-service recovery** | Customer visits `/lost`, enters their registered email ("Send me a code"), then types the **six-character code** (15-minute expiry, upper-cased as typed) the server mails them → "Restore my card" binds that device and opens the card. Uniform response (no account enumeration); a wrong code says "That code didn't work. Check it, or send a new one." It is a typed code rather than a link (SCOPE-DECISIONS §2.3) because a link opens on whichever device reads the mail, and the device in the customer's hand is the one that should be bound. Built in `packages/server/src/recovery/` + `routes/recovery.ts` and `ui/screens/customer/LostCard/`; see STATUS divergence **x**. |
 | **Staff recovery / reissue** | Staff find customer by name/email/phone; reissue with a rotated token (default) or keep it. |
 | **Correction / reversal** | Reverse a recent accrual via an offsetting `reversal` entry — logged, never silent (`LoyaltyService.reverse`). There is no post-commit undo: the staff counter's 3-second pre-commit hold (above) catches operator errors *before* anything is written instead. |
 | **Self-delete / opt-out** | `CustomerService.selfDelete(token)` — GDPR erasure initiated from the customer's card "⋯" menu. Staff-confirmed `deleteCustomer(actor, id)` also still exists. |
@@ -147,7 +151,7 @@ flowchart TB
     subgraph adapters["adapters/ · concrete implementations"]
         API[ApiStore · the only DataStore]:::prod
         NOOP[NoopMailer · routes are the only sender]:::prod
-        LSI[LocalStorageIdentityStore · superseded by the session cookie]:::proto
+        SIS[ServerIdentityStore · GET/PUT/DELETE /me, the HttpOnly device cookie]:::prod
     end
 
     subgraph server["@cafe/server · Fastify + PostgreSQL"]
@@ -162,7 +166,7 @@ flowchart TB
     services --> ports
     DS -.implemented by.-> API
     ML -.implemented by.-> NOOP
-    ID -.implemented by.-> LSI
+    ID -.implemented by.-> SIS
     API == "HTTPS · cookie session · CSRF" ==> RT
     API -. "SSE" .-> SSE
     RT --> PGS & AUTH & MAIL
@@ -198,20 +202,26 @@ port boundary; the UI rewrite now under way is a deliberate choice, not a failur
 
 ### Self-service registration (primary path)
 
-The customer creates their own card without staff involvement. `IdentityStore`
-persists the token in the browser so subsequent visits skip registration.
+The customer creates their own card without staff involvement. Name and email are
+required. `POST /customers` binds the device with an HttpOnly cookie, so the
+`IdentityStore` (`ServerIdentityStore`, over `/me`) recognises it on later visits
+and the SPA never stores the token itself.
 
 ```mermaid
 sequenceDiagram
     actor C as Customer browser
     participant App as CustomerService
-    participant IS as IdentityStore
+    participant API as POST /customers
 
-    C->>App: selfRegister(optional details + consent)
-    App->>App: checkDuplicates() → warn if match
-    App->>App: createCard() → token + audit(card.provision)
-    App->>IS: saveToken(token)
-    App-->>C: card (card-URL QR + WalletButton)
+    C->>App: selfRegister(name + email + consent)
+    App->>API: create the card
+    alt email already has a card
+        API-->>App: 409 email_in_use
+        App-->>C: "This email already has a card." + "Get my card back" → /lost
+    else created
+        API-->>App: card + device cookie (audit written server-side)
+        App-->>C: card (card-URL QR)
+    end
 ```
 
 ### Staff-initiated registration (secondary path)
@@ -274,7 +284,9 @@ flowchart LR
 ## Data model
 
 Append-only ledger + audit log + append-only reward-event log. `Customer.token` is
-the opaque identity; PII is optional. Balance is derived (settles to
+the opaque identity; name and email are required at registration (the
+fields stay nullable in the model because a deleted card is tombstoned with them
+erased). Balance is derived (settles to
 `0..threshold−1`), never stored; rewards are discrete `Reward` objects whose status
 is driven only by `RewardEvent`s (the `rewards` store is a materialized projection).
 
@@ -384,7 +396,7 @@ packages/
 │   │       │                      #   the recovery-code pair + getStaffByUsername + listAllTransactions (UI-2, P9) —
 │   │       │                      #   only the server may call them; ApiStore has none
 │   │       ├── Mailer.ts          # email abstraction (NoopMailer only client-side; routes send)
-│   │       └── IdentityStore.ts   # browser identity — superseded by the server session cookie
+│   │       └── IdentityStore.ts   # browser identity — implemented by ServerIdentityStore (the server's HttpOnly cookie)
 │   └── tests/                  # Vitest: the six domain suites (moved out of the SPA in Phase 10;
 │                                #   green independently of it)
 ├── server/                     # @cafe/server — Fastify + PostgreSQL production backend
@@ -409,7 +421,7 @@ packages/
     │   │   ├── email/
     │   │   │   └── NoopMailer.ts   # the routes are the only sender
     │   │   └── identity/
-    │   │       └── LocalStorageIdentityStore.ts   # superseded by the session cookie (UI-PLAN UI-3)
+    │   │       └── ServerIdentityStore.ts   # IdentityStore over GET/PUT/DELETE /me (UI-3); replaced LocalStorageIdentityStore
     │   ├── services/              # orchestrate domain + ports; speak routes (no service writes audit or sends mail)
     │   │   ├── CustomerService.ts      # selfRegister, checkDuplicates, find, correct, reissue, deleteCustomer, selfDelete(token)
     │   │   ├── LoyaltyService.ts       # commit (accrue+mint+redeem), getState (GET /customers/:id/state), reverse,
@@ -476,7 +488,7 @@ ops/                           # backup.sh, restore.sh, smoke.sh, drill.sh, ngin
 | ~~**`Transport`**~~ (registration handoff) | ~~`PeerTransport`~~ | **Port deleted** (triage §1) — registration is a customer opening a URL | n/a |
 | ~~**`WalletProvider`**~~ | ~~`StaticWalletProvider`~~ | **Port deleted** (triage §1) — wallet dropped end to end | n/a |
 | **`Mailer`** (email) | `EmailJsMailer` (client-side EmailJS) or `NoopMailer` | **Built:** `SmtpMailer` in `packages/server/src/mail/` (nodemailer; mailpit in dev, SES/Brevo/Resend in production), with `LogMailer` as the unconfigured fallback | `NoopMailer` in `Services.ts` — the server-backed build sends the welcome, reward-available and recovery mails from the routes, so the client must send none |
-| **`IdentityStore`** (browser identity) | `LocalStorageIdentityStore` | Server-cookie adapter | One line in `Services.ts` |
+| **`IdentityStore`** (browser identity) | ~~`LocalStorageIdentityStore`~~ *deleted (UI-3)* | **Built:** `ServerIdentityStore` → `GET`/`PUT`/`DELETE /me`, the server-set HttpOnly cookie | Done — one line in `Services.ts` |
 | ~~**`adapters/sync/`**~~ (device pairing) | ~~`PeerJsHost` / `SwitchableStore` stack~~ | **Deleted** — the server coordinates state centrally; liveness is `GET /events` (SSE) | n/a |
 
 ### Cross-device state (was: two PeerJS channels)
@@ -495,7 +507,7 @@ is no idle-locked state any more); three streams per session.
 
 | Job | What it proves |
 |---|---|
-| `contract` | `@cafe/shared` typechecks and its 73 domain tests pass — no database, no SPA |
+| `contract` | `@cafe/shared` typechecks and its 85 domain tests pass — no database, no SPA |
 | `server` | the release gate against a **Postgres service container**, then a check that the suite still *refuses to run* without one (a skip is not a pass) |
 | `bundle` | `docker compose` up **from an empty volume** → [`ops/smoke.sh`](ops/smoke.sh) over HTTP → the container logs scanned for credentials and PII → [`ops/drill.sh`](ops/drill.sh), the backup/restore drill |
 | `web` | informational only (`continue-on-error` until UI-8): a Postgres service + `TEST_DATABASE_URL`, then SPA Typecheck / Tests (the `ui` and `live` projects) / Build. Must not gate anything yet |
@@ -523,7 +535,7 @@ Firefox accept `Secure` cookies on `http://localhost`, Safari may not — use Ch
 - **SPA dev server:** `npm run dev` (Vite) serves from `/` and proxies `/api` → `http://127.0.0.1:3000`,
   stripping the prefix exactly like [`ops/nginx/default.conf`](ops/nginx/default.conf). Override the
   target with `VITE_DEV_API_TARGET`. `vite preview` keeps the build base. (The SPA compiles and
-  builds since UI-2 but several screens still disagree with the backend — see the box at the top.)
+  builds since UI-2 and the screens match the backend's behaviour as of UI-3, but error and offline states are still unbuilt — see the box at the top.)
 - **Dev seed:** `npm run seed:dev -w @cafe/web` signs in to the running backend as an existing admin
   (`SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD`; `SEED_API_URL` defaults to `http://127.0.0.1:3000`,
   `SEED_APP_URL` to `http://localhost:5173`), creates a `barista` staff account and three cards —
@@ -558,11 +570,12 @@ flowchart LR
     K["Mocked auth to argon2id"]:::done --> L["Server sessions to their TTL,<br/>epoch revocation"]:::done
     M["Drop the pairing layer"]:::done --> N["Server coordinates state;<br/>liveness is GET /events"]:::done
     O["Transport + WalletProvider"]:::cut --> P["Ports deleted — registration is<br/>a URL, wallet dropped"]:::cut
-    G["localStorage to session cookie"]:::todo --> H["Identity that survives iOS ITP"]:::todo
+    G["localStorage to session cookie<br/>(ServerIdentityStore, UI-3)"]:::done --> H["Identity that survives iOS ITP"]:::done
     Q["services/ reshaped to the routes<br/>(UI-2, 2026-10-04)"]:::done --> R["@cafe/web compiles, tests green,<br/>bundle builds"]:::done
     S["PIN + idle lock"]:::cut --> T["Retired on the server (UI-1b, tag backend-v1) —<br/>shared till; attribution is the signed-in account"]:::done
     T --> U["SPA half: Unlock, PinPad,<br/>step-up deleted (UI-2)"]:::done
-    R --> V["Screens match the backend<br/>(UI-3 onward)"]:::todo
+    R --> W["Customer + admin screens match the backend<br/>(UI-3, 2026-10-04)"]:::done
+    W --> V["Error and offline states, liveness,<br/>e2e, install (UI-4 onward)"]:::todo
 
     classDef done fill:#eef,stroke:#5b6cc0;
     classDef cut fill:#eee,stroke:#888,stroke-dasharray:3;

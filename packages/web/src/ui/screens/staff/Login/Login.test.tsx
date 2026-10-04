@@ -35,7 +35,7 @@ function makeServices(login: ReturnType<typeof vi.fn>): Services {
   return {
     staff: {
       login,
-      currentSessionEpoch: vi.fn().mockResolvedValue(1),
+      session: vi.fn().mockResolvedValue({ status: 'anon', epoch: 1 }),
     },
   } as unknown as Services;
 }
@@ -120,7 +120,7 @@ describe('Staff Login', () => {
     expect(container.textContent).toContain('STAFF PANEL HOME');
     // The login answer carries the epoch — no second request that could fail
     // after the session cookie was set.
-    expect(services.staff.currentSessionEpoch).not.toHaveBeenCalled();
+    expect(services.staff.session).not.toHaveBeenCalled();
   });
 
   it('an admin signing in routes to the counter (admin panel reached from there)', async () => {

@@ -42,7 +42,7 @@ function fakeServices(auditRows?: unknown[]): Services {
       list: vi.fn().mockResolvedValue([
         { id: 's1', username: 'Sam', role: 'staff', active: true, createdAt: '2026-01-01T00:00:00Z' },
       ]),
-      currentSessionEpoch: vi.fn().mockResolvedValue(1),
+      session: vi.fn().mockResolvedValue({ status: 'active', actor: STAFFER, epoch: 1, remembered: false }),
       logout: vi.fn().mockResolvedValue(undefined),
     },
     audit: {

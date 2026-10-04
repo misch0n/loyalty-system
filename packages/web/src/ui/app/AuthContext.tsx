@@ -13,12 +13,20 @@
  *   - ephemeral login  → sessionStorage  'cafe-loyalty.staffSession'
  *   both hold { actorId, username, name?, role, epoch }.
  *
- * Boot resolution (UX-SPEC §2 staff branch):
- *   - stored epoch < server epoch              → REVOKED → clear → 'anon'
- *   - else                                     → 'active', actor restored
- * A cookie that expired under a persisted session is caught by the first API
- * call it makes: a `signed_out` failure, which `ConnectionWatch` turns into a
- * `logout()`. Reconciling against `GET /auth/session` itself is UI-3 (X1).
+ * Boot resolution (register X1, decisions in `session.ts` `reconcile`): when a
+ * signed-in session is persisted, ask the server — `GET /auth/session`, through
+ * `StaffService.session()` — before `ready` flips true:
+ *   - server says signed out                   → clear → 'anon'
+ *   - server says signed in                    → 'active' as the server's
+ *                                                account; blob refreshed
+ *   - server unreachable                       → 'active' from the blob; the
+ *                                                connectivity banner says so
+ * So a session the server ended while the page was closed (TTL, sign-out
+ * elsewhere, account disabled or deleted, "Sign out all devices") is known at
+ * load, not at the first failing request. With nothing persisted no request is
+ * made — a customer's phone never asks. A session that ends *while the page is
+ * open* is still caught by the first call it makes: a `signed_out` failure,
+ * which `ConnectionWatch` turns into a `logout()`.
  */
 
 import {
@@ -27,6 +35,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -67,7 +76,7 @@ export interface AuthValue {
   /** Full sign-out: ends the server session and clears actor and device trust. */
   logout(): void;
   /**
-   * False until the boot reconciliation (the epoch check) has settled.
+   * False until the boot reconciliation (`GET /auth/session`) has settled.
    * Consumers that branch on `status`/`trusted` at startup (e.g. the entry
    * resolver) should wait for this to avoid acting on the pre-boot 'anon'
    * default. Not part of the core session contract — purely a readiness gate.
@@ -144,7 +153,12 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     setStatus('anon');
   }, []);
 
+  // Bumped by every sign-in and sign-out, so a boot check still in flight when
+  // the user acts cannot land afterwards and overwrite what they just did.
+  const generation = useRef(0);
+
   const logout = useCallback(() => {
+    generation.current += 1;
     clearStorage();
     applyAnon();
     // Best-effort: the route succeeds with no session at all, and a device that
@@ -152,33 +166,37 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     void services.staff.logout().catch(() => undefined);
   }, [services, applyAnon]);
 
-  // Boot: restore + reconcile against the server epoch.
+  // Boot: restore, then reconcile against what the server says (X1). `ready`
+  // stays false until this settles — EntryResolver and the guards wait on it.
   useEffect(() => {
     let cancelled = false;
     const restored = readPersisted();
+    const bootGeneration = generation.current;
     if (!restored) {
       applyAnon();
       setReady(true);
       return;
     }
     void services.staff
-      .currentSessionEpoch()
-      .then((serverEpoch) => {
-        if (cancelled) return;
-        const { session, trusted: isTrusted } = restored;
-        const outcome = reconcile(session, serverEpoch);
-        if (outcome.status === 'anon') {
-          // Revoked: nothing to keep.
+      .session()
+      // Any failure to ask — offline, the server down, an answer that was not
+      // the API's — is "unknown", not "signed out" (register X2).
+      .catch(() => null)
+      .then((answer) => {
+        if (cancelled || generation.current !== bootGeneration) return;
+        const outcome = reconcile(restored.session, answer);
+        if (outcome.status === 'anon' || !outcome.session) {
           clearStorage();
           applyAnon();
           return;
         }
+        const isTrusted = outcome.trusted ?? restored.trusted;
+        // The server answered: keep the blob true to it (name, role, and where
+        // a remembered login lives).
+        if (outcome.trusted !== null) persist(outcome.session, isTrusted);
         setActor(outcome.actor);
         setTrusted(isTrusted);
         setStatus(outcome.status);
-      })
-      .catch(() => {
-        if (!cancelled) applyAnon();
       })
       .finally(() => {
         if (!cancelled) setReady(true);
@@ -198,6 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       if (!result.ok || !result.actor || result.epoch === undefined) {
         return { ok: false, reason: result.reason };
       }
+      generation.current += 1;
       // The login answer carries the epoch; a second request here could fail
       // after the session cookie was already set, and report a sign-in that worked
       // as one that did not.

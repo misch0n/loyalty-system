@@ -45,10 +45,17 @@ describe('ConfigService', () => {
     expect((await admin.services.config.get()).pointsPerReward).toBe(7);
   });
 
-  it('is clamped by the server where the client floor is lower', async () => {
-    // The client floors a count at 1; the server's floor is 2 (config/clamp.ts).
+  it('saves a detector count at the shared floor of 2', async () => {
+    // One bounds table (`@cafe/shared/domain/config`) for the client and the
+    // server (register A4): the count floors at 2 before it is sent, and the
+    // server, clamping with the same table, saves it as sent.
     const admin = await adminDevice();
     expect((await admin.services.config.update({ repeatCount: 1 })).repeatCount).toBe(2);
+  });
+
+  it('saves a value past the ceiling at the ceiling', async () => {
+    const admin = await adminDevice();
+    expect((await admin.services.config.update({ pointsPerReward: 1_000 })).pointsPerReward).toBe(100);
   });
 
   it('never sends the session epoch — revocation is its own route', async () => {

@@ -7,16 +7,22 @@
  * enlarged overlay. A discreet "⋯" affordance (corner) opens the card menu.
  *
  * Background: blush while collecting, sage once the reward is available. States:
- * loading (skeleton), collecting, reward-ready, offline (quiet banner, keep
- * last-known state), and viewing a non-owned card (read-only banner; the saved
- * card is not overwritten). `/card` (no token) self-resolves from IdentityStore.
+ * loading (skeleton), collecting, reward-ready, and offline (quiet banner, keep
+ * last-known state). `/card` (no token) self-resolves from IdentityStore, and
+ * goes to welcome when the device is not bound — or when the server cannot be
+ * asked.
+ *
+ * Opening a card link **is** binding it: `GET /customers/by-token/:token` sets
+ * this device's identity cookie to the card it shows (`UI-RECONCILIATION.md`
+ * C6). So there is no "viewing someone else's card" state any more — the
+ * card on screen is the card this device remembers.
  *
  * LIVENESS: the pairing `dataVersion` this screen used to refetch on went with
  * the pairing layer (UI-0). Until the SSE subscriber lands (UI-5) the card is
  * fetched once per mount, so a staff credit shows on the next visit or reload.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Eyebrow, Title, Sub } from '../../../components/Heading/Heading';
 import { Button } from '../../../components/Button/Button';
@@ -43,7 +49,6 @@ export function Card() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [state, setState] = useState<CustomerState | null>(null);
   const [offline, setOffline] = useState(false);
-  const [savedToken, setSavedToken] = useState<string | null>(null);
   const [enlarged, setEnlarged] = useState(false);
   // The enlarged QR opens in two modes: the plain card view (tap the QR) and a
   // special "redeem" view (tap a reward entry) — which shows the REWARD QR for
@@ -54,23 +59,18 @@ export function Card() {
 
   const resolvingRef = useRef(false);
 
-  const refreshSaved = useCallback(() => {
-    void identity.get().then(setSavedToken);
-  }, [identity]);
-
   // Self-resolve `/card` → `/card/:token` from the remembered card.
   useEffect(() => {
     if (routeToken || resolvingRef.current) return;
     resolvingRef.current = true;
-    void identity.get().then((saved) => {
-      if (saved) navigate(cardPath(saved), { replace: true });
-      else navigate(ROUTES.welcome, { replace: true });
-    });
+    void identity
+      .get()
+      .then((saved) => {
+        if (saved) navigate(cardPath(saved), { replace: true });
+        else navigate(ROUTES.welcome, { replace: true });
+      })
+      .catch(() => navigate(ROUTES.welcome, { replace: true }));
   }, [routeToken, identity, navigate]);
-
-  useEffect(() => {
-    refreshSaved();
-  }, [refreshSaved]);
 
   // Fetch derived state. Live refetch returns with the SSE subscriber (UI-5).
   useEffect(() => {
@@ -143,7 +143,6 @@ export function Card() {
   const rewards = state.rewards ?? [];
   const rewardReady = rewards.length > 0;
   const name = customer.displayName || 'Your card';
-  const owned = savedToken === routeToken;
   const code = `CKY · ${formatShortCode(customer.shortCode)}`;
 
   return (
@@ -161,15 +160,6 @@ export function Card() {
             <ContextBanner>
               You’re offline — showing your card as it was last seen. It’ll refresh when you
               reconnect.
-            </ContextBanner>
-          </div>
-        )}
-
-        {!owned && (
-          <div className="card-banner">
-            <ContextBanner>
-              Viewing {customer.displayName ? `${customer.displayName}’s` : 'this'} card. It
-              won’t replace the card saved on this device.
             </ContextBanner>
           </div>
         )}
@@ -216,14 +206,7 @@ export function Card() {
         rewardTokens={redeemTokens}
       />
 
-      <CardMenu
-        open={menuOpen}
-        onClose={() => setMenuOpen(false)}
-        customer={customer}
-        saved={owned}
-        onSavedChange={refreshSaved}
-        token={routeToken}
-      />
+      <CardMenu open={menuOpen} onClose={() => setMenuOpen(false)} token={routeToken} />
     </div>
   );
 }

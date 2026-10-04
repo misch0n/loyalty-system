@@ -11,6 +11,7 @@ import { ToastProvider } from '../../../components/Toast/Toast';
 import { StatWide } from '../_parts/Stat/Stat';
 import { FeedRow } from '../_parts/FeedRow/FeedRow';
 import { Alert } from '../_parts/Alert/Alert';
+import { ApiError } from '../../../../services/errors';
 import { Admin } from './Admin';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -69,10 +70,11 @@ function fakeServices(role: 'admin' | 'staff'): Services {
     },
     staff: {
       list: vi.fn().mockResolvedValue(staffList),
-      currentSessionEpoch: vi.fn().mockResolvedValue(1),
+      session: vi.fn().mockResolvedValue({ status: 'active', actor: actor, epoch: 1, remembered: false }),
       logout: vi.fn().mockResolvedValue(undefined),
       create: vi.fn().mockResolvedValue({ ...actor, active: true, createdAt: '' }),
       revokeAllSessions: vi.fn().mockResolvedValue(2),
+      setActive: vi.fn().mockResolvedValue(undefined),
     },
   } as unknown as Services;
 }
@@ -296,6 +298,200 @@ describe('Admin screen', () => {
     expect(labels).toContain('Repeat-target flags above');
     // Alerts surface, never block — the panel says so.
     expect(container.textContent).toContain('only flag for review');
+  });
+});
+
+async function openConfigure() {
+  const configure = buttonNamed('Configure program');
+  await act(async () => {
+    configure!.click();
+  });
+}
+
+/** Open the ProgramEdit sheet for the Configure row with this label. */
+async function editRow(label: string) {
+  const row = Array.from(container.querySelectorAll('.stat.wide')).find(
+    (r) => r.querySelector('.setlabel')?.textContent === label,
+  );
+  expect(row).toBeDefined();
+  await act(async () => {
+    (row!.querySelector('.edit') as HTMLButtonElement).click();
+  });
+}
+
+function editorInput(): HTMLInputElement {
+  return container.querySelector('.progedit input') as HTMLInputElement;
+}
+
+async function typeInto(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+  await act(async () => {
+    setter.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+async function openAccount(username: string) {
+  const opener = Array.from(container.querySelectorAll('.acct-list-row')).find((b) =>
+    b.querySelector('.alm')?.textContent?.startsWith(username),
+  ) as HTMLButtonElement | undefined;
+  expect(opener).toBeDefined();
+  await act(async () => {
+    opener!.click();
+  });
+}
+
+describe('Configure — bounds, wording and the error path (A4, A5)', () => {
+  it('names the reward threshold as drinks for a free one, and says what the card shows', async () => {
+    await mountAdmin('admin');
+    await openConfigure();
+    const labels = Array.from(container.querySelectorAll('.stats .setlabel')).map(
+      (n) => n.textContent,
+    );
+    expect(labels).toContain('Drinks for a free one');
+    expect(labels).not.toContain('Reward earned at');
+
+    await editRow('Drinks for a free one');
+    const editor = container.querySelector('.progedit')!;
+    expect(editor.textContent).toContain('How many drinks earn a free one?');
+    expect(editor.querySelector('.hint')?.textContent).toContain('this many cups, plus the free one');
+    // The server's own range for the field.
+    expect(editor.querySelector('.hint')?.textContent).toContain('From 1 to 100.');
+  });
+
+  it('will not save a value outside the server’s bounds', async () => {
+    const services = await mountAdmin('admin');
+    await openConfigure();
+    await editRow('Repeat-target flags above');
+    // The detector counts floor at 2, as the server does — not 1.
+    expect(container.querySelector('.progedit .hint')?.textContent).toContain('From 2 to 100.');
+
+    await typeInto(editorInput(), '1');
+    expect(buttonNamed('Save')!.disabled).toBe(true);
+    // Not flashed mid-keystroke ("1" on the way to "15")…
+    expect(container.querySelector('.progedit-error')).toBeNull();
+    // …but said once typing pauses.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 650));
+    });
+    expect(container.querySelector('.progedit-error')?.textContent).toContain('from 2 to 100');
+
+    await typeInto(editorInput(), '101');
+    expect(buttonNamed('Save')!.disabled).toBe(true);
+
+    await typeInto(editorInput(), '4');
+    expect(container.querySelector('.progedit-error')).toBeNull();
+    expect(buttonNamed('Save')!.disabled).toBe(false);
+    expect(services.config.update).not.toHaveBeenCalled();
+  });
+
+  it('keeps the edit and says what went wrong on the editor when the save fails', async () => {
+    const services = await mountAdmin('admin');
+    (services.config.update as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError({ kind: 'rejected', code: 'invalid_request' }),
+    );
+    await openConfigure();
+    await editRow('Drinks for a free one');
+    await typeInto(editorInput(), '12');
+    await act(async () => {
+      buttonNamed('Save')!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(services.config.update).toHaveBeenCalledWith({ pointsPerReward: 12 });
+    // Still open, with the admin's value…
+    expect(editorInput().value).toBe('12');
+    // …and the reason on the editor, not in a toast.
+    expect(container.querySelector('.progedit-error')?.textContent).toContain(
+      'Enter a whole number from 1 to 100',
+    );
+    expect(container.querySelector('.toast')).toBeNull();
+  });
+
+  it('reports an unreachable server on the editor too', async () => {
+    const services = await mountAdmin('admin');
+    (services.config.update as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError({ kind: 'offline' }),
+    );
+    await openConfigure();
+    await editRow('Max coffees per scan');
+    await act(async () => {
+      buttonNamed('Save')!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(container.querySelector('.progedit-error')?.textContent).toContain(
+      'nothing was saved',
+    );
+    expect(container.querySelector('.toast')).toBeNull();
+  });
+
+  it('closes the editor and confirms once the save lands', async () => {
+    const services = await mountAdmin('admin');
+    await openConfigure();
+    await editRow('Drinks for a free one');
+    await typeInto(editorInput(), '9');
+    await act(async () => {
+      buttonNamed('Save')!.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(services.config.update).toHaveBeenCalledWith({ pointsPerReward: 9 });
+    expect(container.querySelector('.progedit')).toBeNull();
+    expect(container.querySelector('.toast')?.textContent).toBe('Program updated.');
+  });
+});
+
+describe('AccountSheet — your own account (A6)', () => {
+  it('does not offer disabling or deleting the signed-in account', async () => {
+    const services = await mountAdmin('admin');
+    await openAccount('sam');
+
+    const toggle = container.querySelector('.acct [role="switch"]') as HTMLButtonElement;
+    expect(toggle.disabled).toBe(true);
+    expect(buttonNamed('Delete profile')!.disabled).toBe(true);
+    expect(container.querySelector('.acct-note')?.textContent).toBe(
+      'You can’t disable or delete the account you’re signed in with.',
+    );
+
+    await act(async () => {
+      toggle.click();
+    });
+    expect(services.staff.setActive).not.toHaveBeenCalled();
+  });
+
+  it('offers both on another account', async () => {
+    await mountAdmin('admin');
+    await openAccount('aya');
+    expect((container.querySelector('.acct [role="switch"]') as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    expect(buttonNamed('Delete profile')!.disabled).toBe(false);
+    expect(container.querySelector('.acct-note')).toBeNull();
+  });
+
+  it('shows a refusal inside the sheet, not as a toast', async () => {
+    const services = await mountAdmin('admin');
+    (services.staff.setActive as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('You can’t disable the account you’re signed in with.'),
+    );
+    await openAccount('aya');
+    await act(async () => {
+      (container.querySelector('.acct [role="switch"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(services.staff.setActive).toHaveBeenCalledWith('s1', false);
+    expect(container.querySelector('.acct-error')?.textContent).toBe(
+      'You can’t disable the account you’re signed in with.',
+    );
+    expect(container.querySelector('.toast')).toBeNull();
   });
 });
 
