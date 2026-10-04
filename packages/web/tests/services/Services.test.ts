@@ -3,10 +3,10 @@
  *
  * It used to boot the whole prototype graph — IndexedDB, PeerJS, a wallet
  * provider — and then prove an action was visible end to end through it. Phase 6
- * deleted all three adapters, and the one store left is `ApiStore`, whose
- * `request` is unwritten until the UI pass. So there is no graph to exercise
- * here any more; what is still worth pinning is the *wiring*, and in particular
- * the two choices that are easy to get quietly wrong.
+ * deleted all three adapters, and the one store left is `ApiStore`, which needs
+ * a running server (the service suites get one in UI-2). So what is worth
+ * pinning here is the *wiring*, and in particular the choices that are easy to
+ * get quietly wrong.
  */
 import { describe, it, expect } from 'vitest';
 import { createServices } from '../../src/services/Services';
@@ -27,6 +27,13 @@ describe('createServices', () => {
 
   it('wires the one store there is', async () => {
     expect((await createServices()).store).toBeInstanceOf(ApiStore);
+  });
+
+  it('exposes the API client’s events, for the global failure handlers', async () => {
+    const { connection } = await createServices();
+    const off = connection.subscribe(() => undefined);
+    expect(typeof off).toBe('function');
+    off();
   });
 
   it('wires a NoopMailer, because the routes are the only sender', async () => {

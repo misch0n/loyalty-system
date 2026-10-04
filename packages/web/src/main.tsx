@@ -1,6 +1,6 @@
 /**
  * Entry point. Builds the services (composition root), then mounts the app under
- * the provider tree: services → toasts → router → auth.
+ * the provider tree: services → toasts → router → auth → connection watch.
  *
  * The design foundation is imported once here (`ui/theme/index.css`); every
  * component imports its own co-located stylesheet, so there is no global
@@ -14,6 +14,7 @@ import { App } from './App';
 import { createServices, type Services } from './services/Services';
 import { ServicesProvider } from './ui/common/ServicesContext';
 import { AuthProvider } from './ui/app/AuthContext';
+import { ConnectionWatch } from './ui/app/ConnectionWatch';
 import { ToastProvider } from './ui/components/Toast/Toast';
 import './ui/theme/index.css';
 
@@ -33,7 +34,9 @@ function Root() {
       <ToastProvider>
         <HashRouter>
           <AuthProvider>
-            <App />
+            <ConnectionWatch>
+              <App />
+            </ConnectionWatch>
           </AuthProvider>
         </HashRouter>
       </ToastProvider>

@@ -5,8 +5,8 @@
 > its **47** test files failing to load (this plan first said 53; 47 is the count STATUS has
 > carried since Phase 10 moved the domain suites into `@cafe/shared`) — every one traceable to a
 > Phase 6 deletion. This plan makes it green again *against the API*, not against the store that
-> was deleted. **UI-0 and UI-1b are done: 16 errors and 6 non-loading files remain**, all of them
-> UI-2's.
+> was deleted. **UI-0, UI-1 and UI-1b are done: 15 errors and 6 non-loading files remain**, all of
+> them UI-2's.
 >
 > **Input:** [`UI-RECONCILIATION.md`](UI-RECONCILIATION.md) — 35 rows saying what the backend does,
 > what the UI does today, and the gap. That register is the specification; this file is the
@@ -38,8 +38,9 @@
 6. Tick the box, add any new conflict as a register row, refresh `STATUS.md`, commit + push.
 
 **The error count is the progress bar.** `npm run typecheck -w @cafe/web 2>&1 | grep -c "error TS"`
-started at **39**; it read **14** after UI-0 and reads **16** after UI-1b (the two new ones are
-`setStaffPin` callers, which UI-2 deletes). Each phase below states what it should read
+started at **39**; it read **14** after UI-0, **16** after UI-1b (the two new ones were
+`setStaffPin` callers) and reads **15** after UI-1, whose rewritten `ApiStore` test dropped one of
+them; UI-2 deletes the other. Each phase below states what it should read
 afterwards. A number that does not
 drop as predicted means the phase found something the register missed — add a row.
 
@@ -72,7 +73,7 @@ and ride along in UI-2; neither blocks anything.
 ## 2 · Progress checklist
 
 - [x] **UI-0** — Delete what is already decided dead → **39 errors became 14** ✅ 2026-09-16
-- [ ] **UI-1** — `ApiStore.request` + the error surface
+- [x] **UI-1** — `ApiStore.request` + the error surface → **16 errors became 15** ✅ 2026-10-04
 - [x] **UI-1b** — Retire the PIN and the idle lock (server + port) → tagged `backend-v1` ✅ 2026-10-04
 - [ ] **UI-2** — Services reshaped to the routes, and their tests rebuilt → **0 errors**
 - [ ] **UI-3** — Screens whose behaviour the backend changed
@@ -145,6 +146,52 @@ named `csrf_failed` instead.
 **Done when:** a test double drives every branch of that union, and `ApiStore` satisfies the shared
 conformance suite for the methods the port still has.
 
+**As built (2026-10-04).** `@cafe/web` errors **16 → 15** (the rewritten `ApiStore` test no longer
+calls `setStaffPin`); test files **44 → 46**, the same **6** not loading, **257** tests passing (was
+180). `@cafe/server` 439 and `@cafe/shared` 73 untouched and green; both typechecks clean.
+- **`adapters/http/ApiClient.ts`** is the one `request`: `credentials: 'include'`, `x-csrf-token`
+  echoed from the `cafe_csrf` cookie on POST/PUT/PATCH/DELETE, JSON in and out (`Content-Type`
+  only with a body — Fastify refuses an empty JSON body), 204 → `undefined`, a **15 s timeout**
+  (under nginx's 30 s). It is separate from `ApiStore` so UI-2 can call the routes the port does
+  not carry (`/auth/*`, `/recovery/*`, `/alerts`, `/me`) through the same choke point, and it takes
+  an injectable `fetch` + `readCsrfToken`, which is what the P6 cookie-jar harness plugs into.
+- **`adapters/http/ApiError.ts`** — the union, **verified against the server rather than taken
+  from this plan**: `offline | signed_out | forbidden | not_found | rate_limited | email_in_use |
+  conflict | rejected | server`. **`locked` is dropped** (UI-1b removed every `401 locked`).
+  **`signed_out`** is the session member the draft lacked — `401 unauthorized`, which is what TTL
+  expiry, sign-out-all and a disabled or deleted account all look like. **`not_found`** and
+  **`rejected`** cover the 404/400 refusals the server really sends (`invalid_details`,
+  `invalid_code`, `range_too_wide`, the `reversal_*` codes…); a wrong password is `rejected` /
+  `invalid_credentials` — a 401 that must never trip the session handler. **`forbidden`** is every
+  403: `forbidden`, `csrf_failed`, `forbidden_origin`, `staff_device` (the code says which). Each
+  carries the server's `code` where one exists; `rate_limited` carries `retryAfterSec` from the body,
+  then the header, else `null`. `failureScope()` maps a failure to X2's `session | connectivity |
+  action`. A 2xx that is not JSON (a dev server's `index.html`) is `server`, not data.
+- **`ApiStore`** rewritten on the client, **every path matched to a real route** — the skeleton's
+  were guesses (`findCustomers` is `POST /customers/search`, not a query string). Lookups resolve
+  `null` on 404; the commit's `over_cap` / `customer_not_found` refusals come back as the port's
+  `CommitResult` value. It sends only what each route reads — no client token, no `staffId`, no
+  `actorId` filter. `setStaffPin` is gone. Two port methods **have no route** and reject without a
+  request: `getStaffByUsername` and `listAllTransactions` (new register row **P9**).
+- **Global handlers** — `ui/app/ConnectionWatch.tsx`, mounted in `main.tsx` inside `AuthProvider`,
+  listens on `services.connection` (the client's subscribe half; screens import the error types
+  from `services/errors.ts`, never from `adapters/`). **Session** → `logout()` + `/login`, only when
+  a staff actor is signed in. **Connectivity** → a persistent terra banner ("Can't reach the
+  server…"), lowered by the next answer below 500 — a refusal proves the server is there.
+  **Action** failures are ignored here (UI-4).
+- **On "the shared conformance suite":** it cannot run against `ApiStore` as written — it takes a
+  `TrustedStore` (`appendAudit`, the recovery-code methods), which a client must not be. What
+  stands in for it: `tests/adapters/ApiStore.test.ts` pins every method's route and body against a
+  `fetch` double, and a **live run against the devbox API** (scratch script, cookie jar, signed in
+  as the dev admin) passed **36/36** — every port method except `importAll`, skipped because it
+  replaces the database, plus `signed_out` before login and after logout, `invalid_credentials`,
+  `username_taken`, `email_in_use`, `already_reversed`, commit replay, `over_cap` as a value, a
+  deleted card reading back as a tombstone, and `offline` with nothing listening. Making that live
+  run a committed suite is the P6 harness, UI-2.
+- **Deferred:** background calls (an SSE-triggered refetch) are meant to stay silent (X2), but the
+  port's methods take no options, so the client cannot yet tell one from a foreground call — UI-5,
+  which introduces the only background caller, decides how.
+
 ### UI-1b — Retire the PIN and the idle lock (server + port)
 Row S1 (**Settled 2026-10-03**). Unlike every other phase here, this touches **`packages/server`
 and `packages/shared/src/ports/`**, not the SPA — and it lands **before UI-2** so UI-2 does not
@@ -208,8 +255,14 @@ test, a leftover-`BOOTSTRAP_ADMIN_PIN` test and a legacy-snapshot test.
   `PinPad`, `Unlock`, `StepUp`, and the `ProgramEdit` PIN paths.
 
 ### UI-2 — Services reshaped, tests rebuilt  ⟵ the real work
-The 16 remaining errors are all here (the 14 UI-0 left, plus the two `setStaffPin` callers UI-1b
-left behind). Rows C3, A3, P6, P7, S1.
+The 15 remaining errors are all here (the 14 UI-0 left, plus the `StaffService` `setStaffPin`
+caller UI-1b left behind — UI-1 removed the test one). Rows C3, A3, P6, P7, P9, S1.
+
+- **Routes off the port** (`/auth/*`, `/recovery/*`, `/alerts`, `/me`) go through UI-1's
+  `ApiClient.request` — same cookies, CSRF and `ApiError` — not a second `fetch`.
+- **The two unrouted port methods** (P9): `getStaffByUsername` and `listAllTransactions` reject in
+  `ApiStore`. Stop calling them (sign-in → `POST /auth/login`; alerts → `GET /alerts`), then decide
+  whether they leave `DataStore` for `TrustedStore` — a port edit, so run the server suite.
 
 - **`RecoveryService`** (C3) → `POST /recovery/request` then `POST /recovery/consume(email, code)`.
   It no longer mints codes or sends mail.
@@ -230,8 +283,8 @@ left behind). Rows C3, A3, P6, P7, S1.
 - **A dev seed for the backend** (what the deleted `demoSeed` provided), kept until release. The
   decision did not assign it a phase; it sits here beside the harness.
 
-**Done when:** **0 TypeScript errors**, `tsc -b` passes, every SPA test file loads (6 of 44 fail to
-load after UI-0) with the service suites passing against a real server, and
+**Done when:** **0 TypeScript errors**, `tsc -b` passes, every SPA test file loads (6 of 46 fail to
+load after UI-1) with the service suites passing against a real server, and
 `npm run build -w @cafe/web` produces a bundle for the first time since Phase 6.
 
 ### UI-3 — Screens whose behaviour the backend changed

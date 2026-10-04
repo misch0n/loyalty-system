@@ -24,10 +24,13 @@ concrete subagent definitions live in `.claude/agents/`.
 > devices". The branch is **tagged `backend-v1`** (tagged, not merged — SCOPE-DECISIONS §6.6). The
 > SPA half is UI-2/UI-3.
 >
-> **`@cafe/web` is red on purpose** — **16 TypeScript errors, 6 of 44 test files not loading**
-> after UI-1b (39 errors and 9 of 47 at the start; 14 after UI-0, then +2 from UI-1b removing
-> `setStaffPin` while its callers remain), every one traceable to a Phase 6 deletion or a UI-1b port
-> removal and all of them in `services/` or `tests/`. Do not chase it outside the UI plan. The gate
+> **`@cafe/web` is red on purpose** — **15 TypeScript errors, 6 of 46 test files not loading**
+> after UI-1 (39 errors and 9 of 47 at the start; 14 after UI-0, 16 after UI-1b removed
+> `setStaffPin` while its callers remained, 15 after UI-1), every one traceable to a Phase 6 deletion
+> or a UI-1b port removal and all of them in `services/` or `tests/`. **UI-1 is done (2026-10-04):**
+> `ApiClient.request` + the `ApiError` union in `packages/web/src/adapters/http/`, `ApiStore` on
+> real routes, and the global session/connectivity handler `ui/app/ConnectionWatch.tsx`. Run the
+> SPA suite under **Node 22** — Node 25's built-in `localStorage` breaks jsdom. Do not chase it outside the UI plan. The gate
 > is the server suite until UI-2 lands.
 >
 > **⚠ The `## UI` section below still describes deleted things.** UI-0 (done, 2026-09-16) deleted

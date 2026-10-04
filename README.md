@@ -395,9 +395,11 @@ packages/
     │   │   ├── links.ts           # appUrl() — builds absolute HashRouter URLs for QR + emails
     │   │   └── cafe.ts            # café public details: name, address, Google Maps URL, contact email
     │   ├── adapters/
+    │   │   ├── http/
+    │   │   │   ├── ApiClient.ts    # the one request(): cookies, CSRF echo, JSON, timeout, subscribe()
+    │   │   │   └── ApiError.ts     # the one failure union + failureScope() (register X2)
     │   │   ├── storage/
-    │   │   │   └── ApiStore.ts     # the only DataStore — HTTP to @cafe/server.
-    │   │   │                       #   `request` is still unwritten: UI-PLAN UI-1
+    │   │   │   └── ApiStore.ts     # the only DataStore — each method one @cafe/server route
     │   │   ├── email/
     │   │   │   └── NoopMailer.ts   # the routes are the only sender
     │   │   └── identity/

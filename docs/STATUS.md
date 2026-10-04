@@ -68,7 +68,39 @@
 > **"Staff integrity & observability acceptance (E9)"** table below and phase-by-phase record in
 > [`INTEGRITY-PLAN.md`](INTEGRITY-PLAN.md).
 
-**Last updated:** 2026-10-04 (**UI pass — UI-1b: retire the PIN and the idle lock, server + port**
+**Last updated:** 2026-10-04 (**UI pass — UI-1: `ApiStore.request` and the error surface**
+(branch `claude/backend-implementation-2kqb08`)). The SPA's one way to the server now exists.
+**New:** `packages/web/src/adapters/http/ApiClient.ts` — `request()` with `credentials: 'include'`,
+the `cafe_csrf` cookie echoed as `x-csrf-token` on every mutating request, JSON in and out, 204 →
+`undefined`, a 15 s timeout, and a `subscribe()` for what it saw; `adapters/http/ApiError.ts` — one
+typed union, `offline | signed_out | forbidden | not_found | rate_limited | email_in_use | conflict
+| rejected | server`, checked against the server (`locked` dropped after UI-1b; `signed_out` is 401
+`unauthorized`; a wrong password is `rejected`, not a session failure), plus `failureScope()` for
+X2's session / connectivity / action routing; `services/errors.ts` re-exports both so screens never
+import from `adapters/`; `ui/app/ConnectionWatch.tsx` (mounted in `main.tsx`) is the **global
+half** of X2 — an ended staff session signs the device out to `/login`, and an unreachable server
+raises a persistent banner that the next answer lowers. **Rewritten:** `ApiStore` on the client,
+with every path matched to a real route (the skeleton's were guesses), 404 → `null` on lookups, the
+commit's `over_cap` / `customer_not_found` returned as `CommitResult` values, nothing sent that the
+server decides (token, `staffId`, actor filter), and `setStaffPin` removed. `Services` gains
+`connection` (the client's subscribe half). **New register row P9:** `getStaffByUsername` and
+`listAllTransactions` are on the port with no route; `ApiStore` rejects both and UI-2 removes their
+callers. P8 and X3 are Done. **Verification (2026-10-04, Node 22):** `@cafe/web` **16 → 15
+TypeScript errors**, all in `services/` or `tests/`; test files **44 → 46** with the same **6** not
+loading, **257 tests** passing (was 180; new: `tests/adapters/ApiClient.test.ts`,
+`src/ui/app/ConnectionWatch.test.tsx`, and a rewritten `tests/adapters/ApiStore.test.ts`).
+`@cafe/server` **439** and `@cafe/shared` **73** green, both typechecks clean;
+`npm run build -w @cafe/web` still fails, on the known errors only. **Live check:** a scratch
+script drove `ApiStore` against the devbox API with a cookie jar — **36/36**, every port method but
+`importAll` (skipped: it replaces the database), including `signed_out` before login and after
+logout, `email_in_use`, `username_taken`, `already_reversed`, a commit replay and `over_cap` as a
+value. It left two soft-deleted test cards and their audit rows in the dev database. **Gotcha:**
+under Node 25 (the Mac's default `node`) the SPA suite shows 11 failing files, because Node 25's
+built-in `localStorage` shadows jsdom's; use Node 22, which the repo pins. The shared conformance
+suite named in UI-1's done-when cannot run against `ApiStore` — it takes a `TrustedStore` — so the
+committed real-server suite is UI-2's P6 harness.
+
+**Prior:** 2026-10-04 (**UI pass — UI-1b: retire the PIN and the idle lock, server + port**
 (branch `claude/backend-implementation-2kqb08`, tagged **`backend-v1`**)). The server half of
 decision **S1**. **Removed from the server and the port:** `POST /auth/unlock`, `PATCH
 /staff/:id/pin`, the `pin` field on `POST /staff`, `IDLE_LOCK_MS`, `SessionState` and the `locked`
@@ -672,9 +704,10 @@ tests**, tsc + build all green. Prior — **Rewards-as-objects — Phase 2 (stor
   Phase 10) is exercised by `PostgresStore.test.ts` — its only consumer since Phase 6 deleted
   `IndexedDbStore`, the suite's former second adapter; the `@cafe/conformance` alias is gone.
 - **`@cafe/web` is red on purpose** (Phase 6; the counts moved in Phase 10 without any new
-  failure, and UI-0 cut them down): **6 of 44 test files fail to load, 38 pass (180 tests)**, and
-  **16 `tsc` errors** remain, all in `services/` or `tests/` — 14 are Phase 6 deletions and 2 are
-  `setStaffPin` callers left by UI-1b; UI-2 resolves all of them. Before UI-0 it was 9 of 47 with
+  failure, UI-0 cut them down, UI-1 added two suites): **6 of 46 test files fail to load, 40 pass
+  (257 tests)**, and **15 `tsc` errors** remain, all in `services/` or `tests/` — 14 are Phase 6
+  deletions and 1 is the `StaffService` `setStaffPin` caller left by UI-1b; UI-2 resolves all of
+  them. Before UI-0 it was 9 of 47 with
   39 errors.
   **`@cafe/shared` is green independently — 73 tests** (the six domain suites, moved out
   of the SPA's run in Phase 10). **`@cafe/server`: 390 tests** pass, `tsc` green, `dist/` emits and
@@ -957,8 +990,9 @@ actions).
   and the live RPC link) so it behaves like a brand-new customer while the till
   keeps all data. A host reset additionally sends an unpair signal to its clients
   (the "server" is gone). Prototype-only.
-- **`ApiStore`** is a production skeleton — each method maps to an HTTP call but
-  throws in the prototype (no backend). Shows the contract; one-line swap.
+- ~~**`ApiStore`** is a production skeleton~~ — **no longer true since UI-1 (2026-10-04)**:
+  it calls the real routes through `ApiClient.request`; only `getStaffByUsername` and
+  `listAllTransactions` reject, having no route (register P9).
 - **`ServerTransport`** is a production placeholder — every method throws. The
   prototype uses `PeerTransport` (PeerJS + TURN).
 - **`ServerWalletProvider`** is a production placeholder — every method throws.
@@ -997,8 +1031,8 @@ actions).
 
 Three separate suites since Phase 10 split the repo into packages — there is no longer a single
 `npm test`. `npm test -w @cafe/shared` runs **73 tests** (green, independent of the SPA).
-`npm test -w @cafe/web` runs **6 of 44 test files failing to load, 38 passing (180 tests)** (it was
-9 of 47 / 189 before UI-0) —
+`npm test -w @cafe/web` runs **6 of 46 test files failing to load, 40 passing (257 tests)** (it was
+9 of 47 / 189 before UI-0, and 6 of 44 / 180 before UI-1) —
 includes co-located `packages/web/src/ui/**/*.test.tsx` via the extended `test.include` in
 `vite.config.ts`; red for exactly the Phase 6 reasons (below). `npm test -w @cafe/server` runs
 **390 server tests** against a real Postgres.

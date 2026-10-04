@@ -18,9 +18,12 @@
  *                       the recognition that survives iOS ITP; pointing the port
  *                       at it (`ServerIdentityStore`) is UI-pass work.
  *
- * **This does not work yet, knowingly.** `ApiStore.request` is unwritten, so
- * every call throws, and the services below still call methods the port no
- * longer has (`AuditService.appendAudit`, `RecoveryService`'s code pair,
+ * `ApiStore` sits on one `ApiClient`, which is also exposed — as its subscribe
+ * half only — as `connection`: the global handlers listen there for a session
+ * that ended and for the server going away (`UI-RECONCILIATION.md` X2).
+ *
+ * **This does not work yet, knowingly.** The services below still call methods
+ * the port no longer has (`AuditService.appendAudit`, `RecoveryService`'s code pair,
  * `StaffService.loginWithPin`). That is the state BACKEND-PLAN's revoked-promise
  * box describes: the backend is built first and the UI is adjusted to it
  * afterwards, with every conflict recorded in `docs/UI-RECONCILIATION.md`.
@@ -30,6 +33,7 @@ import type { DataStore } from '@cafe/shared/ports/DataStore';
 import type { Mailer } from '@cafe/shared/ports/Mailer';
 import type { IdentityStore } from '@cafe/shared/ports/IdentityStore';
 import { apiBaseUrl } from '../config/env';
+import { ApiClient, type ApiEvents } from '../adapters/http/ApiClient';
 import { ApiStore } from '../adapters/storage/ApiStore';
 import { NoopMailer } from '../adapters/email/NoopMailer';
 import { LocalStorageIdentityStore } from '../adapters/identity/LocalStorageIdentityStore';
@@ -43,6 +47,8 @@ import { RecoveryService } from './RecoveryService';
 
 export interface Services {
   store: DataStore;
+  /** What the API client saw — for the global session and connectivity handlers. */
+  connection: ApiEvents;
   mailer: Mailer;
   identity: IdentityStore;
   audit: AuditService;
@@ -54,13 +60,15 @@ export interface Services {
 }
 
 export async function createServices(): Promise<Services> {
-  const store: DataStore = new ApiStore({ baseUrl: apiBaseUrl });
+  const api = new ApiClient({ baseUrl: apiBaseUrl });
+  const store: DataStore = new ApiStore(api);
   const mailer: Mailer = new NoopMailer();
   const identity: IdentityStore = new LocalStorageIdentityStore();
   const audit = new AuditService(store);
 
   return {
     store,
+    connection: api,
     mailer,
     identity,
     audit,
